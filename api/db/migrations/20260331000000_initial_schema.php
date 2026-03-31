@@ -7,8 +7,13 @@ use Phinx\Migration\AbstractMigration;
 /**
  * Initial database schema migration for Fajnuklid Portal.
  *
- * Creates all 11 tables with proper indexes and foreign key constraints.
+ * Creates all 12 tables with proper indexes and foreign key constraints.
  * Tables are created in dependency order to respect foreign key relationships.
+ *
+ * Junction tables for M:N relationships:
+ * - employee_locations: employees <-> locations
+ * - company_contacts: companies <-> client_contacts
+ * - company_users: companies <-> login_accounts
  */
 final class InitialSchema extends AbstractMigration
 {
@@ -40,10 +45,6 @@ final class InitialSchema extends AbstractMigration
                 'limit' => 255,
                 'null' => false,
             ])
-            ->addColumn('active', 'boolean', [
-                'default' => true,
-                'null' => false,
-            ])
             ->addColumn('created_at', 'datetime', [
                 'default' => 'CURRENT_TIMESTAMP',
                 'null' => false,
@@ -53,12 +54,16 @@ final class InitialSchema extends AbstractMigration
                 'update' => 'CURRENT_TIMESTAMP',
                 'null' => false,
             ])
+            ->addColumn('deleted_at', 'datetime', [
+                'null' => true,
+                'comment' => 'Soft delete timestamp',
+            ])
             ->addIndex(['client_id'], [
                 'unique' => true,
                 'name' => 'uk_client_id',
             ])
-            ->addIndex(['active'], [
-                'name' => 'idx_active',
+            ->addIndex(['deleted_at'], [
+                'name' => 'idx_deleted_at',
             ])
             ->create();
 
@@ -119,10 +124,6 @@ final class InitialSchema extends AbstractMigration
                 'null' => false,
                 'comment' => 'GDPR: allow showing email to clients',
             ])
-            ->addColumn('active', 'boolean', [
-                'default' => true,
-                'null' => false,
-            ])
             ->addColumn('created_at', 'datetime', [
                 'default' => 'CURRENT_TIMESTAMP',
                 'null' => false,
@@ -132,75 +133,27 @@ final class InitialSchema extends AbstractMigration
                 'update' => 'CURRENT_TIMESTAMP',
                 'null' => false,
             ])
-            ->addIndex(['active'], [
-                'name' => 'idx_active',
+            ->addColumn('deleted_at', 'datetime', [
+                'null' => true,
+                'comment' => 'Soft delete timestamp',
+            ])
+            ->addIndex(['deleted_at'], [
+                'name' => 'idx_deleted_at',
             ])
             ->addIndex(['last_name', 'first_name'], [
                 'name' => 'idx_name',
             ])
             ->create();
 
-        // Table: company_info (Fajnuklid company details)
-        $companyInfo = $this->table('company_info', [
+        // Table: staff_contacts (Fajnuklid support/sales contacts)
+        $staffContacts = $this->table('staff_contacts', [
             'id' => false,
             'primary_key' => ['id'],
             'engine' => 'InnoDB',
             'encoding' => 'utf8mb4',
             'collation' => 'utf8mb4_unicode_ci',
         ]);
-        $companyInfo
-            ->addColumn('id', 'integer', [
-                'signed' => false,
-                'identity' => true,
-            ])
-            ->addColumn('name', 'string', [
-                'limit' => 255,
-                'null' => false,
-            ])
-            ->addColumn('ico', 'string', [
-                'limit' => 8,
-                'null' => false,
-            ])
-            ->addColumn('dic', 'string', [
-                'limit' => 12,
-                'null' => true,
-            ])
-            ->addColumn('address', 'string', [
-                'limit' => 500,
-                'null' => false,
-            ])
-            ->addColumn('phone', 'string', [
-                'limit' => 20,
-                'null' => true,
-            ])
-            ->addColumn('email', 'string', [
-                'limit' => 255,
-                'null' => true,
-            ])
-            ->addColumn('website', 'string', [
-                'limit' => 255,
-                'null' => true,
-            ])
-            ->addColumn('created_at', 'datetime', [
-                'default' => 'CURRENT_TIMESTAMP',
-                'null' => false,
-            ])
-            ->addColumn('updated_at', 'datetime', [
-                'default' => 'CURRENT_TIMESTAMP',
-                'update' => 'CURRENT_TIMESTAMP',
-                'null' => false,
-            ])
-            ->create();
-
-        // Table: fajnuklid_contacts (Support/sales contacts)
-        $fajnuklidContacts = $this->table('fajnuklid_contacts', [
-            'id' => false,
-            'primary_key' => ['id'],
-            'engine' => 'InnoDB',
-            'encoding' => 'utf8mb4',
-            'collation' => 'utf8mb4_unicode_ci',
-        ]);
-        $fajnuklidContacts
+        $staffContacts
             ->addColumn('id', 'integer', [
                 'signed' => false,
                 'identity' => true,
@@ -229,10 +182,6 @@ final class InitialSchema extends AbstractMigration
                 'default' => 0,
                 'null' => false,
             ])
-            ->addColumn('active', 'boolean', [
-                'default' => true,
-                'null' => false,
-            ])
             ->addColumn('created_at', 'datetime', [
                 'default' => 'CURRENT_TIMESTAMP',
                 'null' => false,
@@ -242,8 +191,12 @@ final class InitialSchema extends AbstractMigration
                 'update' => 'CURRENT_TIMESTAMP',
                 'null' => false,
             ])
-            ->addIndex(['active', 'sort_order'], [
-                'name' => 'idx_active_sort',
+            ->addColumn('deleted_at', 'datetime', [
+                'null' => true,
+                'comment' => 'Soft delete timestamp',
+            ])
+            ->addIndex(['deleted_at', 'sort_order'], [
+                'name' => 'idx_deleted_sort',
             ])
             ->create();
 
@@ -272,10 +225,6 @@ final class InitialSchema extends AbstractMigration
                 'limit' => 255,
                 'null' => false,
             ])
-            ->addColumn('client_id', 'integer', [
-                'signed' => false,
-                'null' => true,
-            ])
             ->addColumn('portal_enabled', 'boolean', [
                 'default' => true,
                 'null' => false,
@@ -293,28 +242,20 @@ final class InitialSchema extends AbstractMigration
                 'unique' => true,
                 'name' => 'uk_email',
             ])
-            ->addIndex(['client_id'], [
-                'name' => 'idx_client_id',
-            ])
             ->addIndex(['portal_enabled'], [
                 'name' => 'idx_portal_enabled',
             ])
-            ->addForeignKey('client_id', 'clients', 'id', [
-                'delete' => 'SET_NULL',
-                'update' => 'NO_ACTION',
-                'constraint' => 'fk_login_accounts_client',
-            ])
             ->create();
 
-        // Table: icos
-        $icos = $this->table('icos', [
+        // Table: companies (client's registered companies with IČO)
+        $companies = $this->table('companies', [
             'id' => false,
             'primary_key' => ['id'],
             'engine' => 'InnoDB',
             'encoding' => 'utf8mb4',
             'collation' => 'utf8mb4_unicode_ci',
         ]);
-        $icos
+        $companies
             ->addColumn('id', 'integer', [
                 'signed' => false,
                 'identity' => true,
@@ -323,10 +264,10 @@ final class InitialSchema extends AbstractMigration
                 'signed' => false,
                 'null' => false,
             ])
-            ->addColumn('ico', 'string', [
+            ->addColumn('registration_number', 'string', [
                 'limit' => 8,
                 'null' => false,
-                'comment' => 'Czech company identification number',
+                'comment' => 'Czech IČO - company identification number',
             ])
             ->addColumn('name', 'string', [
                 'limit' => 255,
@@ -356,9 +297,9 @@ final class InitialSchema extends AbstractMigration
                 'update' => 'CURRENT_TIMESTAMP',
                 'null' => false,
             ])
-            ->addIndex(['ico'], [
+            ->addIndex(['registration_number'], [
                 'unique' => true,
-                'name' => 'uk_ico',
+                'name' => 'uk_registration_number',
             ])
             ->addIndex(['client_id'], [
                 'name' => 'idx_client_id',
@@ -366,26 +307,22 @@ final class InitialSchema extends AbstractMigration
             ->addForeignKey('client_id', 'clients', 'id', [
                 'delete' => 'CASCADE',
                 'update' => 'NO_ACTION',
-                'constraint' => 'fk_icos_client',
+                'constraint' => 'fk_companies_client',
             ])
             ->create();
 
-        // Table: contact_persons
-        $contactPersons = $this->table('contact_persons', [
+        // Table: client_contacts (contact persons, linked to companies via junction table)
+        $clientContacts = $this->table('client_contacts', [
             'id' => false,
             'primary_key' => ['id'],
             'engine' => 'InnoDB',
             'encoding' => 'utf8mb4',
             'collation' => 'utf8mb4_unicode_ci',
         ]);
-        $contactPersons
+        $clientContacts
             ->addColumn('id', 'integer', [
                 'signed' => false,
                 'identity' => true,
-            ])
-            ->addColumn('client_id', 'integer', [
-                'signed' => false,
-                'null' => false,
             ])
             ->addColumn('name', 'string', [
                 'limit' => 255,
@@ -403,10 +340,6 @@ final class InitialSchema extends AbstractMigration
                 'limit' => 255,
                 'null' => true,
             ])
-            ->addColumn('is_primary', 'boolean', [
-                'default' => false,
-                'null' => false,
-            ])
             ->addColumn('created_at', 'datetime', [
                 'default' => 'CURRENT_TIMESTAMP',
                 'null' => false,
@@ -416,34 +349,26 @@ final class InitialSchema extends AbstractMigration
                 'update' => 'CURRENT_TIMESTAMP',
                 'null' => false,
             ])
-            ->addIndex(['client_id'], [
-                'name' => 'idx_client_id',
-            ])
-            ->addForeignKey('client_id', 'clients', 'id', [
-                'delete' => 'CASCADE',
-                'update' => 'NO_ACTION',
-                'constraint' => 'fk_contact_persons_client',
-            ])
             ->create();
 
         // ===========================
-        // Tables with FK to icos
+        // Tables with FK to companies
         // ===========================
 
-        // Table: objects
-        $objects = $this->table('objects', [
+        // Table: locations (cleaning sites/objects)
+        $locations = $this->table('locations', [
             'id' => false,
             'primary_key' => ['id'],
             'engine' => 'InnoDB',
             'encoding' => 'utf8mb4',
             'collation' => 'utf8mb4_unicode_ci',
         ]);
-        $objects
+        $locations
             ->addColumn('id', 'integer', [
                 'signed' => false,
                 'identity' => true,
             ])
-            ->addColumn('ico_id', 'integer', [
+            ->addColumn('company_id', 'integer', [
                 'signed' => false,
                 'null' => false,
             ])
@@ -474,13 +399,13 @@ final class InitialSchema extends AbstractMigration
                 'update' => 'CURRENT_TIMESTAMP',
                 'null' => false,
             ])
-            ->addIndex(['ico_id'], [
-                'name' => 'idx_ico_id',
+            ->addIndex(['company_id'], [
+                'name' => 'idx_company_id',
             ])
-            ->addForeignKey('ico_id', 'icos', 'id', [
+            ->addForeignKey('company_id', 'companies', 'id', [
                 'delete' => 'CASCADE',
                 'update' => 'NO_ACTION',
-                'constraint' => 'fk_objects_ico',
+                'constraint' => 'fk_locations_company',
             ])
             ->create();
 
@@ -590,15 +515,15 @@ final class InitialSchema extends AbstractMigration
         // Junction tables
         // ===========================
 
-        // Table: employee_object_assignments
-        $employeeObjectAssignments = $this->table('employee_object_assignments', [
+        // Table: employee_locations (assigns employees to locations)
+        $employeeLocations = $this->table('employee_locations', [
             'id' => false,
             'primary_key' => ['id'],
             'engine' => 'InnoDB',
             'encoding' => 'utf8mb4',
             'collation' => 'utf8mb4_unicode_ci',
         ]);
-        $employeeObjectAssignments
+        $employeeLocations
             ->addColumn('id', 'integer', [
                 'signed' => false,
                 'identity' => true,
@@ -607,7 +532,7 @@ final class InitialSchema extends AbstractMigration
                 'signed' => false,
                 'null' => false,
             ])
-            ->addColumn('object_id', 'integer', [
+            ->addColumn('location_id', 'integer', [
                 'signed' => false,
                 'null' => false,
             ])
@@ -615,22 +540,115 @@ final class InitialSchema extends AbstractMigration
                 'default' => 'CURRENT_TIMESTAMP',
                 'null' => false,
             ])
-            ->addIndex(['employee_id', 'object_id'], [
+            ->addIndex(['employee_id', 'location_id'], [
                 'unique' => true,
-                'name' => 'uk_employee_object',
+                'name' => 'uk_employee_location',
             ])
-            ->addIndex(['object_id'], [
-                'name' => 'idx_object_id',
+            ->addIndex(['location_id'], [
+                'name' => 'idx_location_id',
             ])
             ->addForeignKey('employee_id', 'employees', 'id', [
                 'delete' => 'CASCADE',
                 'update' => 'NO_ACTION',
-                'constraint' => 'fk_assignments_employee',
+                'constraint' => 'fk_employee_locations_employee',
             ])
-            ->addForeignKey('object_id', 'objects', 'id', [
+            ->addForeignKey('location_id', 'locations', 'id', [
                 'delete' => 'CASCADE',
                 'update' => 'NO_ACTION',
-                'constraint' => 'fk_assignments_object',
+                'constraint' => 'fk_employee_locations_location',
+            ])
+            ->create();
+
+        // Table: company_contacts (M:N junction between companies and client_contacts)
+        $companyContacts = $this->table('company_contacts', [
+            'id' => false,
+            'primary_key' => ['id'],
+            'engine' => 'InnoDB',
+            'encoding' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+        ]);
+        $companyContacts
+            ->addColumn('id', 'integer', [
+                'signed' => false,
+                'identity' => true,
+            ])
+            ->addColumn('company_id', 'integer', [
+                'signed' => false,
+                'null' => false,
+            ])
+            ->addColumn('contact_id', 'integer', [
+                'signed' => false,
+                'null' => false,
+            ])
+            ->addColumn('is_primary', 'boolean', [
+                'default' => false,
+                'null' => false,
+                'comment' => 'Primary contact for this company',
+            ])
+            ->addColumn('created_at', 'datetime', [
+                'default' => 'CURRENT_TIMESTAMP',
+                'null' => false,
+            ])
+            ->addIndex(['company_id', 'contact_id'], [
+                'unique' => true,
+                'name' => 'uk_company_contact',
+            ])
+            ->addIndex(['contact_id'], [
+                'name' => 'idx_contact_id',
+            ])
+            ->addForeignKey('company_id', 'companies', 'id', [
+                'delete' => 'CASCADE',
+                'update' => 'NO_ACTION',
+                'constraint' => 'fk_company_contacts_company',
+            ])
+            ->addForeignKey('contact_id', 'client_contacts', 'id', [
+                'delete' => 'CASCADE',
+                'update' => 'NO_ACTION',
+                'constraint' => 'fk_company_contacts_contact',
+            ])
+            ->create();
+
+        // Table: company_users (M:N junction between companies and login_accounts)
+        $companyUsers = $this->table('company_users', [
+            'id' => false,
+            'primary_key' => ['id'],
+            'engine' => 'InnoDB',
+            'encoding' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+        ]);
+        $companyUsers
+            ->addColumn('id', 'integer', [
+                'signed' => false,
+                'identity' => true,
+            ])
+            ->addColumn('company_id', 'integer', [
+                'signed' => false,
+                'null' => false,
+            ])
+            ->addColumn('user_id', 'integer', [
+                'signed' => false,
+                'null' => false,
+            ])
+            ->addColumn('created_at', 'datetime', [
+                'default' => 'CURRENT_TIMESTAMP',
+                'null' => false,
+            ])
+            ->addIndex(['company_id', 'user_id'], [
+                'unique' => true,
+                'name' => 'uk_company_user',
+            ])
+            ->addIndex(['user_id'], [
+                'name' => 'idx_user_id',
+            ])
+            ->addForeignKey('company_id', 'companies', 'id', [
+                'delete' => 'CASCADE',
+                'update' => 'NO_ACTION',
+                'constraint' => 'fk_company_users_company',
+            ])
+            ->addForeignKey('user_id', 'login_accounts', 'id', [
+                'delete' => 'CASCADE',
+                'update' => 'NO_ACTION',
+                'constraint' => 'fk_company_users_user',
             ])
             ->create();
     }

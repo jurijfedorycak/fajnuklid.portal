@@ -81,3 +81,15 @@ EOF
             **/.env
             **/.env.local
             **/storage/logs/**
+
+      - name: Run database migrations
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script: |
+            set -e
+            cd /fajnuklid/api
+            php vendor/bin/phinx migrate -e production
