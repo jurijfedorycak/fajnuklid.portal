@@ -48,21 +48,8 @@ jobs:
           # Copy built frontend
           cp -r web/dist/* deploy/
 
-          # Create .htaccess for SPA routing if not exists in dist
-          if [ ! -f deploy/.htaccess ]; then
-            cat > deploy/.htaccess << 'EOF'
-RewriteEngine On
-RewriteBase /
-
-# Redirect to API
-RewriteRule ^api/(.*)$ api/index.php [QSA,L]
-
-# Handle Vue SPA routing
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(?!api/).*$ index.html [L]
-EOF
-          fi
+          # Copy .htaccess for SPA routing
+          cp .htaccess deploy/.htaccess
 
       - name: Deploy to FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5

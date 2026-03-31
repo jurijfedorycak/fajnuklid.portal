@@ -1,0 +1,10 @@
+RewriteEngine On
+RewriteBase /
+
+# Redirect to API
+RewriteRule ^api/(.*)$ api/index.php [QSA,L]
+
+# Handle Vue SPA routing
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(?!api/).*$ index.html [L]
