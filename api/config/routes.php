@@ -13,11 +13,12 @@ use App\Middleware\AdminMiddleware;
 $router->addGlobalMiddleware(CorsMiddleware::class);
 
 // Public routes
-// $router->post('/auth/login', 'AuthController@login');
+$router->post('/auth/login', 'AuthController@login');
 
 // Protected routes - require authentication
 $router->group(['middleware' => [AuthMiddleware::class]], function (Router $router) {
-    // Add routes here
+    $router->post('/auth/logout', 'AuthController@logout');
+    $router->get('/auth/me', 'AuthController@me');
 });
 
 // Admin routes - require authentication + admin privileges
