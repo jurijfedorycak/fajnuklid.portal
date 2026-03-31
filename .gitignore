@@ -1,0 +1,83 @@
+# ===================
+# Dependencies
+# ===================
+node_modules/
+vendor/
+
+# ===================
+# Build outputs
+# ===================
+dist/
+dist-ssr/
+*.local
+
+# ===================
+# Environment files
+# ===================
+.env
+.env.local
+.env.*.local
+api/.env
+
+# ===================
+# Logs
+# ===================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===================
+# PHP
+# ===================
+composer.lock
+*.phar
+
+# ===================
+# Storage & Cache
+# ===================
+api/storage/logs/
+api/storage/cache/
+api/storage/uploads/
+*.cache
+
+# ===================
+# IDE & Editors
+# ===================
+.idea/
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+*.sublime-project
+*.sublime-workspace
+.claude/
+
+# ===================
+# OS generated
+# ===================
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===================
+# Testing
+# ===================
+coverage/
+.nyc_output/
+.phpunit.result.cache
+
+# ===================
+# Misc
+# ===================
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.bak
+*.tmp
+*.temp
