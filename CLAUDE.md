@@ -20,4 +20,4 @@ App Language: Czech
 # Critical
 
 1. After each code change run a subagent code review. Address all provided feedback. Repeat until code review is clean.
-2. Maintain DB schema in file database-schema.drawio with each schema migration
+2. Maintain DB schema in files database-schema.drawio and schema.sql with each DB migration
