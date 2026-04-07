@@ -84,8 +84,6 @@ function initials(name) {
 
     <!-- Bottom section: settings, client info, logout -->
     <div id="sidebar-bottom-section" class="sidebar-bottom-section">
-      <div class="sidebar-sep" />
-
       <!-- Settings -->
       <nav id="sidebar-nav-bottom" class="sidebar-nav">
         <button
@@ -100,8 +98,6 @@ function initials(name) {
           <span class="nav-label">{{ item.name }}</span>
         </button>
       </nav>
-
-      <div class="sidebar-sep" />
 
       <!-- Client info -->
       <div id="sidebar-client" class="sidebar-client">
@@ -135,7 +131,6 @@ function initials(name) {
   overflow-y: auto;
   z-index: 100;
   transition: transform var(--transition);
-  border-right: 1px solid var(--sidebar-border);
 }
 
 /* Mobile: hidden by default, slides in */
@@ -155,7 +150,6 @@ function initials(name) {
   align-items: center;
   justify-content: flex-start;
   padding: 20px 16px 16px;
-  border-bottom: 1px solid var(--sidebar-border);
 }
 
 .sidebar-logo-img {

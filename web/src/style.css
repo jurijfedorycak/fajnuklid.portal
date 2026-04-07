@@ -50,11 +50,11 @@
   --sidebar-border: var(--color-gray-200);
 
   /* Card styling */
-  --card-bg: var(--color-white);
+  --card-bg: var(--color-gray-50);
   --card-radius: var(--radius-lg);
 
   /* Page background */
-  --page-bg: var(--color-gray-50);
+  --page-bg: var(--color-white);
 
   /* Auth page colors */
   --gradient-auth-bg: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary) 35%, #1e3554 50%, var(--color-light) 100%);
