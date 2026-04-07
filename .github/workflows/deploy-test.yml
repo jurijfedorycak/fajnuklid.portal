@@ -8,7 +8,7 @@ on:
       confirm:
         description: 'Type "deploy" to confirm deployment to TEST'
         required: true
-        default: ''
+        default: ""
 
 jobs:
   deploy:
@@ -26,8 +26,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
           cache-dependency-path: web/package-lock.json
 
       - name: Install frontend dependencies
@@ -69,14 +69,14 @@ jobs:
             **/.env.local
             **/storage/logs/**
 
-      - name: Run database migrations
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || '22' }}
-          script: |
-            set -e
-            cd /fajnuklid/api
-            php vendor/bin/phinx migrate -e production
+      # - name: Run database migrations
+      #   uses: appleboy/ssh-action@v1.0.3
+      #   with:
+      #     host: ${{ secrets.SSH_HOST }}
+      #     username: ${{ secrets.SSH_USERNAME }}
+      #     key: ${{ secrets.SSH_PRIVATE_KEY }}
+      #     port: ${{ secrets.SSH_PORT || '22' }}
+      #     script: |
+      #       set -e
+      #       cd /fajnuklid/api
+      #       php vendor/bin/phinx migrate -e production
