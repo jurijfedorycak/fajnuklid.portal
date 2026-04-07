@@ -4,11 +4,6 @@ on:
   # release:
   #   types: [published]
   workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Type "deploy" to confirm deployment to TEST'
-        required: true
-        default: ""
 
 jobs:
   deploy:
@@ -17,7 +12,6 @@ jobs:
     concurrency:
       group: deploy-test
       cancel-in-progress: false
-    if: github.event_name == 'release' || github.event.inputs.confirm == 'deploy'
 
     steps:
       - name: Checkout code
