@@ -39,7 +39,12 @@ jobs:
 
       - name: Install API dependencies
         working-directory: api
-        run: composer install --no-dev --prefer-dist --no-progress --quiet --optimize-autoloader
+        run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader
+
+      - name: Verify API vendor
+        run: |
+          ls -la api/vendor/composer/
+          head -20 api/vendor/composer/autoload_psr4.php
 
       - name: Prepare deployment structure
         run: |
@@ -53,6 +58,13 @@ jobs:
 
           # Copy .htaccess for SPA routing
           cp .htaccess deploy/.htaccess
+
+      - name: Verify deployment structure
+        run: |
+          echo "=== Deploy API structure ==="
+          ls -la deploy/api/
+          echo "=== Vendor autoload ==="
+          ls deploy/api/vendor/autoload.php && echo "autoload.php exists"
 
       - name: Deploy to FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
