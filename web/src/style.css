@@ -51,7 +51,7 @@
 
   /* Card styling */
   --card-bg: var(--color-white);
-  --card-radius: 16px;
+  --card-radius: 12px;
 
   /* Page background */
   --page-bg: var(--color-gray-50);
@@ -131,7 +131,7 @@ input, select, textarea {
 .card {
   background: var(--card-bg);
   border-radius: var(--card-radius);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
   padding: 24px;
 }
 
