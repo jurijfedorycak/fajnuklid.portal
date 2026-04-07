@@ -61,7 +61,14 @@ class Request
     public function getPath(): string
     {
         $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-        return $path ?: '/';
+        $path = $path ?: '/';
+
+        // Strip /api prefix if present (API is served at /api path)
+        if (str_starts_with($path, '/api')) {
+            $path = substr($path, 4) ?: '/';
+        }
+
+        return $path;
     }
 
     public function getBody(): array
