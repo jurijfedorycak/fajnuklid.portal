@@ -13,6 +13,7 @@ use App\Middleware\AdminMiddleware;
 $router->addGlobalMiddleware(CorsMiddleware::class);
 
 // Public routes
+$router->get('/robots.txt', 'RobotsController@index');
 $router->post('/auth/login', 'AuthController@login');
 
 // Protected routes - require authentication

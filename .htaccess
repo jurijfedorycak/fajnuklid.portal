@@ -1,6 +1,9 @@
 RewriteEngine On
 RewriteBase /
 
+# Robots.txt - route to API for dynamic content
+RewriteRule ^robots\.txt$ api/index.php [QSA,L]
+
 # Redirect to API
 RewriteRule ^api/(.*)$ api/index.php [QSA,L]
 
