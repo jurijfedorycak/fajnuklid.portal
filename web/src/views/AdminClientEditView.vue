@@ -453,7 +453,7 @@ function toggleIcoRestriction(login, ico) {
                     <Eye    v-else                  :size="14" />
                   </button>
                 </div>
-                <p class="field-hint">Po uložení bude heslo zahashováno. Prázdné pole = heslo se nemění.</p>
+                <p v-if="!isNew" class="field-hint">Po uložení bude heslo zahashováno. Prázdné pole = heslo se nemění.</p>
               </div>
 
               <!-- IČO restriction -->
