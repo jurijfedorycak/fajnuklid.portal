@@ -51,6 +51,8 @@ jobs:
           username: ${{ secrets.TEST_FTP_USERNAME }}
           password: ${{ secrets.TEST_FTP_PASSWORD }}
           protocol: ftp
+          security: loose
+          log-level: verbose
           local-dir: ./deploy/
           server-dir: /
           exclude: |
