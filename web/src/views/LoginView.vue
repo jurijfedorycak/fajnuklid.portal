@@ -263,7 +263,7 @@ const benefits = [
 .login-marketing {
   flex: 1;
   display: none;
-  background: var(--color-primary);
+  background: transparent;
   padding: 3rem;
   color: var(--color-white);
 }
@@ -410,7 +410,7 @@ const benefits = [
 
   .login-form-panel {
     flex: 0 0 32.5rem;
-    background: var(--gradient-auth-bg);
+    background: transparent;
   }
 }
 

@@ -31,7 +31,7 @@
   --color-primary-hover: #1e3554;
 
   /* Auth page colors */
-  --gradient-auth-bg: linear-gradient(135deg, var(--color-primary) 0%, #1e3554 50%, var(--color-light) 100%);
+  --gradient-auth-bg: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary) 35%, #1e3554 50%, var(--color-light) 100%);
   --color-text-on-gradient: rgba(255, 255, 255, 0.5);
 
   --radius-sm: 6px;
