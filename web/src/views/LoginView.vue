@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Eye, EyeOff, LogIn } from 'lucide-vue-next'
 import { useAuth } from '../stores/auth'
-import logoSrc from '../assets/logo.svg'
+import AuthLayout from '../components/AuthLayout.vue'
 
 const router = useRouter()
 const { login, isAdmin } = useAuth()
@@ -39,161 +39,83 @@ async function handleLogin() {
 </script>
 
 <template>
-  <div class="login-page">
-    <div class="login-card">
-      <!-- Logo -->
-      <div id="login-logo" class="login-logo">
-        <div class="login-logo-wrapper">
-          <img :src="logoSrc" alt="Fajn Úklid" class="login-logo-img" />
-        </div>
-        <p class="login-tagline">Váš klientský portál</p>
+  <AuthLayout tagline="Váš klientský portál">
+    <form
+      id="login-form"
+      @submit.prevent="handleLogin"
+      class="auth-form"
+      :aria-busy="loading"
+    >
+      <div class="form-group">
+        <label class="form-label" for="login-email-input">
+          E-mail
+          <span class="required-indicator" aria-hidden="true">*</span>
+        </label>
+        <input
+          id="login-email-input"
+          v-model="email"
+          type="email"
+          class="form-input"
+          placeholder="vas@email.cz"
+          autocomplete="email"
+          aria-required="true"
+          :aria-describedby="error ? 'login-error-message' : undefined"
+        />
       </div>
 
-      <form @submit.prevent="handleLogin" class="login-form">
-        <div class="form-group">
-          <label class="form-label" for="login-email-input">E-mail</label>
+      <div class="form-group">
+        <label class="form-label" for="login-password-input">
+          Heslo
+          <span class="required-indicator" aria-hidden="true">*</span>
+        </label>
+        <div class="input-with-icon">
           <input
-            id="login-email-input"
-            v-model="email"
-            type="email"
+            id="login-password-input"
+            v-model="password"
+            :type="showPassword ? 'text' : 'password'"
             class="form-input"
-            placeholder="vas@email.cz"
-            autocomplete="email"
+            placeholder="********"
+            autocomplete="current-password"
+            aria-required="true"
+            :aria-describedby="error ? 'login-error-message' : undefined"
           />
+          <button
+            id="login-password-toggle"
+            type="button"
+            class="input-eye"
+            @click="showPassword = !showPassword"
+            :aria-label="showPassword ? 'Skrýt heslo' : 'Zobrazit heslo'"
+          >
+            <EyeOff v-if="showPassword" :size="16" />
+            <Eye v-else :size="16" />
+          </button>
         </div>
+      </div>
 
-        <div class="form-group">
-          <label class="form-label" for="login-password-input">Heslo</label>
-          <div class="input-with-icon">
-            <input
-              id="login-password-input"
-              v-model="password"
-              :type="showPassword ? 'text' : 'password'"
-              class="form-input"
-              placeholder="********"
-              autocomplete="current-password"
-            />
-            <button
-              id="login-password-toggle"
-              type="button"
-              class="input-eye"
-              @click="showPassword = !showPassword"
-              tabindex="-1"
-            >
-              <EyeOff v-if="showPassword" :size="16" />
-              <Eye v-else :size="16" />
-            </button>
-          </div>
-        </div>
+      <div
+        v-if="error"
+        id="login-error-message"
+        class="alert alert-danger auth-alert"
+        role="alert"
+      >
+        {{ error }}
+      </div>
 
-        <div v-if="error" class="alert alert-danger" style="margin-bottom:12px; font-size:13px;">
-          {{ error }}
-        </div>
+      <button
+        id="login-submit-btn"
+        type="submit"
+        class="btn btn-primary btn-full btn-lg"
+        :disabled="loading"
+      >
+        <LogIn v-if="!loading" :size="18" />
+        <span>{{ loading ? 'Přihlašuji...' : 'Přihlásit se' }}</span>
+      </button>
 
-        <button id="login-submit-btn" type="submit" class="btn btn-primary btn-full btn-lg" :disabled="loading">
-          <LogIn v-if="!loading" :size="18" />
-          <span>{{ loading ? 'Přihlašuji...' : 'Přihlásit se' }}</span>
-        </button>
-
-        <div class="login-forgot">
-          <RouterLink id="login-forgot-password-link" to="/zapomenute-heslo">Zapomněli jste heslo?</RouterLink>
-        </div>
-      </form>
-    </div>
-
-    <footer class="login-footer">
-      (c) {{ new Date().getFullYear() }} FAJN UKLID s.r.o. - Klientsky portal
-    </footer>
-  </div>
+      <div class="auth-forgot-link">
+        <RouterLink id="login-forgot-password-link" to="/zapomenute-heslo">
+          Zapomněli jste heslo?
+        </RouterLink>
+      </div>
+    </form>
+  </AuthLayout>
 </template>
-
-<style scoped>
-.login-page {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #162438 0%, #1e3554 50%, #d1dff0 100%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.login-card {
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(22,36,56,0.2);
-  padding: 40px 36px;
-  width: 100%;
-  max-width: 420px;
-}
-
-.login-logo {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.login-logo-wrapper {
-  background: var(--color-primary);
-  border-radius: 14px;
-  padding: 16px 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 12px;
-}
-
-.login-logo-img {
-  height: 40px;
-  width: auto;
-}
-
-.login-tagline {
-  font-size: 14px;
-  color: var(--color-gray-600);
-}
-
-.login-form {
-  display: flex;
-  flex-direction: column;
-}
-
-.input-with-icon {
-  position: relative;
-}
-
-.input-with-icon .form-input {
-  width: 100%;
-  padding-right: 40px;
-}
-
-.input-eye {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
-  border: none;
-  color: var(--color-gray-500);
-  padding: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-}
-
-.input-eye:hover {
-  color: var(--color-primary);
-}
-
-.login-forgot {
-  text-align: center;
-  margin-top: 16px;
-  font-size: 13px;
-}
-
-.login-footer {
-  margin-top: 24px;
-  font-size: 12px;
-  color: rgba(255,255,255,0.5);
-  text-align: center;
-}
-</style>

@@ -22,11 +22,17 @@
   --color-gray-700: #495057;
   --color-gray-800: #343a40;
   --color-danger: #dc3545;
+  --color-danger-hover: #bb2d3b;
   --color-danger-light: #f8d7da;
   --color-success: #198754;
   --color-success-light: #d1e7dd;
   --color-warning: #e67e00;
   --color-warning-light: #fff3cd;
+  --color-primary-hover: #1e3554;
+
+  /* Auth page colors */
+  --gradient-auth-bg: linear-gradient(135deg, var(--color-primary) 0%, #1e3554 50%, var(--color-light) 100%);
+  --color-text-on-gradient: rgba(255, 255, 255, 0.5);
 
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -37,6 +43,7 @@
   --shadow-sm: 0 1px 3px rgba(22, 36, 56, 0.06);
   --shadow-md: 0 2px 8px rgba(22, 36, 56, 0.08);
   --shadow-lg: 0 4px 16px rgba(22, 36, 56, 0.12);
+  --shadow-auth-card: 0 8px 32px rgba(22, 36, 56, 0.2);
 
   --sidebar-width: 240px;
   --transition: 0.2s ease;
@@ -88,8 +95,11 @@ input, select, textarea {
 .text-danger { color: var(--color-danger); }
 .text-success { color: var(--color-success); }
 .text-warning { color: var(--color-warning); }
+.text-center { text-align: center; }
 .fw-500 { font-weight: 500; }
 .fw-600 { font-weight: 600; }
+.mb-12 { margin-bottom: 12px; }
+.mt-20 { margin-top: 20px; }
 
 /* Shared card */
 .card {
@@ -117,7 +127,7 @@ input, select, textarea {
   color: var(--color-white);
 }
 .btn-primary:hover {
-  background: #1e3554;
+  background: var(--color-primary-hover);
 }
 .btn-outline {
   background: transparent;
@@ -141,7 +151,7 @@ input, select, textarea {
   color: white;
 }
 .btn-danger:hover {
-  background: #bb2d3b;
+  background: var(--color-danger-hover);
 }
 .btn-sm {
   padding: 5px 12px;
@@ -154,6 +164,10 @@ input, select, textarea {
 .btn-full {
   width: 100%;
   justify-content: center;
+}
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Form elements */
@@ -532,4 +546,133 @@ input, select, textarea {
 .nav-progress-text {
   font-size: 11px;
   color: var(--color-gray-600);
+}
+
+/* ═══ AUTH FORMS ═══ */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-form-heading {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-bottom: 8px;
+}
+
+.auth-form-desc {
+  font-size: 13px;
+  color: var(--color-gray-600);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.auth-success-state {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.auth-success-state h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+.auth-success-state p {
+  font-size: 14px;
+  color: var(--color-gray-600);
+  line-height: 1.6;
+}
+
+.auth-success-icon {
+  color: var(--color-success);
+}
+
+.auth-back-link {
+  font-size: 13px;
+  color: var(--color-mid);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.auth-back-link:hover {
+  color: var(--color-primary);
+}
+
+.auth-forgot-link {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 13px;
+}
+
+/* Password toggle button */
+.input-with-icon {
+  position: relative;
+}
+
+.input-with-icon .form-input {
+  width: 100%;
+  padding-right: 48px;
+}
+
+.input-eye {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--color-gray-500);
+  padding: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.input-eye:hover {
+  color: var(--color-primary);
+}
+
+.input-eye:focus-visible {
+  outline: 2px solid var(--color-mid);
+  outline-offset: 2px;
+}
+
+/* Required field indicator */
+.form-label .required-indicator {
+  color: var(--color-danger);
+  margin-left: 2px;
+}
+
+/* Password requirements helper */
+.password-requirements {
+  font-size: 12px;
+  color: var(--color-gray-500);
+  margin-top: 4px;
+}
+
+/* Auth alert styling */
+.auth-alert {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+/* Fade transition for state changes */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }

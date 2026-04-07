@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { KeyRound, CheckCircle } from 'lucide-vue-next'
+import AuthLayout from '../components/AuthLayout.vue'
 
 const router = useRouter()
 const newPassword = ref('')
@@ -34,126 +35,85 @@ function submit() {
 </script>
 
 <template>
-  <div class="login-page">
-    <div class="login-card">
-      <div class="login-logo">
-        <div class="logo-circle">FÚ</div>
-        <h1 class="login-brand">FAJN ÚKLID</h1>
+  <AuthLayout>
+    <Transition name="fade" mode="out-in">
+      <div v-if="done" id="reset-success-state" class="auth-success-state">
+        <CheckCircle :size="48" class="auth-success-icon" />
+        <h2 id="reset-success-heading">Heslo změněno</h2>
+        <p id="reset-success-message">
+          Vaše heslo bylo úspěšně nastaveno. Budete přesměrováni na
+          přihlášení...
+        </p>
       </div>
 
-      <div v-if="done" class="success-state">
-        <CheckCircle :size="48" color="#198754" />
-        <h2>Heslo změněno</h2>
-        <p>Vaše heslo bylo úspěšně nastaveno. Budete přesměrováni na přihlášení...</p>
-      </div>
+      <div v-else id="reset-form-container">
+        <h2 id="reset-heading" class="auth-form-heading">Nastavit nové heslo</h2>
+        <p id="reset-description" class="auth-form-desc">
+          Zvolte si nové heslo pro přístup do portálu.
+        </p>
 
-      <div v-else>
-        <h2 class="form-heading">Nastavit nové heslo</h2>
-        <p class="form-desc">Zvolte si nové heslo pro přístup do portálu.</p>
-
-        <form @submit.prevent="submit" class="login-form">
+        <form
+          id="reset-form"
+          @submit.prevent="submit"
+          class="auth-form"
+          :aria-busy="loading"
+        >
           <div class="form-group">
-            <label class="form-label">Nové heslo</label>
-            <input v-model="newPassword" type="password" class="form-input" placeholder="Minimálně 8 znaků" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Potvrdit nové heslo</label>
-            <input v-model="confirmPassword" type="password" class="form-input" placeholder="Zopakujte heslo" />
+            <label class="form-label" for="reset-new-password-input">
+              Nové heslo
+              <span class="required-indicator" aria-hidden="true">*</span>
+            </label>
+            <input
+              id="reset-new-password-input"
+              v-model="newPassword"
+              type="password"
+              class="form-input"
+              placeholder="Minimálně 8 znaků"
+              autocomplete="new-password"
+              aria-required="true"
+              aria-describedby="reset-password-requirements"
+            />
+            <p id="reset-password-requirements" class="password-requirements">
+              Heslo musí obsahovat minimálně 8 znaků.
+            </p>
           </div>
 
-          <div v-if="error" class="alert alert-danger" style="margin-bottom:12px; font-size:13px;">
+          <div class="form-group">
+            <label class="form-label" for="reset-confirm-password-input">
+              Potvrdit nové heslo
+              <span class="required-indicator" aria-hidden="true">*</span>
+            </label>
+            <input
+              id="reset-confirm-password-input"
+              v-model="confirmPassword"
+              type="password"
+              class="form-input"
+              placeholder="Zopakujte heslo"
+              autocomplete="new-password"
+              aria-required="true"
+            />
+          </div>
+
+          <div
+            v-if="error"
+            id="reset-error-message"
+            class="alert alert-danger auth-alert"
+            role="alert"
+          >
             {{ error }}
           </div>
 
-          <button type="submit" class="btn btn-primary btn-full btn-lg" :disabled="loading">
+          <button
+            id="reset-submit-btn"
+            type="submit"
+            class="btn btn-primary btn-full btn-lg"
+            :disabled="loading"
+          >
             <KeyRound v-if="!loading" :size="18" />
             {{ loading ? 'Ukládám...' : 'Nastavit nové heslo' }}
           </button>
         </form>
       </div>
-    </div>
-  </div>
+    </Transition>
+  </AuthLayout>
 </template>
-
-<style scoped>
-.login-page {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #162438 0%, #1e3554 50%, #d1dff0 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.login-card {
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(22,36,56,0.2);
-  padding: 40px 36px;
-  width: 100%;
-  max-width: 420px;
-}
-
-.login-logo {
-  text-align: center;
-  margin-bottom: 24px;
-}
-
-.logo-circle {
-  width: 52px;
-  height: 52px;
-  background: var(--color-primary);
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 18px;
-  font-weight: 700;
-  margin-bottom: 10px;
-}
-
-.login-brand {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--color-primary);
-  letter-spacing: 0.06em;
-}
-
-.form-heading {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-primary);
-  margin-bottom: 8px;
-}
-
-.form-desc {
-  font-size: 13px;
-  color: var(--color-gray-600);
-  margin-bottom: 20px;
-}
-
-.login-form {
-  display: flex;
-  flex-direction: column;
-}
-
-.success-state {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.success-state h2 {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--color-success);
-}
-
-.success-state p {
-  font-size: 13px;
-  color: var(--color-gray-600);
-}
-</style>
