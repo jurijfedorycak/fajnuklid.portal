@@ -12,7 +12,7 @@ import {
 const route  = useRoute()
 const router = useRouter()
 
-const isNew  = computed(() => route.params.id === 'novy')
+const isNew  = computed(() => route.params.id === 'new')
 const loading = ref(!isNew.value)
 const error = ref(null)
 const saving = ref(false)
@@ -238,7 +238,7 @@ async function save() {
       saved.value = true
       setTimeout(() => { saved.value = false }, 3000)
       if (isNew.value && response.data?.clientId) {
-        router.replace(`/admin/klient/${response.data.clientId}`)
+        router.replace(`/admin/clients/${response.data.clientId}`)
       }
     } else {
       error.value = response.message || 'Uložení se nezdařilo'
@@ -282,7 +282,7 @@ function toggleIcoRestriction(login, ico) {
 
     <!-- Top bar -->
     <div v-if="!loading" class="topbar">
-      <button class="btn btn-ghost btn-sm back-btn" @click="router.push('/admin')">
+      <button class="btn btn-ghost btn-sm back-btn" @click="router.push('/admin/clients')">
         <ArrowLeft :size="16" /> Správa klientů
       </button>
       <div class="topbar-title">
@@ -914,7 +914,7 @@ function toggleIcoRestriction(login, ico) {
 
         <!-- Bottom save bar -->
         <div class="bottom-save-bar">
-          <button class="btn btn-ghost" @click="router.push('/admin')">Zrušit</button>
+          <button class="btn btn-ghost" @click="router.push('/admin/clients')">Zrušit</button>
           <span v-if="saved" class="saved-msg"><CheckCircle2 :size="15" /> Změny uloženy</span>
           <button class="btn btn-primary" :disabled="saving" @click="save">
             <Save :size="16" />

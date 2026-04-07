@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   LayoutDashboard, FileText, Users, FileSignature,
-  Clock, Phone, Settings, LogOut, ShieldCheck,
+  Clock, Phone, Settings, LogOut, UserCog,
 } from 'lucide-vue-next'
 import { useAuth } from '../../stores/auth'
 
@@ -17,7 +17,7 @@ const { user, isAdmin, logout } = useAuth()
 const displayName = computed(() => user.value?.display_name || user.value?.email || 'Klient')
 const activeIco = computed(() => user.value?.active_ico || '')
 
-const navItems = [
+const clientNavItems = [
   { name: 'Prehled',      route: '/',          icon: LayoutDashboard },
   { name: 'Faktury',      route: '/faktury',   icon: FileText },
   { name: 'Personal',     route: '/personal',  icon: Users },
@@ -25,6 +25,13 @@ const navItems = [
   { name: 'Dochazka',     route: '/dochazka',  icon: Clock },
   { name: 'Kontakt',      route: '/kontakt',   icon: Phone },
 ]
+
+const adminNavItems = [
+  { name: 'Klienti',      route: '/admin/clients',    icon: Users },
+  { name: 'Zamestnanci',  route: '/admin/employees',  icon: UserCog },
+]
+
+const navItems = computed(() => isAdmin.value ? adminNavItems : clientNavItems)
 
 const bottomItems = [
   { name: 'Nastaveni',    route: '/nastaveni', icon: Settings },
@@ -37,11 +44,6 @@ function isActive(r) {
 
 function navigate(r) {
   router.push(r)
-  emit('close')
-}
-
-function goToAdmin() {
-  router.push('/admin')
   emit('close')
 }
 
@@ -69,7 +71,7 @@ function initials(name) {
       <div class="avatar avatar-sm client-avatar">{{ initials(displayName) }}</div>
       <div class="client-info">
         <div class="client-name">{{ displayName }}</div>
-        <div class="client-ico" v-if="activeIco">ICO: {{ activeIco }}</div>
+        <div id="sidebar-client-ico" class="client-ico" v-if="activeIco && !isAdmin">ICO: {{ activeIco }}</div>
       </div>
     </div>
 
@@ -80,6 +82,7 @@ function initials(name) {
       <button
         v-for="item in navItems"
         :key="item.route"
+        :id="`sidebar-nav-${item.name.toLowerCase()}`"
         class="nav-item"
         :class="{ active: isActive(item.route) }"
         @click="navigate(item.route)"
@@ -96,6 +99,7 @@ function initials(name) {
       <button
         v-for="item in bottomItems"
         :key="item.route"
+        :id="`sidebar-nav-${item.name.toLowerCase()}`"
         class="nav-item"
         :class="{ active: isActive(item.route) }"
         @click="navigate(item.route)"
@@ -104,13 +108,7 @@ function initials(name) {
         <span class="nav-label">{{ item.name }}</span>
       </button>
 
-      <!-- Admin link (only for admins) -->
-      <button v-if="isAdmin" class="nav-item admin-toggle" @click="goToAdmin">
-        <ShieldCheck class="nav-icon" :size="18" />
-        <span class="nav-label">Sprava portalu</span>
-      </button>
-
-      <button class="nav-item logout-item" @click="handleLogout">
+      <button id="sidebar-logout-btn" class="nav-item logout-item" @click="handleLogout">
         <LogOut class="nav-icon" :size="18" />
         <span class="nav-label">Odhlasit se</span>
       </button>
@@ -253,15 +251,6 @@ function initials(name) {
 
 .nav-label {
   flex: 1;
-}
-
-.admin-toggle {
-  color: rgba(209,223,240,0.8);
-}
-
-.admin-toggle:hover {
-  background: rgba(209,223,240,0.1);
-  color: var(--color-light);
 }
 
 .logout-item:hover {

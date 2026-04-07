@@ -62,11 +62,11 @@ async function toggleActive(client) {
 }
 
 function editClient(clientId) {
-  router.push(`/admin/klient/${clientId}`)
+  router.push(`/admin/clients/${clientId}`)
 }
 
 function newClient() {
-  router.push('/admin/klient/novy')
+  router.push('/admin/clients/new')
 }
 
 function formatDate(d) {
@@ -217,7 +217,7 @@ function formatDate(d) {
     </div>
 
     <!-- Employees section -->
-    <div class="card emp-section" @click="router.push('/admin/zamestnanci')" style="cursor:pointer;">
+    <div class="card emp-section" @click="router.push('/admin/employees')" style="cursor:pointer;">
       <div class="emp-section-row">
         <div class="emp-section-left">
           <Users :size="20" style="color:var(--color-mid);" />

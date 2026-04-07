@@ -5,7 +5,7 @@ import { Eye, EyeOff, LogIn } from 'lucide-vue-next'
 import { useAuth } from '../stores/auth'
 
 const router = useRouter()
-const { login } = useAuth()
+const { login, isAdmin } = useAuth()
 
 const email = ref('')
 const password = ref('')
@@ -25,7 +25,7 @@ async function handleLogin() {
   try {
     const result = await login(email.value, password.value)
     if (result.success) {
-      router.push('/')
+      router.push(isAdmin.value ? '/admin/clients' : '/')
     } else {
       error.value = result.message || 'Neplatné přihlašovací údaje'
     }

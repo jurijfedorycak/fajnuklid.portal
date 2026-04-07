@@ -150,7 +150,7 @@ function toggleCount(emp) {
     <div class="page-header">
       <div>
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-          <button class="btn btn-ghost btn-sm back-btn" @click="router.push('/admin')">
+          <button class="btn btn-ghost btn-sm back-btn" @click="router.push('/admin/clients')">
             <ArrowLeft :size="16" /> Správa portálu
           </button>
         </div>
@@ -427,7 +427,7 @@ function toggleCount(emp) {
 
     <!-- Bottom save bar -->
     <div class="bottom-save-bar">
-      <button class="btn btn-ghost" @click="router.push('/admin')">Zpět na správu</button>
+      <button class="btn btn-ghost" @click="router.push('/admin/clients')">Zpět na správu</button>
       <span v-if="saved" class="saved-msg"><CheckCircle2 :size="15" /> Změny uloženy</span>
       <button class="btn btn-primary" :disabled="saving" @click="save">
         <Save :size="16" />

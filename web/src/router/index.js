@@ -61,19 +61,19 @@ const routes = [
         component: () => import('../views/SettingsView.vue'),
       },
       {
-        path: 'admin',
+        path: 'admin/clients',
         name: 'Admin',
         component: () => import('../views/AdminView.vue'),
         meta: { requiresAdmin: true },
       },
       {
-        path: 'admin/klient/:id',
+        path: 'admin/clients/:id',
         name: 'AdminClientEdit',
         component: () => import('../views/AdminClientEditView.vue'),
         meta: { requiresAdmin: true },
       },
       {
-        path: 'admin/zamestnanci',
+        path: 'admin/employees',
         name: 'AdminEmployees',
         component: () => import('../views/AdminEmployeesView.vue'),
         meta: { requiresAdmin: true },
@@ -99,6 +99,20 @@ router.beforeEach((to) => {
   // Check if route requires admin
   if (to.meta.requiresAdmin && !isAdmin.value) {
     return { name: 'Dashboard' }
+  }
+
+  // Block admin from client-only routes
+  const clientOnlyRoutes = ['Dashboard', 'Invoices', 'Personnel', 'Contract', 'Attendance', 'Contact']
+  if (isAdmin.value && clientOnlyRoutes.includes(to.name)) {
+    return { name: 'Admin' }
+  }
+
+  // Redirect old admin routes to new English routes
+  if (to.path === '/admin') {
+    return { path: '/admin/clients' }
+  }
+  if (to.path === '/admin/zamestnanci') {
+    return { path: '/admin/employees' }
   }
 })
 
