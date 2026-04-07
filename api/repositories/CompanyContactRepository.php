@@ -122,7 +122,11 @@ class CompanyContactRepository
 
     public function create(int $companyId, int $contactId, bool $isPrimary = false): int
     {
-        $this->db->beginTransaction();
+        $inTransaction = $this->db->inTransaction();
+
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
 
         try {
             if ($isPrimary) {
@@ -141,18 +145,27 @@ class CompanyContactRepository
             ]);
 
             $id = (int) $this->db->lastInsertId();
-            $this->db->commit();
+
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
 
             return $id;
         } catch (\Exception $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }
 
     public function update(int $id, array $data): bool
     {
-        $this->db->beginTransaction();
+        $inTransaction = $this->db->inTransaction();
+
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
 
         try {
             if (isset($data['is_primary']) && $data['is_primary']) {
@@ -173,18 +186,27 @@ class CompanyContactRepository
             ]);
 
             $result = $stmt->rowCount() > 0;
-            $this->db->commit();
+
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
 
             return $result;
         } catch (\Exception $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }
 
     public function setPrimary(int $companyId, int $contactId): bool
     {
-        $this->db->beginTransaction();
+        $inTransaction = $this->db->inTransaction();
+
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
 
         try {
             $this->clearPrimary($companyId);
@@ -199,10 +221,14 @@ class CompanyContactRepository
                 'contact_id' => $contactId
             ]);
 
-            $this->db->commit();
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
             return $stmt->rowCount() > 0;
         } catch (\Exception $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }
@@ -259,7 +285,11 @@ class CompanyContactRepository
 
     public function syncCompanyContacts(int $companyId, array $contactIds, ?int $primaryContactId = null): void
     {
-        $this->db->beginTransaction();
+        $inTransaction = $this->db->inTransaction();
+
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
 
         try {
             $this->deleteByCompanyId($companyId);
@@ -280,9 +310,13 @@ class CompanyContactRepository
                 ]);
             }
 
-            $this->db->commit();
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
         } catch (\Exception $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }

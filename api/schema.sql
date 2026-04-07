@@ -199,7 +199,7 @@ CREATE TABLE `user_settings` (
 -- ===========================
 
 -- ----------------------------
--- Table: employee_locations (assigns employees to locations)
+-- Table: employee_locations (assigns employees to specific locations - optional granular assignment)
 -- ----------------------------
 DROP TABLE IF EXISTS `employee_locations`;
 CREATE TABLE `employee_locations` (
@@ -212,6 +212,22 @@ CREATE TABLE `employee_locations` (
     KEY `idx_location_id` (`location_id`),
     CONSTRAINT `fk_employee_locations_employee` FOREIGN KEY (`employee_id`) REFERENCES `employees` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_employee_locations_location` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------
+-- Table: client_employees (M:N junction between clients and employees - staff assignment)
+-- ----------------------------
+DROP TABLE IF EXISTS `client_employees`;
+CREATE TABLE `client_employees` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `client_id` INT UNSIGNED NOT NULL,
+    `employee_id` INT UNSIGNED NOT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_client_employee` (`client_id`, `employee_id`),
+    KEY `idx_employee_id` (`employee_id`),
+    CONSTRAINT `fk_client_employees_client` FOREIGN KEY (`client_id`) REFERENCES `clients` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_client_employees_employee` FOREIGN KEY (`employee_id`) REFERENCES `employees` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------

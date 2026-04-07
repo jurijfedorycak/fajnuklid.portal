@@ -146,7 +146,11 @@ class CompanyUserRepository
 
     public function syncUserCompanies(int $userId, array $companyIds): void
     {
-        $this->db->beginTransaction();
+        $inTransaction = $this->db->inTransaction();
+
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
 
         try {
             $this->deleteByUserId($userId);
@@ -166,16 +170,24 @@ class CompanyUserRepository
                 ]);
             }
 
-            $this->db->commit();
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
         } catch (\Exception $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }
 
     public function syncCompanyUsers(int $companyId, array $userIds): void
     {
-        $this->db->beginTransaction();
+        $inTransaction = $this->db->inTransaction();
+
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
 
         try {
             $this->deleteByCompanyId($companyId);
@@ -195,9 +207,13 @@ class CompanyUserRepository
                 ]);
             }
 
-            $this->db->commit();
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
         } catch (\Exception $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }

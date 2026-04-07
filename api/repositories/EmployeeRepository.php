@@ -327,8 +327,11 @@ class EmployeeRepository
     public function saveAll(array $employees): array
     {
         $savedIds = [];
+        $inTransaction = $this->db->inTransaction();
 
-        $this->db->beginTransaction();
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
         try {
             foreach ($employees as $data) {
                 if (isset($data['id']) && $data['id'] > 0) {
@@ -340,9 +343,13 @@ class EmployeeRepository
                     $savedIds[] = $this->create($data);
                 }
             }
-            $this->db->commit();
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
         } catch (\Exception $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
 

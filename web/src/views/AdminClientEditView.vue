@@ -353,8 +353,8 @@ async function save() {
       clearAllErrors()
       saved.value = true
       setTimeout(() => { saved.value = false }, 3000)
-      if (isNew.value && response.data?.clientId) {
-        router.replace(`/admin/clients/${response.data.clientId}`)
+      if (isNew.value && response.data?.client_id) {
+        router.replace(`/admin/clients/${response.data.client_id}`)
       }
     } else {
       // Handle server validation errors
@@ -496,6 +496,7 @@ onBeforeUnmount(() => {
         <button
           v-for="sec in sections"
           :key="sec.id"
+          :id="`nav-${sec.id}`"
           class="snav-item"
           :class="{
             active: activeSection === sec.id,
@@ -615,7 +616,7 @@ onBeforeUnmount(() => {
         <section id="sec-logins" class="form-section">
           <div class="sec-header-row">
             <h2 class="sec-title"><Lock :size="18" /> Přihlašovací účty</h2>
-            <button class="btn btn-outline btn-sm" @click="addLogin">
+            <button id="btn-add-login" class="btn btn-outline btn-sm" @click="addLogin">
               <Plus :size="14" /> Přidat účet
             </button>
           </div>
@@ -633,11 +634,11 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="login-list">
-            <div v-for="login in form.logins" :key="login.id" class="card login-card">
+            <div v-for="(login, index) in form.logins" :key="login.id" class="card login-card">
               <div class="login-header">
                 <div class="login-email-wrap">
                   <Mail :size="15" class="text-mid" />
-                  <input v-model="login.email" type="email" class="form-input login-email-input" placeholder="email@firma.cz" />
+                  <input :id="`login-email-${index}`" v-model="login.email" type="email" class="form-input login-email-input" placeholder="email@firma.cz" />
                 </div>
                 <button class="btn btn-ghost btn-sm danger-hover" @click="removeLogin(login.id)">
                   <Trash2 :size="15" />
@@ -651,6 +652,7 @@ onBeforeUnmount(() => {
                 </label>
                 <div class="input-with-btn">
                   <input
+                    :id="`login-password-${index}`"
                     v-model="login.tempPass"
                     :type="login.showPass ? 'text' : 'password'"
                     class="form-input"
@@ -714,7 +716,7 @@ onBeforeUnmount(() => {
         <section id="sec-icos" class="form-section">
           <div class="sec-header-row">
             <h2 class="sec-title"><Building2 :size="18" /> IČO &amp; Provozovny</h2>
-            <button class="btn btn-outline btn-sm" @click="addIco">
+            <button id="btn-add-ico" class="btn btn-outline btn-sm" @click="addIco">
               <Plus :size="14" /> Přidat IČO
             </button>
           </div>
@@ -735,7 +737,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="ico-cards">
-            <div v-for="ico in form.icos" :key="ico.id" class="card ico-card">
+            <div v-for="(ico, icoIndex) in form.icos" :key="ico.id" class="card ico-card">
 
               <!-- IČO header (collapsible) -->
               <div class="ico-card-header" @click="ico.expanded = !ico.expanded">
@@ -762,11 +764,11 @@ onBeforeUnmount(() => {
                 <div class="field-grid-2" style="margin-bottom:20px;">
                   <div class="form-group">
                     <label class="form-label">IČO *</label>
-                    <input v-model="ico.ico" type="text" class="form-input" placeholder="12345678" maxlength="8" />
+                    <input :id="`ico-number-${icoIndex}`" v-model="ico.ico" type="text" class="form-input" placeholder="12345678" maxlength="8" />
                   </div>
                   <div class="form-group">
                     <label class="form-label">Oficiální název firmy</label>
-                    <input v-model="ico.officialName" type="text" class="form-input" placeholder="Firma s.r.o." />
+                    <input :id="`ico-name-${icoIndex}`" v-model="ico.officialName" type="text" class="form-input" placeholder="Firma s.r.o." />
                   </div>
                 </div>
 
@@ -945,7 +947,7 @@ onBeforeUnmount(() => {
         <section id="sec-staff" class="form-section">
           <div class="sec-header-row">
             <h2 class="sec-title"><Users :size="18" /> Personál</h2>
-            <button class="btn btn-outline btn-sm" @click="addStaff" :disabled="availableEmployees.length === 0">
+            <button id="btn-add-staff" class="btn btn-outline btn-sm" @click="addStaff" :disabled="availableEmployees.length === 0">
               <Plus :size="14" /> Přidat pracovníka
             </button>
           </div>
@@ -1040,7 +1042,7 @@ onBeforeUnmount(() => {
         <section id="sec-contacts" class="form-section">
           <div class="sec-header-row">
             <h2 class="sec-title"><Phone :size="18" /> Kontaktní osoby klienta</h2>
-            <button class="btn btn-outline btn-sm" @click="addContact">
+            <button id="btn-add-contact" class="btn btn-outline btn-sm" @click="addContact">
               <Plus :size="14" /> Přidat kontakt
             </button>
           </div>
@@ -1058,7 +1060,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="contact-list">
-            <div v-for="contact in form.contacts" :key="contact.id" class="card contact-edit-card">
+            <div v-for="(contact, contactIndex) in form.contacts" :key="contact.id" class="card contact-edit-card">
               <div class="contact-edit-header">
                 <div class="contact-scope-badge">
                   <Globe v-if="contact.scope === 'global'" :size="13" />
@@ -1070,19 +1072,19 @@ onBeforeUnmount(() => {
               <div class="field-grid-2">
                 <div class="form-group">
                   <label class="form-label">Jméno</label>
-                  <input v-model="contact.name" type="text" class="form-input" placeholder="Jméno Příjmení" />
+                  <input :id="`contact-name-${contactIndex}`" v-model="contact.name" type="text" class="form-input" placeholder="Jméno Příjmení" />
                 </div>
                 <div class="form-group">
                   <label class="form-label">Pozice ve firmě</label>
-                  <input v-model="contact.role" type="text" class="form-input" placeholder="Facility Manager, Ekonomka…" />
+                  <input :id="`contact-role-${contactIndex}`" v-model="contact.role" type="text" class="form-input" placeholder="Facility Manager, Ekonomka…" />
                 </div>
                 <div class="form-group">
                   <label class="form-label">Telefon</label>
-                  <input v-model="contact.phone" type="tel" class="form-input" placeholder="+420 7xx xxx xxx" />
+                  <input :id="`contact-phone-${contactIndex}`" v-model="contact.phone" type="tel" class="form-input" placeholder="+420 7xx xxx xxx" />
                 </div>
                 <div class="form-group">
                   <label class="form-label">E-mail</label>
-                  <input v-model="contact.email" type="email" class="form-input" placeholder="jan@firma.cz" />
+                  <input :id="`contact-email-${contactIndex}`" v-model="contact.email" type="email" class="form-input" placeholder="jan@firma.cz" />
                 </div>
               </div>
 
@@ -1126,7 +1128,7 @@ onBeforeUnmount(() => {
         <div class="bottom-save-bar">
           <button class="btn btn-ghost" @click="router.push('/admin/clients')">Zrušit</button>
           <span v-if="saved" class="saved-msg"><CheckCircle2 :size="15" /> Změny uloženy</span>
-          <button class="btn btn-primary" :disabled="saving" @click="save">
+          <button id="btn-save-client" class="btn btn-primary" :disabled="saving" @click="save">
             <Save :size="16" />
             {{ saving ? 'Ukládám...' : 'Uložit změny' }}
           </button>

@@ -152,7 +152,12 @@ class EmployeeLocationRepository
 
     public function syncEmployeeLocations(int $employeeId, array $locationIds): void
     {
-        $this->db->beginTransaction();
+        // Check if we're already in a transaction
+        $inTransaction = $this->db->inTransaction();
+
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
 
         try {
             $this->deleteByEmployeeId($employeeId);
@@ -172,16 +177,25 @@ class EmployeeLocationRepository
                 ]);
             }
 
-            $this->db->commit();
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
         } catch (\Exception $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }
 
     public function syncLocationEmployees(int $locationId, array $employeeIds): void
     {
-        $this->db->beginTransaction();
+        // Check if we're already in a transaction
+        $inTransaction = $this->db->inTransaction();
+
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
 
         try {
             $this->deleteByLocationId($locationId);
@@ -201,9 +215,13 @@ class EmployeeLocationRepository
                 ]);
             }
 
-            $this->db->commit();
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
         } catch (\Exception $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }

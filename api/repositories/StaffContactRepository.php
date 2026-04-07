@@ -213,7 +213,11 @@ class StaffContactRepository
 
     public function reorder(array $orderedIds): bool
     {
-        $this->db->beginTransaction();
+        $inTransaction = $this->db->inTransaction();
+
+        if (!$inTransaction) {
+            $this->db->beginTransaction();
+        }
 
         try {
             $stmt = $this->db->prepare('
@@ -229,10 +233,14 @@ class StaffContactRepository
                 ]);
             }
 
-            $this->db->commit();
+            if (!$inTransaction) {
+                $this->db->commit();
+            }
             return true;
         } catch (\Exception $e) {
-            $this->db->rollBack();
+            if (!$inTransaction) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }

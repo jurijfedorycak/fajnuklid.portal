@@ -88,7 +88,7 @@ function formatDate(d) {
         </h1>
         <p class="page-subtitle">Admin sekce · přístup pouze pro Jurij Fedoryčak</p>
       </div>
-      <button class="btn btn-primary" @click="newClient">
+      <button id="btn-add-client" class="btn btn-primary" @click="newClient">
         <Plus :size="16" />
         Přidat klienta
       </button>

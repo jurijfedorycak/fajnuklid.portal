@@ -11,6 +11,9 @@ export default defineConfig({
   ],
 
   use: {
+    // Base URL for the application
+    baseURL: 'http://localhost:5173',
+
     // Screenshot on failure
     screenshot: 'only-on-failure',
 
@@ -29,4 +32,7 @@ export default defineConfig({
 
   // Run tests in parallel
   fullyParallel: true,
+
+  // Timeout for form operations (60 seconds)
+  timeout: 60000,
 });

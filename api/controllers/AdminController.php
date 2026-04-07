@@ -13,6 +13,7 @@ use App\Repositories\CompanyUserRepository;
 use App\Repositories\CompanyContactRepository;
 use App\Repositories\EmployeeRepository;
 use App\Repositories\EmployeeLocationRepository;
+use App\Repositories\ClientEmployeeRepository;
 use App\Repositories\UserRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\ClientContactRepository;
@@ -28,6 +29,7 @@ class AdminController extends Controller
     private CompanyContactRepository $companyContactRepo;
     private EmployeeRepository $employeeRepo;
     private EmployeeLocationRepository $employeeLocationRepo;
+    private ClientEmployeeRepository $clientEmployeeRepo;
     private UserRepository $userRepo;
     private LocationRepository $locationRepo;
     private ClientContactRepository $clientContactRepo;
@@ -40,6 +42,7 @@ class AdminController extends Controller
         $this->companyContactRepo = new CompanyContactRepository();
         $this->employeeRepo = new EmployeeRepository();
         $this->employeeLocationRepo = new EmployeeLocationRepository();
+        $this->clientEmployeeRepo = new ClientEmployeeRepository();
         $this->userRepo = new UserRepository();
         $this->locationRepo = new LocationRepository();
         $this->clientContactRepo = new ClientContactRepository();
@@ -179,11 +182,11 @@ class AdminController extends Controller
             }
         }
 
-        // Load staff (employees assigned to client's locations)
-        $employees = $this->employeeLocationRepo->findEmployeesByClientId($id);
+        // Load staff (employees assigned to client via client_employees)
+        $clientEmployees = $this->clientEmployeeRepo->findByClientId($id);
         $locationMappings = $this->employeeLocationRepo->getLocationIdsByClientEmployees($id);
         $staff = array_map(function ($emp) use ($locationMappings) {
-            $employeeId = (int) $emp['id'];
+            $employeeId = (int) $emp['employee_id'];
             return [
                 'id' => $employeeId,
                 'employeeId' => $employeeId,
@@ -194,7 +197,7 @@ class AdminController extends Controller
                 'bio' => $emp['bio'] ?? '',
                 'assignedObjects' => $locationMappings[$employeeId] ?? [],
             ];
-        }, $employees);
+        }, $clientEmployees);
 
         // Load contacts with scope determination
         $contactRows = $this->clientContactRepo->findByClientId($id);
@@ -255,8 +258,201 @@ class AdminController extends Controller
             ]);
         }
 
-        $clientId = $this->clientRepo->create($data);
-        $client = $this->clientRepo->findById($clientId);
+        $db = \App\Config\Database::getConnection();
+        $db->beginTransaction();
+
+        try {
+            // 1. Create the client
+            $clientDbId = $this->clientRepo->create($data);
+
+            // 2. Create companies (ICOs)
+            $icos = $request->input('icos', []);
+            if (!is_array($icos)) {
+                $icos = [];
+            }
+
+            $companyIds = [];
+            $icoToCompanyId = [];
+
+            foreach ($icos as $icoData) {
+                if (!is_array($icoData)) {
+                    continue;
+                }
+                $ico = $icoData['ico'] ?? '';
+                $officialName = $icoData['official_name'] ?? '';
+
+                if ($ico === '') {
+                    continue;
+                }
+
+                // Check if ICO already exists
+                if ($this->companyRepo->existsByRegistrationNumber($ico)) {
+                    throw new ValidationException('IČO již existuje', [
+                        'ico' => ["IČO {$ico} je již použito u jiného klienta"],
+                    ]);
+                }
+
+                $companyId = $this->companyRepo->create([
+                    'client_id' => $clientDbId,
+                    'registration_number' => $ico,
+                    'name' => $officialName ?: $data['display_name'],
+                    'contract_pdf_path' => $icoData['contract_file'] ?? null,
+                ]);
+
+                $companyIds[] = $companyId;
+                $icoToCompanyId[$ico] = $companyId;
+
+                // Create locations (objects) for this company
+                $objects = $icoData['objects'] ?? [];
+                if (!is_array($objects)) {
+                    $objects = [];
+                }
+                foreach ($objects as $obj) {
+                    if (!is_array($obj)) {
+                        continue;
+                    }
+                    $this->locationRepo->create([
+                        'company_id' => $companyId,
+                        'name' => $obj['name'] ?? '',
+                        'address' => $obj['address'] ?? null,
+                        'latitude' => $obj['lat'] ?? null,
+                        'longitude' => $obj['lng'] ?? null,
+                    ]);
+                }
+            }
+
+            // 3. Create login accounts and link to companies
+            $logins = $request->input('logins', []);
+            if (!is_array($logins)) {
+                $logins = [];
+            }
+
+            $active = $request->input('active', true);
+
+            foreach ($logins as $loginData) {
+                if (!is_array($loginData)) {
+                    continue;
+                }
+                $email = $loginData['email'] ?? '';
+                $tempPass = $loginData['temp_pass'] ?? '';
+
+                if ($email === '') {
+                    continue;
+                }
+
+                // Check if email already exists
+                if ($this->userRepo->existsByEmail($email)) {
+                    throw new ValidationException('E-mail již existuje', [
+                        'email' => ["E-mail {$email} je již použit"],
+                    ]);
+                }
+
+                // Hash the password
+                $passwordHash = PasswordHelper::hash($tempPass ?: bin2hex(random_bytes(16)));
+
+                $userId = $this->userRepo->create([
+                    'email' => $email,
+                    'password_hash' => $passwordHash,
+                    'portal_enabled' => (bool) $active,
+                ]);
+
+                // Link user to all companies (or specific ones based on restriction)
+                $restriction = $loginData['restriction'] ?? 'all';
+                $allowedIcos = $loginData['allowed_icos'] ?? [];
+
+                if ($restriction === 'all') {
+                    // Link to all companies
+                    foreach ($companyIds as $companyId) {
+                        $this->companyUserRepo->create($companyId, $userId);
+                    }
+                } else {
+                    // Link to specific ICOs
+                    foreach ($allowedIcos as $ico) {
+                        if (isset($icoToCompanyId[$ico])) {
+                            $this->companyUserRepo->create($icoToCompanyId[$ico], $userId);
+                        }
+                    }
+                }
+            }
+
+            // 4. Create contacts and link to companies
+            $contacts = $request->input('contacts', []);
+            if (!is_array($contacts)) {
+                $contacts = [];
+            }
+
+            foreach ($contacts as $contactData) {
+                if (!is_array($contactData)) {
+                    continue;
+                }
+                $contactId = $this->clientContactRepo->create([
+                    'name' => $contactData['name'] ?? '',
+                    'position' => $contactData['role'] ?? null,
+                    'phone' => $contactData['phone'] ?? null,
+                    'email' => $contactData['email'] ?? null,
+                ]);
+
+                $scope = $contactData['scope'] ?? 'global';
+                if ($scope === 'global') {
+                    // Link to all companies
+                    foreach ($companyIds as $cid) {
+                        $this->companyContactRepo->create($cid, $contactId);
+                    }
+                } else {
+                    // Link to specific ICO
+                    $icoId = $contactData['ico_id'] ?? null;
+                    if ($icoId !== null && in_array((int) $icoId, $companyIds, true)) {
+                        $this->companyContactRepo->create((int) $icoId, $contactId);
+                    }
+                }
+            }
+
+            // 5. Handle staff assignments
+            // First, link employees to client via client_employees
+            // Then optionally assign to specific locations via employee_locations
+            $clientLocations = $this->locationRepo->findByClientId($clientDbId);
+            $validLocationIds = array_map('intval', array_column($clientLocations, 'id'));
+
+            $staff = $request->input('staff', []);
+            if (!is_array($staff)) {
+                $staff = [];
+            }
+            foreach ($staff as $s) {
+                if (!is_array($s)) {
+                    continue;
+                }
+                $employeeId = (int) ($s['employee_id'] ?? $s['employeeId'] ?? 0);
+                if ($employeeId <= 0) {
+                    continue;
+                }
+
+                // Link employee to client (main relationship)
+                if (!$this->clientEmployeeRepo->exists($clientDbId, $employeeId)) {
+                    $this->clientEmployeeRepo->create($clientDbId, $employeeId);
+                }
+
+                // Handle optional location assignments
+                $assignedObjects = $s['assigned_objects'] ?? $s['assignedObjects'] ?? [];
+                if (!is_array($assignedObjects)) {
+                    $assignedObjects = [];
+                }
+                $filteredLocations = array_filter(
+                    array_map('intval', $assignedObjects),
+                    fn($locId) => in_array($locId, $validLocationIds, true)
+                );
+                $this->employeeLocationRepo->syncEmployeeLocations(
+                    $employeeId,
+                    array_values($filteredLocations)
+                );
+            }
+
+            $db->commit();
+        } catch (\Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+
+        $client = $this->clientRepo->findById($clientDbId);
 
         Response::created($client, 'Klient byl vytvořen');
     }
@@ -358,6 +554,7 @@ class AdminController extends Controller
                 }
             }
 
+            // Handle staff assignments
             $clientLocations = $this->locationRepo->findByClientId($id);
             $validLocationIds = array_map('intval', array_column($clientLocations, 'id'));
 
@@ -365,25 +562,42 @@ class AdminController extends Controller
             if (!is_array($staff)) {
                 $staff = [];
             }
+
+            // Collect employee IDs and sync client_employees
+            $staffEmployeeIds = [];
             foreach ($staff as $s) {
                 if (!is_array($s)) {
                     continue;
                 }
                 $employeeId = (int) ($s['employee_id'] ?? $s['employeeId'] ?? 0);
+                if ($employeeId > 0) {
+                    $staffEmployeeIds[] = $employeeId;
+                }
+            }
+            $this->clientEmployeeRepo->syncClientEmployees($id, $staffEmployeeIds);
+
+            // Handle location assignments for each staff member
+            foreach ($staff as $s) {
+                if (!is_array($s)) {
+                    continue;
+                }
+                $employeeId = (int) ($s['employee_id'] ?? $s['employeeId'] ?? 0);
+                if ($employeeId <= 0) {
+                    continue;
+                }
+
                 $assignedObjects = $s['assigned_objects'] ?? $s['assignedObjects'] ?? [];
                 if (!is_array($assignedObjects)) {
                     $assignedObjects = [];
                 }
-                if ($employeeId > 0) {
-                    $filteredLocations = array_filter(
-                        array_map('intval', $assignedObjects),
-                        fn($locId) => in_array($locId, $validLocationIds, true)
-                    );
-                    $this->employeeLocationRepo->syncEmployeeLocations(
-                        $employeeId,
-                        array_values($filteredLocations)
-                    );
-                }
+                $filteredLocations = array_filter(
+                    array_map('intval', $assignedObjects),
+                    fn($locId) => in_array($locId, $validLocationIds, true)
+                );
+                $this->employeeLocationRepo->syncEmployeeLocations(
+                    $employeeId,
+                    array_values($filteredLocations)
+                );
             }
 
             $active = $request->input('active');
