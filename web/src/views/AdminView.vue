@@ -2,7 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  ShieldCheck, Users, Plus, Edit2, Power, PowerOff, Search, ExternalLink, ArrowRight, Loader2
+  ShieldCheck, Users, Plus, Edit2, Power, PowerOff, Search, ExternalLink, ArrowRight, Loader2,
+  Lightbulb,
 } from 'lucide-vue-next'
 import { adminService } from '../api'
 
@@ -47,6 +48,7 @@ const stats = computed(() => ({
   active:   clients.value.filter(c => c.active).length,
   inactive: clients.value.filter(c => !c.active).length,
 }))
+
 
 async function toggleActive(client) {
   try {
@@ -134,7 +136,29 @@ function formatDate(d) {
         </div>
       </div>
 
-      <div class="table-wrap" style="margin-top:16px;">
+      <!-- Empty state for no clients -->
+      <div v-if="filtered.length === 0 && !searchQuery" class="empty-state-guide" style="margin:20px 0;">
+        <div class="empty-state-guide-icon"><Users :size="28" /></div>
+        <div class="empty-state-guide-title">Zatím nemáte žádné klienty</div>
+        <div class="empty-state-guide-desc">
+          Klienti uvidí v portálu přehled faktur, personál a historii úklidů.
+        </div>
+        <button class="btn btn-primary" @click="newClient">
+          <Plus :size="16" /> Přidat prvního klienta
+        </button>
+        <div v-if="employeeStats.total === 0" class="empty-state-guide-tip">
+          <Lightbulb :size="14" style="vertical-align:middle;margin-right:4px;" />
+          Tip: Nejdříve přidejte zaměstnance, abyste je mohli přiřadit ke klientům.
+        </div>
+      </div>
+
+      <!-- Empty state for search with no results -->
+      <div v-else-if="filtered.length === 0" class="empty-list-hint" style="margin:20px 0; display:flex; align-items:center; gap:10px; padding:20px 16px; border:2px dashed var(--color-gray-200); border-radius:var(--radius-md); font-size:13px; color:var(--color-gray-500);">
+        <Users :size="28" /> Žádní klienti neodpovídají hledání.
+      </div>
+
+      <!-- Table with clients -->
+      <div v-else class="table-wrap" style="margin-top:16px;">
         <table class="data-table">
           <thead>
             <tr>

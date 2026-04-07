@@ -6,7 +6,7 @@ import {
   ArrowLeft, Save, Plus, Trash2, Building2, MapPin, User, Users,
   Lock, Phone, Mail, FileSignature, Clock, ChevronDown, ChevronUp,
   Eye, EyeOff, Upload, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight,
-  Globe, Shield, Copy, Loader2,
+  Globe, Shield, Copy, Loader2, HelpCircle, Lightbulb,
 } from 'lucide-vue-next'
 
 const route  = useRoute()
@@ -103,6 +103,19 @@ const allObjects = computed(() =>
   )
 )
 
+// ── Progress tracking for new client setup ─────────────────────────────────────
+const sectionProgress = computed(() => ({
+  basic: form.displayName.trim().length > 0,
+  logins: form.logins.some(l => l.email.trim().length > 0),
+  icos: form.icos.some(i => i.ico.trim().length > 0),
+}))
+
+const requiredCount = computed(() =>
+  [sectionProgress.value.basic, sectionProgress.value.logins, sectionProgress.value.icos].filter(Boolean).length
+)
+
+const progressPercent = computed(() => Math.round((requiredCount.value / 3) * 100))
+
 // ── Add / Remove helpers ──────────────────────────────────────────────────────
 function addLogin() {
   form.logins.push({ id: uid(), email: '', restriction: 'all', allowedIcos: [], showPass: false, tempPass: '' })
@@ -120,7 +133,7 @@ function addObject(ico) {
 function removeObject(ico, objId) { ico.objects = ico.objects.filter(o => o.id !== objId) }
 
 function addStaff() {
-  form.staff.push({ id: uid(), name: '', role: '', assignedObjects: [], tenure: '', bio: '', hobbies: '', phone: '', showRole: true, showTenure: true, showBio: true, showHobbies: true, showPhone: false, expanded: true })
+  form.staff.push({ id: uid(), name: '', role: '', assignedObjects: [], tenure: '', bio: '', hobbies: '', phone: '', showRole: true, showTenure: true, showBio: true, showHobbies: true, showPhone: false, showPhoto: false, expanded: true })
 }
 function removeStaff(id) { form.staff = form.staff.filter(s => s.id !== id) }
 
@@ -300,14 +313,34 @@ function toggleIcoRestriction(login, ico) {
 
       <!-- Left nav -->
       <nav class="section-nav">
+        <!-- Progress indicator for new clients -->
+        <div v-if="isNew" class="nav-progress">
+          <div class="nav-progress-bar">
+            <div class="nav-progress-fill" :style="{ width: progressPercent + '%' }" />
+          </div>
+          <span class="nav-progress-text">{{ requiredCount }}/3 povinných sekcí</span>
+        </div>
+
         <button
           v-for="sec in sections"
           :key="sec.id"
           class="snav-item"
-          :class="{ active: activeSection === sec.id }"
+          :class="{
+            active: activeSection === sec.id,
+            completed: (sec.id === 'sec-basic' && sectionProgress.basic) ||
+                       (sec.id === 'sec-logins' && sectionProgress.logins) ||
+                       (sec.id === 'sec-icos' && sectionProgress.icos)
+          }"
           @click="scrollToSection(sec.id)"
         >
-          <component :is="sec.icon" :size="15" />
+          <CheckCircle2
+            v-if="(sec.id === 'sec-basic' && sectionProgress.basic) ||
+                  (sec.id === 'sec-logins' && sectionProgress.logins) ||
+                  (sec.id === 'sec-icos' && sectionProgress.icos)"
+            :size="15"
+            class="snav-check"
+          />
+          <component v-else :is="sec.icon" :size="15" />
           <span>{{ sec.label }}</span>
         </button>
       </nav>
@@ -326,7 +359,12 @@ function toggleIcoRestriction(login, ico) {
               <p class="field-hint">Zobrazuje se klientovi v záhlaví portálu.</p>
             </div>
             <div class="form-group">
-              <label class="form-label">ID klienta</label>
+              <label class="form-label form-label-with-help">
+                ID klienta
+                <span class="field-help" data-tooltip="Jedinečný kód pro interní identifikaci. Používá se v URL a API. Po vytvoření nelze změnit.">
+                  <HelpCircle :size="14" />
+                </span>
+              </label>
               <div class="input-with-btn">
                 <input v-model="form.clientId" type="text" class="form-input" placeholder="CLI-XXX" :disabled="!isNew" />
                 <button v-if="isNew" class="btn btn-ghost btn-sm" @click="generateClientId" title="Vygenerovat">
@@ -375,8 +413,15 @@ function toggleIcoRestriction(login, ico) {
           </div>
           <p class="sec-desc">Každý účet má vlastní e-mail a heslo. Přístup lze omezit na konkrétní IČO.</p>
 
-          <div v-if="form.logins.length === 0" class="empty-list-hint">
-            <Lock :size="28" /> Žádné přihlašovací účty. Přidejte alespoň jeden.
+          <div v-if="form.logins.length === 0" class="empty-state-guide">
+            <div class="empty-state-guide-icon"><Lock :size="28" /></div>
+            <div class="empty-state-guide-title">Zatím nemáte žádné přihlašovací účty</div>
+            <div class="empty-state-guide-desc">
+              Každý účet umožňuje přístup do portálu. Můžete omezit viditelnost na konkrétní IČO.
+            </div>
+            <button class="btn btn-primary" @click="addLogin">
+              <Plus :size="16" /> Přidat první účet
+            </button>
           </div>
 
           <div class="login-list">
@@ -413,7 +458,12 @@ function toggleIcoRestriction(login, ico) {
 
               <!-- IČO restriction -->
               <div class="restriction-wrap">
-                <label class="form-label">Přístup k IČO</label>
+                <label class="form-label form-label-with-help">
+                  Přístup k IČO
+                  <span class="field-help" data-tooltip="Omezení přístupu na konkrétní IČO. Užitečné pro holdingové struktury, kde každý uživatel vidí jen 'své' údaje.">
+                    <HelpCircle :size="14" />
+                  </span>
+                </label>
                 <div class="restriction-options">
                   <label class="radio-option" :class="{ active: login.restriction === 'all' }">
                     <input type="radio" v-model="login.restriction" value="all" />
@@ -461,8 +511,19 @@ function toggleIcoRestriction(login, ico) {
             </button>
           </div>
 
-          <div v-if="form.icos.length === 0" class="empty-list-hint">
-            <Building2 :size="28" /> Žádná IČO. Přidejte první.
+          <div v-if="form.icos.length === 0" class="empty-state-guide">
+            <div class="empty-state-guide-icon"><Building2 :size="28" /></div>
+            <div class="empty-state-guide-title">Zatím nemáte žádná IČO</div>
+            <div class="empty-state-guide-desc">
+              IČO propojuje klienta s daty v systému – fakturami, docházkou a provozovnami.
+            </div>
+            <button class="btn btn-primary" @click="addIco">
+              <Plus :size="16" /> Přidat první IČO
+            </button>
+            <div class="empty-state-guide-tip">
+              <Lightbulb :size="14" style="vertical-align:middle;margin-right:4px;" />
+              Tip: Jeden klient může mít více IČO (např. holdingová struktura).
+            </div>
           </div>
 
           <div class="ico-cards">
@@ -674,8 +735,15 @@ function toggleIcoRestriction(login, ico) {
           </div>
           <p class="sec-desc">Každý pracovník je přiřazen k provozovnám a má vlastní nastavení GDPR viditelnosti.</p>
 
-          <div v-if="form.staff.length === 0" class="empty-list-hint">
-            <Users :size="28" /> Žádní pracovníci. Přidejte prvního.
+          <div v-if="form.staff.length === 0" class="empty-state-guide">
+            <div class="empty-state-guide-icon"><Users :size="28" /></div>
+            <div class="empty-state-guide-title">Zatím nemáte žádné pracovníky</div>
+            <div class="empty-state-guide-desc">
+              Pracovníci se zobrazí klientovi v portálu – přiřaďte je k provozovnám a nastavte GDPR.
+            </div>
+            <button class="btn btn-primary" @click="addStaff">
+              <Plus :size="16" /> Přidat prvního pracovníka
+            </button>
           </div>
 
           <div class="staff-list">
@@ -777,8 +845,15 @@ function toggleIcoRestriction(login, ico) {
           </div>
           <p class="sec-desc">Osoby na straně zákazníka – koho kontaktovat při fakturaci, plánování nebo řešení provozu. Lze přiřadit ke konkrétnímu IČO.</p>
 
-          <div v-if="form.contacts.length === 0" class="empty-list-hint">
-            <Phone :size="28" /> Žádné kontaktní osoby.
+          <div v-if="form.contacts.length === 0" class="empty-state-guide">
+            <div class="empty-state-guide-icon"><Phone :size="28" /></div>
+            <div class="empty-state-guide-title">Zatím nemáte žádné kontaktní osoby</div>
+            <div class="empty-state-guide-desc">
+              Přidejte osoby na straně klienta pro komunikaci ohledně fakturace či provozu.
+            </div>
+            <button class="btn btn-primary" @click="addContact">
+              <Plus :size="16" /> Přidat kontaktní osobu
+            </button>
           </div>
 
           <div class="contact-list">
@@ -954,6 +1029,14 @@ function toggleIcoRestriction(login, ico) {
   background: var(--color-light);
   color: var(--color-primary);
   font-weight: 600;
+}
+
+.snav-item.completed {
+  color: var(--color-success);
+}
+
+.snav-item .snav-check {
+  color: var(--color-success);
 }
 
 /* Form content */

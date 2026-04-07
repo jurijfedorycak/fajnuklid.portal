@@ -16,7 +16,8 @@ App Language: Czech
 
 1. Never commit anything, it must be reviewed by another developer first
 2. Dont use HTML alerts
-3. Always use CSS variables from `web/src/style.css` for colors, never hardcode color values
+3. Always use CSS variables from `web/src/style.css` for colors, never hardcode color values.
+4. Create a custom unique ID to each visual HTML element
 
 # Critical
 

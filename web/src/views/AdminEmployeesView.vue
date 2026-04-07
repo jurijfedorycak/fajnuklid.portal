@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   ArrowLeft, Users, Plus, Search, Trash2, Upload, FileText,
-  ChevronDown, ChevronUp, Eye, EyeOff, User, Save, CheckCircle2, Loader2,
+  ChevronDown, ChevronUp, Eye, EyeOff, User, Save, CheckCircle2, Loader2, Lightbulb,
 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { adminService } from '../api'
@@ -215,9 +215,22 @@ function toggleCount(emp) {
       </div>
 
       <!-- Empty state -->
-      <div v-if="filtered.length === 0" class="empty-list-hint" style="margin-top:16px;">
-        <Users :size="28" />
-        {{ searchQuery ? 'Žádní zaměstnanci neodpovídají hledání.' : 'Žádní zaměstnanci. Přidejte prvního.' }}
+      <div v-if="filtered.length === 0 && !searchQuery" class="empty-state-guide" style="margin-top:16px;">
+        <div class="empty-state-guide-icon"><Users :size="28" /></div>
+        <div class="empty-state-guide-title">Zatím nemáte žádné zaměstnance</div>
+        <div class="empty-state-guide-desc">
+          Zaměstnanci se zobrazí klientům v portálu. Každý má nastavení GDPR viditelnosti.
+        </div>
+        <button class="btn btn-primary" @click="addEmployee">
+          <Plus :size="16" /> Přidat prvního zaměstnance
+        </button>
+        <div class="empty-state-guide-tip">
+          <Lightbulb :size="14" style="vertical-align:middle;margin-right:4px;" />
+          Tip: Nezapomeňte nastavit, co z profilu bude klient vidět (GDPR).
+        </div>
+      </div>
+      <div v-else-if="filtered.length === 0" class="empty-list-hint" style="margin-top:16px;">
+        <Users :size="28" /> Žádní zaměstnanci neodpovídají hledání.
       </div>
 
       <!-- Employee cards -->

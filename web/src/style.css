@@ -406,3 +406,130 @@ input, select, textarea {
   .page-title { font-size: 18px; }
   .card { padding: 16px; }
 }
+
+/* ═══ ONBOARDING: Enhanced Empty States ═══ */
+.empty-state-guide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 24px;
+  border: 2px dashed var(--color-gray-300);
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-50);
+}
+.empty-state-guide-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--color-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  color: var(--color-mid);
+}
+.empty-state-guide-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-bottom: 8px;
+}
+.empty-state-guide-desc {
+  font-size: 13px;
+  color: var(--color-gray-600);
+  max-width: 320px;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+.empty-state-guide-tip {
+  font-size: 12px;
+  color: var(--color-gray-500);
+  background: var(--color-white);
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-gray-200);
+  margin-top: 12px;
+}
+
+/* ═══ ONBOARDING: Form Tooltips ═══ */
+.form-label-with-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.field-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-gray-400);
+  cursor: help;
+}
+.field-help:hover {
+  color: var(--color-mid);
+}
+.field-help[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  background: var(--color-primary);
+  color: white;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  border-radius: var(--radius-md);
+  white-space: normal;
+  width: max-content;
+  max-width: 260px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+  z-index: 100;
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+.field-help[data-tooltip]::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--color-primary);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+}
+.field-help:hover::after,
+.field-help:hover::before {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ═══ ONBOARDING: Progress Indicator ═══ */
+.nav-progress {
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--color-gray-50);
+  border-radius: var(--radius-md);
+}
+.nav-progress-bar {
+  height: 6px;
+  background: var(--color-gray-200);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.nav-progress-fill {
+  height: 100%;
+  background: var(--color-success);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.nav-progress-text {
+  font-size: 11px;
+  color: var(--color-gray-600);
+}
