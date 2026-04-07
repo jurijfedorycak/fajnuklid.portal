@@ -163,7 +163,7 @@ onMounted(async () => {
           objects: (i.objects || []).map(o => ({ ...o, id: uid(), expanded: false })),
         }))
         form.staff = (data.staff || []).map(s => ({ ...s, id: uid(), expanded: false }))
-        form.contacts = (data.contacts || []).map(c => ({ ...c, id: uid() }))
+        form.contacts = (data.contacts || []).map(c => ({ ...c, id: uid(), expanded: false }))
         otherClients.value = data.otherClients || []
       } else {
         error.value = response.message || 'Nepodařilo se načíst klienta'
@@ -254,7 +254,7 @@ const filteredEmployees = computed(() => {
 function removeStaff(id) { form.staff = form.staff.filter(s => s.id !== id) }
 
 function addContact() {
-  form.contacts.push({ id: uid(), name: '', role: '', phone: '', email: '', scope: 'global', icoId: null })
+  form.contacts.push({ id: uid(), name: '', role: '', phone: '', email: '', scope: 'global', icoId: null, expanded: true })
 }
 function removeContact(id) { form.contacts = form.contacts.filter(c => c.id !== id) }
 
@@ -1079,58 +1079,77 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div class="contact-list">
-            <div v-for="(contact, contactIndex) in form.contacts" :key="contact.id" class="card contact-edit-card">
-              <div class="contact-edit-header">
-                <div class="contact-scope-badge">
-                  <Globe v-if="contact.scope === 'global'" :size="13" />
-                  <Building2 v-else :size="13" />
-                  {{ contact.scope === 'global' ? 'Celý účet' : 'Per IČO' }}
+          <div class="contact-cards">
+            <div v-for="(contact, contactIndex) in form.contacts" :key="contact.id" class="card contact-card">
+
+              <!-- Contact header (collapsible) -->
+              <div :id="`contact-card-header-${contactIndex}`" class="contact-card-header" role="button" tabindex="0" @click="contact.expanded = !contact.expanded" @keydown.enter="contact.expanded = !contact.expanded" @keydown.space.prevent="contact.expanded = !contact.expanded" :aria-expanded="contact.expanded" :aria-controls="`contact-card-body-${contactIndex}`">
+                <div class="contact-title-wrap">
+                  <Phone :size="16" class="text-mid" />
+                  <div>
+                    <span class="contact-card-name">{{ contact.name || '(Nový kontakt)' }}</span>
+                    <span v-if="contact.role" class="contact-card-role">{{ contact.role }}</span>
+                  </div>
                 </div>
-                <button class="btn btn-ghost btn-sm danger-hover" @click="removeContact(contact.id)"><Trash2 :size="14" /></button>
-              </div>
-              <div class="field-grid-2">
-                <div class="form-group">
-                  <label class="form-label">Jméno</label>
-                  <input :id="`contact-name-${contactIndex}`" v-model="contact.name" type="text" class="form-input" placeholder="Jméno Příjmení" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Pozice ve firmě</label>
-                  <input :id="`contact-role-${contactIndex}`" v-model="contact.role" type="text" class="form-input" placeholder="Facility Manager, Ekonomka…" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Telefon</label>
-                  <input :id="`contact-phone-${contactIndex}`" v-model="contact.phone" type="tel" class="form-input" placeholder="+420 7xx xxx xxx" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">E-mail</label>
-                  <input :id="`contact-email-${contactIndex}`" v-model="contact.email" type="email" class="form-input" placeholder="jan@firma.cz" />
+                <div class="contact-header-right">
+                  <span v-if="contact.scope === 'global'" class="badge badge-info" style="font-size:11px;">Celý účet</span>
+                  <span v-else class="badge badge-gray" style="font-size:11px;">
+                    {{ form.icos.find(i => i.id === contact.icoId)?.officialName || 'Konkrétní IČO' }}
+                  </span>
+                  <button class="btn btn-ghost btn-sm danger-hover" aria-label="Smazat kontakt" @click.stop="removeContact(contact.id)">
+                    <Trash2 :size="14" />
+                  </button>
+                  <ChevronUp v-if="contact.expanded" :size="16" class="text-muted" />
+                  <ChevronDown v-else :size="16" class="text-muted" />
                 </div>
               </div>
 
-              <!-- Scope -->
-              <div class="restriction-wrap" style="margin-top:0;">
-                <label class="form-label">Platí pro</label>
-                <div class="restriction-options">
-                  <label class="radio-option" :class="{ active: contact.scope === 'global' }">
-                    <input type="radio" v-model="contact.scope" value="global" />
-                    <Globe :size="13" /> Celý zákaznický účet
-                  </label>
-                  <label class="radio-option" :class="{ active: contact.scope === 'icos' }">
-                    <input type="radio" v-model="contact.scope" value="icos" />
-                    <Building2 :size="13" /> Konkrétní IČO / firma
-                  </label>
+              <div v-if="contact.expanded" :id="`contact-card-body-${contactIndex}`" class="contact-card-body">
+
+                <!-- Basic fields -->
+                <div class="field-grid-2">
+                  <div class="form-group">
+                    <label class="form-label">Jméno</label>
+                    <input :id="`contact-name-${contactIndex}`" v-model="contact.name" type="text" class="form-input" placeholder="Jméno Příjmení" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Pozice ve firmě</label>
+                    <input :id="`contact-role-${contactIndex}`" v-model="contact.role" type="text" class="form-input" placeholder="Facility Manager, Ekonomka…" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Telefon</label>
+                    <input :id="`contact-phone-${contactIndex}`" v-model="contact.phone" type="tel" class="form-input" placeholder="+420 7xx xxx xxx" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">E-mail</label>
+                    <input :id="`contact-email-${contactIndex}`" v-model="contact.email" type="email" class="form-input" placeholder="jan@firma.cz" />
+                  </div>
                 </div>
-                <div v-if="contact.scope === 'icos'" class="form-group" style="margin-top:10px;">
-                  <label class="form-label">IČO / Firma</label>
-                  <select v-model="contact.icoId" class="form-input">
-                    <option :value="null">– vyberte –</option>
-                    <option v-for="ico in form.icos" :key="ico.id" :value="ico.id">
-                      {{ ico.officialName }} ({{ ico.ico }})
-                    </option>
-                  </select>
+
+                <!-- Scope -->
+                <div class="restriction-wrap">
+                  <label class="form-label">Platí pro</label>
+                  <div class="restriction-options">
+                    <label class="radio-option" :class="{ active: contact.scope === 'global' }">
+                      <input type="radio" v-model="contact.scope" value="global" />
+                      <Globe :size="13" /> Celý zákaznický účet
+                    </label>
+                    <label class="radio-option" :class="{ active: contact.scope === 'icos' }">
+                      <input type="radio" v-model="contact.scope" value="icos" />
+                      <Building2 :size="13" /> Konkrétní IČO / firma
+                    </label>
+                  </div>
+                  <div v-if="contact.scope === 'icos'" class="form-group" style="margin-top:10px;">
+                    <label class="form-label">IČO / Firma</label>
+                    <select :id="`contact-ico-${contactIndex}`" v-model="contact.icoId" class="form-input">
+                      <option :value="null">– vyberte –</option>
+                      <option v-for="ico in form.icos" :key="ico.id" :value="ico.id">
+                        {{ ico.officialName }} ({{ ico.ico }})
+                      </option>
+                    </select>
+                  </div>
                 </div>
-              </div>
+              </div><!-- /contact-card-body -->
             </div>
           </div>
         </section>
@@ -1762,28 +1781,46 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-/* Contacts */
-.contact-list { display: flex; flex-direction: column; gap: 12px; }
+/* Contact cards */
+.contact-cards { display: flex; flex-direction: column; gap: 14px; }
 
-.contact-edit-card { padding: 16px; }
+.contact-card { padding: 0; overflow: hidden; }
 
-.contact-edit-header {
+.contact-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  padding: 14px 18px;
+  cursor: pointer;
+  gap: 12px;
+}
+.contact-card-header:hover { background: var(--color-gray-50); }
+
+.contact-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
 }
 
-.contact-scope-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+.contact-card-name { font-weight: 600; color: var(--color-primary); font-size: 15px; }
+
+.contact-card-role {
   font-size: 12px;
-  font-weight: 500;
-  padding: 3px 10px;
-  border-radius: var(--radius-pill);
-  background: var(--color-light);
-  color: var(--color-primary);
+  color: var(--color-gray-500);
+  margin-left: 8px;
+}
+
+.contact-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.contact-card-body {
+  padding: 0 18px 18px;
+  border-top: 1px solid var(--color-gray-100);
+  padding-top: 16px;
 }
 
 /* Empty hints */
