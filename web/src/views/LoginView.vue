@@ -1,10 +1,11 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Eye,
   EyeOff,
   LogIn,
+  Loader2,
   ClipboardCheck,
   FileText,
   Users,
@@ -23,11 +24,17 @@ const password = ref('')
 const showPassword = ref(false)
 const error = ref('')
 const loading = ref(false)
+const errorMessageRef = ref(null)
+
+// Year is static for the duration of the session
+const currentYear = new Date().getFullYear()
 
 async function handleLogin() {
   error.value = ''
   if (!email.value || !password.value) {
     error.value = 'Zadejte prosím email a heslo.'
+    await nextTick()
+    errorMessageRef.value?.focus()
     return
   }
 
@@ -39,9 +46,13 @@ async function handleLogin() {
       router.push(isAdmin.value ? '/admin/clients' : '/')
     } else {
       error.value = result.message || 'Neplatné přihlašovací údaje'
+      await nextTick()
+      errorMessageRef.value?.focus()
     }
   } catch (err) {
     error.value = err.message || 'Přihlášení se nezdařilo'
+    await nextTick()
+    errorMessageRef.value?.focus()
   } finally {
     loading.value = false
   }
@@ -83,9 +94,14 @@ const benefits = [
 
 <template>
   <div id="login-page" class="login-page">
+    <!-- Skip link for keyboard users -->
+    <a id="login-skip-link" href="#login-form" class="skip-link">
+      Přeskočit na přihlášení
+    </a>
+
     <div id="login-container" class="login-container">
       <!-- Marketing Panel -->
-      <div id="login-marketing-panel" class="login-marketing">
+      <div id="login-marketing-panel" class="login-marketing" aria-hidden="true">
         <div id="login-marketing-content" class="login-marketing-content">
           <h1 id="login-marketing-title" class="login-marketing-title">
             Klientský portál<br />
@@ -102,7 +118,7 @@ const benefits = [
               :id="`login-benefit-${index}`"
               class="login-benefit"
             >
-              <div class="login-benefit-icon">
+              <div class="login-benefit-icon" aria-hidden="true">
                 <component :is="benefit.icon" :size="20" />
               </div>
               <div class="login-benefit-text">
@@ -118,7 +134,7 @@ const benefits = [
               id="login-contact-link"
               href="https://fajnuklid.cz"
               target="_blank"
-              rel="noopener"
+              rel="noopener noreferrer"
             >
               Zjistěte více o našich službách
             </a>
@@ -156,8 +172,8 @@ const benefits = [
                 id="login-email-input"
                 v-model="email"
                 type="email"
+                inputmode="email"
                 class="form-input"
-                placeholder="vas@email.cz"
                 autocomplete="email"
                 aria-required="true"
                 :aria-describedby="error ? 'login-error-message' : undefined"
@@ -175,7 +191,6 @@ const benefits = [
                   v-model="password"
                   :type="showPassword ? 'text' : 'password'"
                   class="form-input"
-                  placeholder="********"
                   autocomplete="current-password"
                   aria-required="true"
                   :aria-describedby="error ? 'login-error-message' : undefined"
@@ -186,9 +201,10 @@ const benefits = [
                   class="input-eye"
                   @click="showPassword = !showPassword"
                   :aria-label="showPassword ? 'Skrýt heslo' : 'Zobrazit heslo'"
+                  :aria-pressed="showPassword"
                 >
-                  <EyeOff v-if="showPassword" :size="16" />
-                  <Eye v-else :size="16" />
+                  <EyeOff v-if="showPassword" :size="16" aria-hidden="true" />
+                  <Eye v-else :size="16" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -196,8 +212,11 @@ const benefits = [
             <div
               v-if="error"
               id="login-error-message"
+              ref="errorMessageRef"
               class="alert alert-danger auth-alert"
               role="alert"
+              aria-live="assertive"
+              tabindex="-1"
             >
               {{ error }}
             </div>
@@ -208,7 +227,8 @@ const benefits = [
               class="btn btn-primary btn-full btn-lg"
               :disabled="loading"
             >
-              <LogIn v-if="!loading" :size="18" />
+              <Loader2 v-if="loading" :size="18" class="spin" aria-hidden="true" />
+              <LogIn v-else :size="18" aria-hidden="true" />
               <span>{{ loading ? 'Přihlašuji...' : 'Přihlásit se' }}</span>
             </button>
 
@@ -221,7 +241,7 @@ const benefits = [
         </div>
 
         <footer id="login-footer" class="login-footer">
-          © {{ new Date().getFullYear() }} FAJN UKLID s.r.o. - Klientský portál
+          © {{ currentYear }} FAJN UKLID s.r.o. - Klientský portál
         </footer>
       </div>
     </div>
@@ -244,20 +264,20 @@ const benefits = [
   flex: 1;
   display: none;
   background: var(--color-primary);
-  padding: 48px;
+  padding: 3rem;
   color: var(--color-white);
 }
 
 .login-marketing-content {
-  max-width: 480px;
+  max-width: 30rem;
   margin: auto;
 }
 
 .login-marketing-title {
-  font-size: 32px;
+  font-size: 2rem;
   font-weight: 700;
   line-height: 1.2;
-  margin-bottom: 16px;
+  margin-bottom: 1rem;
 }
 
 .login-marketing-highlight {
@@ -265,30 +285,30 @@ const benefits = [
 }
 
 .login-marketing-subtitle {
-  font-size: 16px;
+  font-size: 1rem;
   opacity: 0.85;
-  margin-bottom: 40px;
+  margin-bottom: 2.5rem;
   line-height: 1.6;
 }
 
 .login-benefits {
   list-style: none;
   padding: 0;
-  margin: 0 0 40px 0;
+  margin: 0 0 2.5rem 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 1.25rem;
 }
 
 .login-benefit {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: 0.875rem;
 }
 
 .login-benefit-icon {
-  width: 40px;
-  height: 40px;
+  width: 2.5rem;
+  height: 2.5rem;
   background: rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-md);
   display: flex;
@@ -300,24 +320,24 @@ const benefits = [
 .login-benefit-text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.125rem;
 }
 
 .login-benefit-text strong {
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
 .login-benefit-text span {
-  font-size: 13px;
+  font-size: 0.8125rem;
   opacity: 0.75;
   line-height: 1.4;
 }
 
 .login-marketing-cta {
-  font-size: 13px;
+  font-size: 0.8125rem;
   opacity: 0.7;
-  padding-top: 24px;
+  padding-top: 1.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.15);
 }
 
@@ -337,7 +357,7 @@ const benefits = [
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 1.5rem;
   min-height: 100vh;
 }
 
@@ -345,66 +365,67 @@ const benefits = [
   background: var(--color-white);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-auth-card);
-  padding: 40px 36px;
+  padding: 2.5rem 2.25rem;
   width: 100%;
-  max-width: 420px;
+  max-width: 26.25rem;
 }
 
 .login-logo {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 2rem;
 }
 
 .login-logo-wrapper {
   background: var(--color-primary);
-  border-radius: 14px;
-  padding: 16px 24px;
+  border-radius: 0.875rem;
+  padding: 1rem 1.5rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 12px;
+  margin-bottom: 0.75rem;
 }
 
 .login-logo-img {
-  height: 40px;
+  height: 2.5rem;
   width: auto;
 }
 
 .login-tagline {
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--color-gray-600);
 }
 
 .login-footer {
-  margin-top: 24px;
-  font-size: 12px;
+  margin-top: 1.5rem;
+  font-size: 0.75rem;
   color: var(--color-text-on-gradient);
   text-align: center;
 }
 
 /* Desktop: Show marketing panel */
-@media (min-width: 1024px) {
+@media (min-width: 64rem) {
   .login-marketing {
     display: flex;
   }
 
   .login-form-panel {
-    flex: 0 0 520px;
+    flex: 0 0 32.5rem;
     background: var(--gradient-auth-bg);
   }
 }
 
 /* Tablet adjustments */
-@media (max-width: 1023px) and (min-width: 600px) {
+@media (max-width: 63.9375rem) and (min-width: 37.5rem) {
   .login-card {
-    padding: 48px 40px;
+    padding: 3rem 2.5rem;
   }
 }
 
 /* Mobile adjustments */
-@media (max-width: 480px) {
+@media (max-width: 30rem) {
   .login-card {
-    padding: 32px 24px;
+    padding: 2rem 1.5rem;
+    box-shadow: var(--shadow-lg);
   }
 }
 </style>
