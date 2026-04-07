@@ -50,7 +50,7 @@ jobs:
           port: ${{ secrets.TEST_FTP_PORT || '21' }}
           username: ${{ secrets.TEST_FTP_USERNAME }}
           password: ${{ secrets.TEST_FTP_PASSWORD }}
-          protocol: ftps
+          protocol: ftp
           local-dir: ./deploy/
           server-dir: /fajnuklid/
           exclude: |
