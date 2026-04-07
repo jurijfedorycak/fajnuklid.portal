@@ -7,28 +7,54 @@
 }
 
 :root {
+  /* Primary brand colors */
   --color-primary: #162438;
-  --color-mid: #667ea1;
-  --color-light: #d1dff0;
-  --color-light-hover: #b8cde8;
-  --color-white: #ffffff;
-  --color-gray-50: #f8f9fa;
-  --color-gray-100: #f1f3f5;
-  --color-gray-200: #e9ecef;
-  --color-gray-300: #dee2e6;
-  --color-gray-400: #ced4da;
-  --color-gray-500: #adb5bd;
-  --color-gray-600: #6c757d;
-  --color-gray-700: #495057;
-  --color-gray-800: #343a40;
-  --color-danger: #dc3545;
-  --color-danger-hover: #bb2d3b;
-  --color-danger-light: #f8d7da;
-  --color-success: #198754;
-  --color-success-light: #d1e7dd;
-  --color-warning: #e67e00;
-  --color-warning-light: #fff3cd;
   --color-primary-hover: #1e3554;
+  --color-accent: #3b9eb5;
+  --color-accent-hover: #2d8a9f;
+
+  /* Neutral grays */
+  --color-white: #ffffff;
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+
+  /* Legacy color aliases (for compatibility) */
+  --color-mid: var(--color-accent);
+  --color-light: #e0f2f7;
+  --color-light-hover: #cce7ef;
+
+  /* Semantic colors */
+  --color-danger: #ef4444;
+  --color-danger-hover: #dc2626;
+  --color-danger-light: #fef2f2;
+  --color-success: #10b981;
+  --color-success-light: #ecfdf5;
+  --color-warning: #f59e0b;
+  --color-warning-light: #fffbeb;
+
+  /* Sidebar light theme */
+  --sidebar-bg: var(--color-white);
+  --sidebar-text: var(--color-gray-800);
+  --sidebar-text-muted: var(--color-gray-500);
+  --sidebar-active-bg: var(--color-gray-100);
+  --sidebar-active-text: var(--color-gray-900);
+  --sidebar-active-accent: var(--color-accent);
+  --sidebar-border: var(--color-gray-200);
+
+  /* Card styling */
+  --card-bg: var(--color-white);
+  --card-radius: 16px;
+
+  /* Page background */
+  --page-bg: var(--color-gray-50);
 
   /* Auth page colors */
   --gradient-auth-bg: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary) 35%, #1e3554 50%, var(--color-light) 100%);
@@ -57,7 +83,7 @@ body {
   font-family: 'Rubik', sans-serif;
   font-size: 14px;
   color: var(--color-gray-800);
-  background: var(--color-gray-50);
+  background: var(--page-bg);
   line-height: 1.5;
 }
 
@@ -66,11 +92,11 @@ body {
 }
 
 a {
-  color: var(--color-mid);
+  color: var(--color-accent);
   text-decoration: none;
 }
 a:hover {
-  color: var(--color-primary);
+  color: var(--color-accent-hover);
 }
 
 button {
@@ -103,10 +129,10 @@ input, select, textarea {
 
 /* Shared card */
 .card {
-  background: var(--color-white);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  padding: 20px;
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  box-shadow: var(--shadow-sm);
+  padding: 24px;
 }
 
 /* Shared button styles */
@@ -414,7 +440,7 @@ input, select, textarea {
 /* Section separator in sidebar */
 .sidebar-sep {
   height: 1px;
-  background: rgba(255,255,255,0.1);
+  background: var(--sidebar-border);
   margin: 8px 12px;
 }
 

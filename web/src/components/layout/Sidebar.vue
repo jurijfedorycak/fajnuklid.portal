@@ -3,10 +3,10 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   LayoutDashboard, FileText, Users, FileSignature,
-  Clock, Phone, Settings, LogOut, UserCog, Palette,
+  Clock, Phone, Settings, LogOut, UserCog, Palette, ArrowRight,
 } from 'lucide-vue-next'
 import { useAuth } from '../../stores/auth'
-import logoSrc from '../../assets/logo.svg'
+import logoDarkSrc from '../../assets/logo-dark.svg'
 
 defineProps({ open: Boolean })
 const emit = defineEmits(['close'])
@@ -64,22 +64,11 @@ function initials(name) {
   <aside class="sidebar" :class="{ open }">
     <!-- Logo -->
     <div id="sidebar-logo" class="sidebar-logo">
-      <img :src="logoSrc" alt="Fajn Úklid" class="sidebar-logo-img" />
+      <img :src="logoDarkSrc" alt="Fajn Úklid" class="sidebar-logo-img" />
     </div>
-
-    <!-- Client info -->
-    <div id="sidebar-client" class="sidebar-client">
-      <div id="sidebar-client-avatar" class="avatar avatar-sm client-avatar">{{ initials(displayName) }}</div>
-      <div class="client-info">
-        <div id="sidebar-client-name" class="client-name">{{ displayName }}</div>
-        <div id="sidebar-client-ico" class="client-ico" v-if="activeIco && !isAdmin">IČO: {{ activeIco }}</div>
-      </div>
-    </div>
-
-    <div class="sidebar-sep" />
 
     <!-- Nav -->
-    <nav class="sidebar-nav">
+    <nav id="sidebar-nav-main" class="sidebar-nav">
       <button
         v-for="item in navItems"
         :key="item.route"
@@ -93,27 +82,42 @@ function initials(name) {
       </button>
     </nav>
 
-    <div class="sidebar-sep" />
+    <!-- Bottom section: settings, client info, logout -->
+    <div id="sidebar-bottom-section" class="sidebar-bottom-section">
+      <div class="sidebar-sep" />
 
-    <!-- Bottom items -->
-    <nav class="sidebar-nav sidebar-bottom">
-      <button
-        v-for="item in bottomItems"
-        :key="item.route"
-        :id="`sidebar-nav-${item.name.toLowerCase()}`"
-        class="nav-item"
-        :class="{ active: isActive(item.route) }"
-        @click="navigate(item.route)"
-      >
-        <component :is="item.icon" class="nav-icon" :size="18" />
-        <span class="nav-label">{{ item.name }}</span>
-      </button>
+      <!-- Settings -->
+      <nav id="sidebar-nav-bottom" class="sidebar-nav">
+        <button
+          v-for="item in bottomItems"
+          :key="item.route"
+          :id="`sidebar-nav-${item.name.toLowerCase()}`"
+          class="nav-item"
+          :class="{ active: isActive(item.route) }"
+          @click="navigate(item.route)"
+        >
+          <component :is="item.icon" class="nav-icon" :size="18" />
+          <span class="nav-label">{{ item.name }}</span>
+        </button>
+      </nav>
 
-      <button id="sidebar-logout-btn" class="nav-item logout-item" @click="handleLogout">
-        <LogOut class="nav-icon" :size="18" />
-        <span class="nav-label">Odhlásit se</span>
+      <div class="sidebar-sep" />
+
+      <!-- Client info -->
+      <div id="sidebar-client" class="sidebar-client">
+        <div id="sidebar-client-avatar" class="avatar avatar-sm client-avatar">{{ initials(displayName) }}</div>
+        <div class="client-info">
+          <div id="sidebar-client-name" class="client-name">{{ displayName }}</div>
+          <div id="sidebar-client-ico" class="client-ico" v-if="activeIco && !isAdmin">IČO: {{ activeIco }}</div>
+        </div>
+      </div>
+
+      <!-- Logout -->
+      <button id="sidebar-logout-btn" class="logout-btn" @click="handleLogout">
+        <span class="logout-label">Odhlásit se</span>
+        <ArrowRight class="logout-icon" :size="16" />
       </button>
-    </nav>
+    </div>
   </aside>
 </template>
 
@@ -124,19 +128,21 @@ function initials(name) {
   left: 0;
   width: var(--sidebar-width);
   height: 100vh;
-  background: var(--color-primary);
-  color: white;
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
   z-index: 100;
   transition: transform var(--transition);
+  border-right: 1px solid var(--sidebar-border);
 }
 
 /* Mobile: hidden by default, slides in */
 @media (max-width: 768px) {
   .sidebar {
     transform: translateX(-100%);
+    box-shadow: var(--shadow-lg);
   }
   .sidebar.open {
     transform: translateX(0);
@@ -149,12 +155,71 @@ function initials(name) {
   align-items: center;
   justify-content: flex-start;
   padding: 20px 16px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid var(--sidebar-border);
 }
 
 .sidebar-logo-img {
   height: 32px;
   width: auto;
+}
+
+/* Nav */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  color: var(--sidebar-text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 400;
+  transition: var(--transition);
+  position: relative;
+  width: 100%;
+}
+
+.nav-item:hover {
+  background: var(--color-gray-100);
+  color: var(--sidebar-text);
+}
+
+.nav-item.active {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active-text);
+  font-weight: 500;
+}
+
+.nav-icon {
+  flex-shrink: 0;
+  color: var(--sidebar-text-muted);
+}
+
+.nav-item:hover .nav-icon {
+  color: var(--sidebar-text);
+}
+
+.nav-item.active .nav-icon {
+  color: var(--sidebar-active-text);
+}
+
+.nav-label {
+  flex: 1;
+}
+
+/* Bottom section */
+.sidebar-bottom-section {
+  margin-top: auto;
+  padding-bottom: 12px;
 }
 
 /* Client info */
@@ -167,6 +232,7 @@ function initials(name) {
 
 .client-avatar {
   background: var(--color-mid);
+  color: var(--color-white);
   flex-shrink: 0;
 }
 
@@ -180,67 +246,56 @@ function initials(name) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: white;
+  color: var(--sidebar-text);
 }
 
 .client-ico {
   font-size: 11px;
-  color: rgba(255,255,255,0.55);
+  color: var(--sidebar-text-muted);
   margin-top: 1px;
 }
 
-/* Nav */
-.sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  padding: 6px 8px;
-}
-
-.sidebar-bottom {
-  margin-top: auto;
-  padding-bottom: 12px;
-}
-
-.nav-item {
+/* Logout button */
+.logout-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: 8px;
-  color: rgba(255,255,255,0.7);
+  justify-content: space-between;
+  width: calc(100% - 16px);
+  margin: 4px 8px 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
   background: transparent;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 14px;
+  border: 1px solid var(--sidebar-border);
+  color: var(--sidebar-text-muted);
+  font-size: 13px;
   font-weight: 400;
+  cursor: pointer;
   transition: var(--transition);
-  position: relative;
-  width: 100%;
 }
 
-.nav-item:hover {
-  background: rgba(255,255,255,0.08);
-  color: white;
+.logout-btn:hover {
+  background: var(--color-danger-light);
+  border-color: var(--color-danger-light);
+  color: var(--color-danger);
 }
 
-.nav-item.active {
-  background: rgba(255,255,255,0.12);
-  color: white;
-  font-weight: 500;
-  box-shadow: inset 3px 0 0 var(--color-light);
+.logout-label {
+  flex: 1;
+  text-align: left;
 }
 
-.nav-icon {
+.logout-icon {
   flex-shrink: 0;
 }
 
-.nav-label {
-  flex: 1;
+/* Accessibility: Focus styles */
+.nav-item:focus-visible {
+  outline: 2px solid var(--color-mid);
+  outline-offset: 2px;
 }
 
-.logout-item:hover {
-  background: rgba(220, 53, 69, 0.15);
-  color: var(--color-danger-light);
+.logout-btn:focus-visible {
+  outline: 2px solid var(--color-mid);
+  outline-offset: 2px;
 }
 </style>
