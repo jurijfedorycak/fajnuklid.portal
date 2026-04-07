@@ -52,7 +52,7 @@ jobs:
           password: ${{ secrets.TEST_FTP_PASSWORD }}
           protocol: ftp
           local-dir: ./deploy/
-          server-dir: /fajnuklid/
+          server-dir: /
           exclude: |
             **/.git*
             **/.git*/**
