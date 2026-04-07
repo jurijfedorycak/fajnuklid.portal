@@ -24,3 +24,4 @@ App Language: Czech, but use English URL routing
 1. After each code change run a subagent code review. Address all provided feedback. Repeat until code review is clean.
 2. Maintain DB schema in files database-schema.drawio and schema.sql with each DB migration.
 3. For good API performance, always create exactly 1 API controller for each page, tab or modal. This single controller will serve all required data on that specific page. Load only required data, dont preload anything further.
+4. Maintain comprehensive unit tests for all backend services and repositories. Run `./vendor/bin/phpunit` from the api directory after all backend code changes.

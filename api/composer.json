@@ -19,7 +19,13 @@
             "App\\Exceptions\\": "exceptions/",
             "App\\Helpers\\": "helpers/",
             "App\\Middleware\\": "middleware/",
-            "App\\Repositories\\": "repositories/"
+            "App\\Repositories\\": "repositories/",
+            "App\\Services\\": "services/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
         }
     },
     "config": {
