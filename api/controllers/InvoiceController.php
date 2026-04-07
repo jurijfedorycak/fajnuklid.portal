@@ -8,46 +8,103 @@ use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\CompanyRepository;
+use App\Services\IDokladService;
+use App\Exceptions\NotFoundException;
 
 class InvoiceController extends Controller
 {
     private CompanyRepository $companyRepo;
+    private IDokladService $idokladService;
 
     public function __construct()
     {
         $this->companyRepo = new CompanyRepository();
+        $this->idokladService = new IDokladService();
     }
 
     public function index(Request $request): void
     {
         $user = $request->getUser();
         $userId = $user['id'];
+        $selectedIco = $request->query('ico');
 
         // Get user's companies
         $companies = $this->companyRepo->findByUserId($userId);
 
         // Build IČO list for multi-company support
         $icos = [];
+        $validIcos = [];
         foreach ($companies as $company) {
+            $ico = $company['registration_number'] ?? '';
             $icos[] = [
-                'ico' => $company['registration_number'] ?? '',
+                'ico' => $ico,
                 'name' => $company['name'] ?? '',
             ];
+            $validIcos[] = $ico;
         }
 
-        // TODO: Integrate with iDoklad or invoice table when available
-        // For now, return empty invoice list
+        // Determine active IČO - validate that selectedIco belongs to user's companies
+        $activeIco = null;
+        if ($selectedIco !== null && in_array($selectedIco, $validIcos, true)) {
+            $activeIco = $selectedIco;
+        }
+        if ($activeIco === null && !empty($icos)) {
+            $activeIco = $icos[0]['ico'];
+        }
+
+        // Get invoices from local cache
+        $invoices = $this->idokladService->getInvoicesForUser($userId, $activeIco);
+        $totals = $this->idokladService->getTotalsForUser($userId, $activeIco);
+
+        // Get last sync time for active company
+        $lastSync = null;
+        if ($activeIco !== null) {
+            foreach ($companies as $company) {
+                if ($company['registration_number'] === $activeIco) {
+                    $lastSync = $this->idokladService->getLastSyncTime((int) $company['id']);
+                    break;
+                }
+            }
+        }
+
         Response::success([
-            'invoices' => [],
+            'invoices' => $invoices,
             'icos' => $icos,
-            'activeIco' => $icos[0]['ico'] ?? null,
-            'totals' => [
-                'all' => 0,
-                'paid' => 0,
-                'unpaid' => 0,
-                'overdue' => 0,
-                'debt' => 0,
-            ],
+            'activeIco' => $activeIco,
+            'totals' => $totals,
+            'lastSync' => $lastSync,
+            'isConfigured' => $this->idokladService->isConfigured(),
         ]);
+    }
+
+    public function downloadPdf(Request $request, int $id): void
+    {
+        $user = $request->getUser();
+        $userId = $user['id'];
+
+        $pdfContent = $this->idokladService->getInvoicePdf($id, $userId);
+
+        if ($pdfContent === null) {
+            throw new NotFoundException('PDF není dostupné');
+        }
+
+        $filename = $this->idokladService->getInvoiceFilename($id);
+
+        Response::pdf($pdfContent, $filename);
+    }
+
+    public function sync(Request $request): void
+    {
+        $user = $request->getUser();
+        $userId = $user['id'];
+
+        if (!$this->idokladService->isConfigured()) {
+            Response::error('iDoklad není nakonfigurován', 503);
+            return;
+        }
+
+        $result = $this->idokladService->syncInvoicesForUser($userId);
+
+        Response::success($result);
     }
 }

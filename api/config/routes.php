@@ -39,6 +39,8 @@ $router->group(['middleware' => [AuthMiddleware::class]], function (Router $rout
 
     // Invoices - client invoices
     $router->get('/invoices', 'InvoiceController@index');
+    $router->get('/invoices/{id}/pdf', 'InvoiceController@downloadPdf');
+    $router->post('/invoices/sync', 'InvoiceController@sync');
 
     // Settings - user preferences
     $router->get('/settings', 'SettingsController@index');

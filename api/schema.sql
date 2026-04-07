@@ -247,4 +247,48 @@ CREATE TABLE `company_users` (
     CONSTRAINT `fk_company_users_user` FOREIGN KEY (`user_id`) REFERENCES `login_accounts` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ===========================
+-- iDoklad Integration tables
+-- ===========================
+
+-- ----------------------------
+-- Table: idoklad_tokens (OAuth2 token storage)
+-- ----------------------------
+DROP TABLE IF EXISTS `idoklad_tokens`;
+CREATE TABLE `idoklad_tokens` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `access_token` TEXT NOT NULL,
+    `expires_at` DATETIME NOT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------
+-- Table: invoices (cache from iDoklad)
+-- ----------------------------
+DROP TABLE IF EXISTS `invoices`;
+CREATE TABLE `invoices` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `idoklad_id` INT UNSIGNED NOT NULL COMMENT 'iDoklad invoice ID',
+    `company_id` INT UNSIGNED NOT NULL,
+    `document_number` VARCHAR(50) NOT NULL,
+    `variable_symbol` VARCHAR(20) NULL,
+    `date_issued` DATE NOT NULL,
+    `date_due` DATE NOT NULL,
+    `date_paid` DATE NULL,
+    `total_amount` DECIMAL(12,2) NOT NULL,
+    `currency_code` VARCHAR(3) NOT NULL DEFAULT 'CZK',
+    `is_paid` TINYINT(1) NOT NULL DEFAULT 0,
+    `payment_status` ENUM('unpaid','paid','partial','overdue') NOT NULL DEFAULT 'unpaid',
+    `description` VARCHAR(500) NULL,
+    `synced_at` DATETIME NOT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_idoklad_id` (`idoklad_id`),
+    KEY `idx_company_id` (`company_id`),
+    KEY `idx_payment_status` (`payment_status`),
+    CONSTRAINT `fk_invoices_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
