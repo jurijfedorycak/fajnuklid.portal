@@ -30,6 +30,17 @@ jobs:
         working-directory: web
         run: npm run build
 
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.1"
+          extensions: mbstring, pdo, pdo_mysql
+          coverage: none
+
+      - name: Install API dependencies
+        working-directory: api
+        run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader
+
       - name: Prepare deployment structure
         run: |
           mkdir -p deploy
