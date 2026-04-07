@@ -221,11 +221,19 @@ class AdminController extends Controller
                 'phone' => $emp['phone'],
                 'position' => $emp['position'],
                 'photo_url' => $emp['photo_url'],
+                'tenure_text' => $emp['tenure_text'],
+                'bio' => $emp['bio'],
+                'hobbies' => $emp['hobbies'],
+                'contract_file' => $emp['contract_file'],
                 'show_name' => (bool) $emp['show_name'],
                 'show_photo' => (bool) $emp['show_photo'],
                 'show_phone' => (bool) $emp['show_phone'],
                 'show_email' => (bool) $emp['show_email'],
-                'show_in_portal' => (bool) $emp['show_name'],
+                'show_in_portal' => (bool) $emp['show_in_portal'],
+                'show_role' => (bool) $emp['show_role'],
+                'show_hobbies' => (bool) $emp['show_hobbies'],
+                'show_tenure' => (bool) $emp['show_tenure'],
+                'show_bio' => (bool) $emp['show_bio'],
                 'location_count' => count($locations),
                 'created_at' => $emp['created_at'],
             ];
@@ -287,7 +295,9 @@ class AdminController extends Controller
         // Filter allowed fields
         $allowedFields = [
             'first_name', 'last_name', 'email', 'phone', 'position', 'photo_url',
+            'tenure_text', 'bio', 'hobbies', 'contract_file',
             'show_name', 'show_photo', 'show_phone', 'show_email',
+            'show_in_portal', 'show_role', 'show_hobbies', 'show_tenure', 'show_bio',
         ];
         $updateData = array_intersect_key($data, array_flip($allowedFields));
 
@@ -317,6 +327,63 @@ class AdminController extends Controller
         $this->employeeRepo->delete($id);
 
         Response::success(null, 'Zaměstnanec byl smazán');
+    }
+
+    /**
+     * Bulk save employees (create or update multiple).
+     */
+    public function saveEmployees(Request $request): void
+    {
+        $employees = $request->all();
+
+        if (!is_array($employees) || empty($employees)) {
+            throw new ValidationException('Nebyla poskytnuta žádná data zaměstnanců');
+        }
+
+        // Map camelCase from frontend to snake_case for database
+        $mappedEmployees = [];
+        foreach ($employees as $emp) {
+            $mapped = [
+                'first_name' => $emp['firstName'] ?? $emp['first_name'] ?? '',
+                'last_name' => $emp['lastName'] ?? $emp['last_name'] ?? '',
+                'email' => $emp['email'] ?? null,
+                'phone' => $emp['phone'] ?? null,
+                'position' => $emp['position'] ?? null,
+                'photo_url' => $emp['photoUrl'] ?? $emp['photo_url'] ?? null,
+                'tenure_text' => $emp['tenureText'] ?? $emp['tenure_text'] ?? null,
+                'bio' => $emp['bio'] ?? null,
+                'hobbies' => $emp['hobbies'] ?? null,
+                'contract_file' => $emp['contractFile'] ?? $emp['contract_file'] ?? null,
+                'show_name' => $emp['showName'] ?? $emp['show_name'] ?? true,
+                'show_photo' => $emp['showPhoto'] ?? $emp['show_photo'] ?? true,
+                'show_phone' => $emp['showPhone'] ?? $emp['show_phone'] ?? false,
+                'show_email' => $emp['showEmail'] ?? $emp['show_email'] ?? false,
+                'show_in_portal' => $emp['showInPortal'] ?? $emp['show_in_portal'] ?? false,
+                'show_role' => $emp['showRole'] ?? $emp['show_role'] ?? true,
+                'show_hobbies' => $emp['showHobbies'] ?? $emp['show_hobbies'] ?? false,
+                'show_tenure' => $emp['showTenure'] ?? $emp['show_tenure'] ?? true,
+                'show_bio' => $emp['showBio'] ?? $emp['show_bio'] ?? false,
+            ];
+
+            // Include ID if it exists (for updates)
+            if (isset($emp['id']) && $emp['id'] > 0) {
+                $mapped['id'] = (int) $emp['id'];
+            }
+
+            // Validate required fields
+            if (empty($mapped['first_name']) || empty($mapped['last_name'])) {
+                throw new ValidationException('Jméno a příjmení jsou povinné');
+            }
+
+            $mappedEmployees[] = $mapped;
+        }
+
+        $savedIds = $this->employeeRepo->saveAll($mappedEmployees);
+
+        Response::success([
+            'saved_count' => count($savedIds),
+            'ids' => $savedIds,
+        ], 'Zaměstnanci byli uloženi');
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

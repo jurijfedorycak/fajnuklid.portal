@@ -27,10 +27,19 @@ class EmployeeRepository
                 phone,
                 position,
                 photo_url,
+                tenure_text,
+                bio,
+                hobbies,
+                contract_file,
                 show_name,
                 show_photo,
                 show_phone,
                 show_email,
+                show_in_portal,
+                show_role,
+                show_hobbies,
+                show_tenure,
+                show_bio,
                 created_at,
                 updated_at,
                 deleted_at
@@ -54,10 +63,19 @@ class EmployeeRepository
                 phone,
                 position,
                 photo_url,
+                tenure_text,
+                bio,
+                hobbies,
+                contract_file,
                 show_name,
                 show_photo,
                 show_phone,
                 show_email,
+                show_in_portal,
+                show_role,
+                show_hobbies,
+                show_tenure,
+                show_bio,
                 created_at,
                 updated_at
             FROM employees
@@ -79,10 +97,19 @@ class EmployeeRepository
                 phone,
                 position,
                 photo_url,
+                tenure_text,
+                bio,
+                hobbies,
+                contract_file,
                 show_name,
                 show_photo,
                 show_phone,
                 show_email,
+                show_in_portal,
+                show_role,
+                show_hobbies,
+                show_tenure,
+                show_bio,
                 created_at,
                 updated_at
             FROM employees
@@ -148,10 +175,19 @@ class EmployeeRepository
                 e.phone,
                 e.position,
                 e.photo_url,
+                e.tenure_text,
+                e.bio,
+                e.hobbies,
+                e.contract_file,
                 e.show_name,
                 e.show_photo,
                 e.show_phone,
-                e.show_email
+                e.show_email,
+                e.show_in_portal,
+                e.show_role,
+                e.show_hobbies,
+                e.show_tenure,
+                e.show_bio
             FROM employees e
             INNER JOIN employee_locations el ON e.id = el.employee_id
             WHERE el.location_id = :location_id AND e.deleted_at IS NULL
@@ -172,10 +208,19 @@ class EmployeeRepository
                 phone,
                 position,
                 photo_url,
+                tenure_text,
+                bio,
+                hobbies,
+                contract_file,
                 show_name,
                 show_photo,
                 show_phone,
                 show_email,
+                show_in_portal,
+                show_role,
+                show_hobbies,
+                show_tenure,
+                show_bio,
                 created_at,
                 updated_at
             ) VALUES (
@@ -185,10 +230,19 @@ class EmployeeRepository
                 :phone,
                 :position,
                 :photo_url,
+                :tenure_text,
+                :bio,
+                :hobbies,
+                :contract_file,
                 :show_name,
                 :show_photo,
                 :show_phone,
                 :show_email,
+                :show_in_portal,
+                :show_role,
+                :show_hobbies,
+                :show_tenure,
+                :show_bio,
                 NOW(),
                 NOW()
             )
@@ -201,10 +255,19 @@ class EmployeeRepository
             'phone' => $data['phone'] ?? null,
             'position' => $data['position'] ?? null,
             'photo_url' => $data['photo_url'] ?? null,
-            'show_name' => $data['show_name'] ?? true,
-            'show_photo' => $data['show_photo'] ?? true,
-            'show_phone' => $data['show_phone'] ?? false,
-            'show_email' => $data['show_email'] ?? false
+            'tenure_text' => $data['tenure_text'] ?? null,
+            'bio' => $data['bio'] ?? null,
+            'hobbies' => $data['hobbies'] ?? null,
+            'contract_file' => $data['contract_file'] ?? null,
+            'show_name' => (int) ($data['show_name'] ?? true),
+            'show_photo' => (int) ($data['show_photo'] ?? true),
+            'show_phone' => (int) ($data['show_phone'] ?? false),
+            'show_email' => (int) ($data['show_email'] ?? false),
+            'show_in_portal' => (int) ($data['show_in_portal'] ?? false),
+            'show_role' => (int) ($data['show_role'] ?? true),
+            'show_hobbies' => (int) ($data['show_hobbies'] ?? false),
+            'show_tenure' => (int) ($data['show_tenure'] ?? true),
+            'show_bio' => (int) ($data['show_bio'] ?? false),
         ]);
 
         return (int) $this->db->lastInsertId();
@@ -217,7 +280,9 @@ class EmployeeRepository
 
         $allowedFields = [
             'first_name', 'last_name', 'email', 'phone', 'position',
-            'photo_url', 'show_name', 'show_photo', 'show_phone', 'show_email'
+            'photo_url', 'tenure_text', 'bio', 'hobbies', 'contract_file',
+            'show_name', 'show_photo', 'show_phone', 'show_email',
+            'show_in_portal', 'show_role', 'show_hobbies', 'show_tenure', 'show_bio'
         ];
 
         foreach ($allowedFields as $field) {
@@ -239,6 +304,38 @@ class EmployeeRepository
         $stmt->execute($params);
 
         return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Bulk save employees (insert or update) within a transaction.
+     *
+     * @param array $employees Array of employee data with optional 'id' field
+     * @return array Array of saved employee IDs
+     * @throws \Exception If any operation fails (transaction is rolled back)
+     */
+    public function saveAll(array $employees): array
+    {
+        $savedIds = [];
+
+        $this->db->beginTransaction();
+        try {
+            foreach ($employees as $data) {
+                if (isset($data['id']) && $data['id'] > 0) {
+                    // Update existing
+                    $this->update((int) $data['id'], $data);
+                    $savedIds[] = (int) $data['id'];
+                } else {
+                    // Create new
+                    $savedIds[] = $this->create($data);
+                }
+            }
+            $this->db->commit();
+        } catch (\Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+
+        return $savedIds;
     }
 
     public function delete(int $id): bool

@@ -125,49 +125,64 @@
                     <mxGeometry y="190" width="240" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees" value="employees" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;shadow=1;" parent="1" vertex="1">
-                    <mxGeometry x="80" y="1000" width="260" height="322" as="geometry"/>
+                    <mxGeometry x="80" y="1000" width="280" height="432" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-pk" value="PK id INT UNSIGNED AUTO_INCREMENT" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontStyle=1" parent="employees" vertex="1">
-                    <mxGeometry y="30" width="260" height="20" as="geometry"/>
+                    <mxGeometry y="30" width="280" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-sep" value="" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;strokeColor=#82b366;" parent="employees" vertex="1">
-                    <mxGeometry y="50" width="260" height="8" as="geometry"/>
+                    <mxGeometry y="50" width="280" height="8" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-f1" value="first_name VARCHAR(100)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
-                    <mxGeometry y="58" width="260" height="22" as="geometry"/>
+                    <mxGeometry y="58" width="280" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-f2" value="last_name VARCHAR(100)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
-                    <mxGeometry y="80" width="260" height="22" as="geometry"/>
+                    <mxGeometry y="80" width="280" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-f3" value="email VARCHAR(255) NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
-                    <mxGeometry y="102" width="260" height="22" as="geometry"/>
+                    <mxGeometry y="102" width="280" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-f4" value="phone VARCHAR(20) NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
-                    <mxGeometry y="124" width="260" height="22" as="geometry"/>
+                    <mxGeometry y="124" width="280" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-f5" value="position VARCHAR(100) NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
-                    <mxGeometry y="146" width="260" height="22" as="geometry"/>
+                    <mxGeometry y="146" width="280" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-f6" value="photo_url VARCHAR(500) NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
-                    <mxGeometry y="168" width="260" height="22" as="geometry"/>
+                    <mxGeometry y="168" width="280" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="employees-f6a" value="tenure_text VARCHAR(100) NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
+                    <mxGeometry y="190" width="280" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="employees-f6b" value="bio TEXT NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
+                    <mxGeometry y="212" width="280" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="employees-f6c" value="hobbies TEXT NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
+                    <mxGeometry y="234" width="280" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="employees-f6d" value="contract_file VARCHAR(500) NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
+                    <mxGeometry y="256" width="280" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-gdpr" value="-- GDPR Settings --" style="text;strokeColor=none;fillColor=#ffe6cc;align=center;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontStyle=2" parent="employees" vertex="1">
-                    <mxGeometry y="190" width="260" height="20" as="geometry"/>
+                    <mxGeometry y="278" width="280" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-f7" value="show_name, show_photo TINYINT(1)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
-                    <mxGeometry y="210" width="260" height="22" as="geometry"/>
+                    <mxGeometry y="298" width="280" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-f8" value="show_phone, show_email TINYINT(1)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
-                    <mxGeometry y="232" width="260" height="22" as="geometry"/>
+                    <mxGeometry y="320" width="280" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="employees-f8a" value="show_in_portal, show_role TINYINT(1)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
+                    <mxGeometry y="342" width="280" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="employees-f8b" value="show_hobbies, show_tenure, show_bio" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
+                    <mxGeometry y="364" width="280" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-f9" value="deleted_at DATETIME NULL [soft delete]" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="employees" vertex="1">
-                    <mxGeometry y="254" width="260" height="22" as="geometry"/>
-                </mxCell>
-                <mxCell id="employees-f10" value="created_at, updated_at DATETIME" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#888888;" parent="employees" vertex="1">
-                    <mxGeometry y="276" width="260" height="22" as="geometry"/>
+                    <mxGeometry y="386" width="280" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="employees-idx" value="IDX: idx_deleted_at, idx_name (last, first)" style="text;strokeColor=none;fillColor=#f5f5f5;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#666666;fontStyle=2" parent="employees" vertex="1">
-                    <mxGeometry y="298" width="260" height="24" as="geometry"/>
+                    <mxGeometry y="408" width="280" height="24" as="geometry"/>
                 </mxCell>
                 <mxCell id="employee_locations" value="employee_locations" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;shadow=1;" parent="1" vertex="1">
                     <mxGeometry x="450" y="800" width="280" height="168" as="geometry"/>

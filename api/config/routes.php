@@ -62,6 +62,7 @@ $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class],
     $router->get('/employees', 'AdminController@listEmployees');
     $router->get('/employees/{id}', 'AdminController@getEmployee');
     $router->post('/employees', 'AdminController@createEmployee');
+    $router->put('/employees', 'AdminController@saveEmployees');
     $router->put('/employees/{id}', 'AdminController@updateEmployee');
     $router->delete('/employees/{id}', 'AdminController@deleteEmployee');
 });

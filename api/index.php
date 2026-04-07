@@ -39,6 +39,8 @@ set_exception_handler(function (Throwable $e) {
     } elseif ($e instanceof ApiException) {
         $statusCode = $e->getCode() ?: 400;
         $message = $e->getMessage();
+    } elseif ($e instanceof \PDOException && Config::get('APP_ENV') === 'development') {
+        $message = 'Database Error: ' . $e->getMessage();
     }
 
     // Log error in production
