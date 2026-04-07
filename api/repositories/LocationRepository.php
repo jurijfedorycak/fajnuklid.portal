@@ -264,6 +264,14 @@ class LocationRepository
         return $stmt->rowCount() > 0;
     }
 
+    public function deleteByCompanyId(int $companyId): int
+    {
+        $stmt = $this->db->prepare('DELETE FROM locations WHERE company_id = :company_id');
+        $stmt->execute(['company_id' => $companyId]);
+
+        return $stmt->rowCount();
+    }
+
     public function findWithCoordinates(): array
     {
         $stmt = $this->db->query('

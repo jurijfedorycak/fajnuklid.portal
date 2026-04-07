@@ -10,6 +10,7 @@ use App\Core\Response;
 use App\Repositories\ClientRepository;
 use App\Repositories\CompanyRepository;
 use App\Repositories\CompanyUserRepository;
+use App\Repositories\CompanyContactRepository;
 use App\Repositories\EmployeeRepository;
 use App\Repositories\EmployeeLocationRepository;
 use App\Repositories\UserRepository;
@@ -24,6 +25,7 @@ class AdminController extends Controller
     private ClientRepository $clientRepo;
     private CompanyRepository $companyRepo;
     private CompanyUserRepository $companyUserRepo;
+    private CompanyContactRepository $companyContactRepo;
     private EmployeeRepository $employeeRepo;
     private EmployeeLocationRepository $employeeLocationRepo;
     private UserRepository $userRepo;
@@ -35,6 +37,7 @@ class AdminController extends Controller
         $this->clientRepo = new ClientRepository();
         $this->companyRepo = new CompanyRepository();
         $this->companyUserRepo = new CompanyUserRepository();
+        $this->companyContactRepo = new CompanyContactRepository();
         $this->employeeRepo = new EmployeeRepository();
         $this->employeeLocationRepo = new EmployeeLocationRepository();
         $this->userRepo = new UserRepository();
@@ -273,7 +276,135 @@ class AdminController extends Controller
             'display_name' => 'string|max:255',
         ]);
 
-        $this->clientRepo->update($id, $data);
+        $db = \App\Config\Database::getConnection();
+        $db->beginTransaction();
+
+        try {
+            $this->clientRepo->update($id, $data);
+
+            $companies = $this->companyRepo->findByClientId($id);
+            $companyIds = array_map('intval', array_column($companies, 'id'));
+            $icoToCompanyId = [];
+            foreach ($companies as $company) {
+                $icoToCompanyId[$company['registration_number']] = (int) $company['id'];
+            }
+
+            $icos = $request->input('icos', []);
+            if (!is_array($icos)) {
+                $icos = [];
+            }
+
+            foreach ($icos as $icoData) {
+                if (!is_array($icoData)) {
+                    continue;
+                }
+                $ico = $icoData['ico'] ?? '';
+                if ($ico === '' || !isset($icoToCompanyId[$ico])) {
+                    continue;
+                }
+                $companyId = $icoToCompanyId[$ico];
+
+                $this->locationRepo->deleteByCompanyId($companyId);
+
+                $objects = $icoData['objects'] ?? [];
+                if (!is_array($objects)) {
+                    $objects = [];
+                }
+                foreach ($objects as $obj) {
+                    if (!is_array($obj)) {
+                        continue;
+                    }
+                    $this->locationRepo->create([
+                        'company_id' => $companyId,
+                        'name' => $obj['name'] ?? '',
+                        'address' => $obj['address'] ?? null,
+                        'latitude' => $obj['lat'] ?? null,
+                        'longitude' => $obj['lng'] ?? null,
+                    ]);
+                }
+            }
+
+            $contacts = $request->input('contacts', []);
+            if (!is_array($contacts)) {
+                $contacts = [];
+            }
+
+            $this->clientContactRepo->deleteByCompanyIds($companyIds);
+            foreach ($companyIds as $cid) {
+                $this->companyContactRepo->deleteByCompanyId($cid);
+            }
+
+            foreach ($contacts as $contactData) {
+                if (!is_array($contactData)) {
+                    continue;
+                }
+                $contactId = $this->clientContactRepo->create([
+                    'name' => $contactData['name'] ?? '',
+                    'position' => $contactData['role'] ?? null,
+                    'phone' => $contactData['phone'] ?? null,
+                    'email' => $contactData['email'] ?? null,
+                ]);
+
+                $scope = $contactData['scope'] ?? 'global';
+                if ($scope === 'global') {
+                    foreach ($companyIds as $cid) {
+                        $this->companyContactRepo->create($cid, $contactId);
+                    }
+                } else {
+                    $icoId = $contactData['ico_id'] ?? null;
+                    if ($icoId !== null && in_array((int) $icoId, $companyIds, true)) {
+                        $this->companyContactRepo->create((int) $icoId, $contactId);
+                    }
+                }
+            }
+
+            $clientLocations = $this->locationRepo->findByClientId($id);
+            $validLocationIds = array_map('intval', array_column($clientLocations, 'id'));
+
+            $staff = $request->input('staff', []);
+            if (!is_array($staff)) {
+                $staff = [];
+            }
+            foreach ($staff as $s) {
+                if (!is_array($s)) {
+                    continue;
+                }
+                $employeeId = (int) ($s['employee_id'] ?? $s['employeeId'] ?? 0);
+                $assignedObjects = $s['assigned_objects'] ?? $s['assignedObjects'] ?? [];
+                if (!is_array($assignedObjects)) {
+                    $assignedObjects = [];
+                }
+                if ($employeeId > 0) {
+                    $filteredLocations = array_filter(
+                        array_map('intval', $assignedObjects),
+                        fn($locId) => in_array($locId, $validLocationIds, true)
+                    );
+                    $this->employeeLocationRepo->syncEmployeeLocations(
+                        $employeeId,
+                        array_values($filteredLocations)
+                    );
+                }
+            }
+
+            $active = $request->input('active');
+            if ($active !== null) {
+                $portalEnabled = (bool) $active;
+                foreach ($companyIds as $cid) {
+                    $users = $this->companyUserRepo->findByCompanyId($cid);
+                    foreach ($users as $userLink) {
+                        $this->userRepo->update((int) $userLink['user_id'], [
+                            'portal_enabled' => $portalEnabled,
+                        ]);
+                    }
+                }
+            }
+
+            $db->commit();
+        } catch (\Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+
         $updated = $this->clientRepo->findById($id);
 
         Response::success($updated, 'Klient byl aktualizován');

@@ -254,4 +254,29 @@ class ClientContactRepository
 
         return $stmt->fetchAll();
     }
+
+    public function deleteByCompanyIds(array $companyIds): int
+    {
+        if (empty($companyIds)) {
+            return 0;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($companyIds), '?'));
+
+        $stmt = $this->db->prepare("
+            DELETE cc FROM client_contacts cc
+            INNER JOIN company_contacts coc ON cc.id = coc.contact_id
+            WHERE coc.company_id IN ({$placeholders})
+            AND NOT EXISTS (
+                SELECT 1 FROM company_contacts coc2
+                WHERE coc2.contact_id = cc.id
+                AND coc2.company_id NOT IN ({$placeholders})
+            )
+        ");
+
+        $params = array_merge($companyIds, $companyIds);
+        $stmt->execute($params);
+
+        return $stmt->rowCount();
+    }
 }
