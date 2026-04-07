@@ -155,7 +155,7 @@ onMounted(async () => {
         form.displayName = data.displayName || ''
         form.notes = data.notes || ''
         form.active = data.active ?? true
-        form.logins = (data.logins || []).map(l => ({ ...l, id: uid(), showPass: false, tempPass: '' }))
+        form.logins = (data.logins || []).map(l => ({ ...l, id: uid(), showPass: false, tempPass: '', expanded: false }))
         form.icos = (data.icos || []).map(i => ({
           ...i,
           id: uid(),
@@ -199,7 +199,7 @@ const progressPercent = computed(() => Math.round((requiredCount.value / 3) * 10
 
 // ── Add / Remove helpers ──────────────────────────────────────────────────────
 function addLogin() {
-  form.logins.push({ id: uid(), email: '', restriction: 'all', allowedIcos: [], showPass: false, tempPass: '' })
+  form.logins.push({ id: uid(), email: '', restriction: 'all', allowedIcos: [], showPass: false, tempPass: '', expanded: true })
 }
 function removeLogin(id) { form.logins = form.logins.filter(l => l.id !== id) }
 
@@ -633,79 +633,99 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div class="login-list">
+          <div class="login-cards">
             <div v-for="(login, index) in form.logins" :key="login.id" class="card login-card">
-              <div class="login-header">
-                <div class="login-email-wrap">
-                  <Mail :size="15" class="text-mid" />
-                  <input :id="`login-email-${index}`" v-model="login.email" type="email" class="form-input login-email-input" placeholder="email@firma.cz" />
-                </div>
-                <button class="btn btn-ghost btn-sm danger-hover" @click="removeLogin(login.id)">
-                  <Trash2 :size="15" />
-                </button>
-              </div>
 
-              <!-- Temp password -->
-              <div class="form-group" style="margin-top:12px;">
-                <label class="form-label">
-                  {{ isNew ? 'Počáteční heslo' : 'Nové heslo (reset)' }}
-                </label>
-                <div class="input-with-btn">
-                  <input
-                    :id="`login-password-${index}`"
-                    v-model="login.tempPass"
-                    :type="login.showPass ? 'text' : 'password'"
-                    class="form-input"
-                    placeholder="Zadejte nové heslo..."
-                  />
-                  <button class="btn btn-ghost btn-sm" @click="login.showPass = !login.showPass" tabindex="-1">
-                    <EyeOff v-if="login.showPass" :size="14" />
-                    <Eye    v-else                  :size="14" />
+              <!-- Login header (collapsible) -->
+              <div :id="`login-card-header-${index}`" class="login-card-header" @click="login.expanded = !login.expanded" :aria-expanded="login.expanded">
+                <div class="login-title-wrap">
+                  <Lock :size="16" class="text-mid" />
+                  <span class="login-card-email">{{ login.email || '(Nový účet)' }}</span>
+                </div>
+                <div class="login-header-right">
+                  <span v-if="login.restriction === 'all'" class="badge badge-info" style="font-size:11px;">Všechna IČO</span>
+                  <span v-else class="badge badge-gray" style="font-size:11px;">{{ login.allowedIcos.length }} IČO</span>
+                  <button class="btn btn-ghost btn-sm danger-hover" aria-label="Smazat účet" @click.stop="removeLogin(login.id)">
+                    <Trash2 :size="14" />
                   </button>
+                  <ChevronUp v-if="login.expanded" :size="16" class="text-muted" />
+                  <ChevronDown v-else :size="16" class="text-muted" />
                 </div>
-                <p v-if="!isNew" class="field-hint">Po uložení bude heslo zahashováno. Prázdné pole = heslo se nemění.</p>
               </div>
 
-              <!-- IČO restriction -->
-              <div class="restriction-wrap">
-                <label class="form-label form-label-with-help">
-                  Přístup k IČO
-                  <span class="field-help" data-tooltip="Omezení přístupu na konkrétní IČO. Užitečné pro holdingové struktury, kde každý uživatel vidí jen 'své' údaje.">
-                    <HelpCircle :size="14" />
-                  </span>
-                </label>
-                <div class="restriction-options">
-                  <label class="radio-option" :class="{ active: login.restriction === 'all' }">
-                    <input type="radio" v-model="login.restriction" value="all" />
-                    <Globe :size="14" />
-                    Všechna IČO
-                  </label>
-                  <label class="radio-option" :class="{ active: login.restriction === 'icos' }">
-                    <input type="radio" v-model="login.restriction" value="icos" />
-                    <Shield :size="14" />
-                    Omezit na vybraná IČO
-                  </label>
+              <div v-if="login.expanded" class="login-card-body">
+
+                <!-- Email -->
+                <div class="form-group">
+                  <label class="form-label">E-mail *</label>
+                  <div class="input-with-btn">
+                    <Mail :size="15" class="text-mid" style="flex-shrink:0;" />
+                    <input :id="`login-email-${index}`" v-model="login.email" type="email" class="form-input" placeholder="email@firma.cz" />
+                  </div>
                 </div>
 
-                <div v-if="login.restriction === 'icos' && form.icos.length > 0" class="ico-checkboxes">
-                  <label
-                    v-for="ico in form.icos"
-                    :key="ico.id"
-                    class="ico-checkbox-item"
-                    :class="{ checked: login.allowedIcos.includes(ico.ico) }"
-                    @click="toggleIcoRestriction(login, ico.ico)"
-                  >
-                    <span class="ico-cb-box">
-                      <CheckCircle2 v-if="login.allowedIcos.includes(ico.ico)" :size="14" />
+                <!-- Temp password -->
+                <div class="form-group" style="margin-top:12px;">
+                  <label class="form-label">
+                    {{ isNew ? 'Počáteční heslo' : 'Nové heslo (reset)' }}
+                  </label>
+                  <div class="input-with-btn">
+                    <input
+                      :id="`login-password-${index}`"
+                      v-model="login.tempPass"
+                      :type="login.showPass ? 'text' : 'password'"
+                      class="form-input"
+                      placeholder="Zadejte nové heslo..."
+                    />
+                    <button class="btn btn-ghost btn-sm" @click="login.showPass = !login.showPass" tabindex="-1">
+                      <EyeOff v-if="login.showPass" :size="14" />
+                      <Eye    v-else                  :size="14" />
+                    </button>
+                  </div>
+                  <p v-if="!isNew" class="field-hint">Po uložení bude heslo zahashováno. Prázdné pole = heslo se nemění.</p>
+                </div>
+
+                <!-- IČO restriction -->
+                <div class="restriction-wrap">
+                  <label class="form-label form-label-with-help">
+                    Přístup k IČO
+                    <span class="field-help" data-tooltip="Omezení přístupu na konkrétní IČO. Užitečné pro holdingové struktury, kde každý uživatel vidí jen 'své' údaje.">
+                      <HelpCircle :size="14" />
                     </span>
-                    <div>
-                      <div style="font-weight:500; font-size:13px;">{{ ico.officialName || '(IČO bez názvu)' }}</div>
-                      <div style="font-size:11px; color:var(--color-gray-500);">{{ ico.ico }}</div>
-                    </div>
                   </label>
-                  <p v-if="form.icos.length === 0" class="field-hint">Nejprve přidejte IČO v sekci níže.</p>
+                  <div class="restriction-options">
+                    <label class="radio-option" :class="{ active: login.restriction === 'all' }">
+                      <input type="radio" v-model="login.restriction" value="all" />
+                      <Globe :size="14" />
+                      Všechna IČO
+                    </label>
+                    <label class="radio-option" :class="{ active: login.restriction === 'icos' }">
+                      <input type="radio" v-model="login.restriction" value="icos" />
+                      <Shield :size="14" />
+                      Omezit na vybraná IČO
+                    </label>
+                  </div>
+
+                  <div v-if="login.restriction === 'icos' && form.icos.length > 0" class="ico-checkboxes">
+                    <label
+                      v-for="ico in form.icos"
+                      :key="ico.id"
+                      class="ico-checkbox-item"
+                      :class="{ checked: login.allowedIcos.includes(ico.ico) }"
+                      @click="toggleIcoRestriction(login, ico.ico)"
+                    >
+                      <span class="ico-cb-box">
+                        <CheckCircle2 v-if="login.allowedIcos.includes(ico.ico)" :size="14" />
+                      </span>
+                      <div>
+                        <div style="font-weight:500; font-size:13px;">{{ ico.officialName || '(IČO bez názvu)' }}</div>
+                        <div style="font-size:11px; color:var(--color-gray-500);">{{ ico.ico }}</div>
+                      </div>
+                    </label>
+                    <p v-if="form.icos.length === 0" class="field-hint">Nejprve přidejte IČO v sekci níže.</p>
+                  </div>
                 </div>
-              </div>
+              </div><!-- /login-card-body -->
             </div>
           </div>
         </section>
@@ -1514,25 +1534,41 @@ onBeforeUnmount(() => {
 }
 .checked .ico-cb-box { border-color: var(--color-primary); background: var(--color-light); }
 
-/* Login card */
-.login-list { display: flex; flex-direction: column; gap: 14px; }
+/* Login cards */
+.login-cards { display: flex; flex-direction: column; gap: 14px; }
 
-.login-card { padding: 16px; }
+.login-card { padding: 0; overflow: hidden; }
 
-.login-header {
+.login-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  cursor: pointer;
+  gap: 12px;
+}
+.login-card-header:hover { background: var(--color-gray-50); }
+
+.login-title-wrap {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1;
 }
 
-.login-email-wrap {
-  flex: 1;
+.login-card-email { font-weight: 600; color: var(--color-primary); font-size: 15px; }
+
+.login-header-right {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.login-email-input { flex: 1; }
+.login-card-body {
+  padding: 0 18px 18px;
+  border-top: 1px solid var(--color-gray-100);
+  padding-top: 16px;
+}
 
 /* IČO cards */
 .ico-cards { display: flex; flex-direction: column; gap: 14px; }
