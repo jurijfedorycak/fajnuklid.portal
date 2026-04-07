@@ -24,7 +24,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: web
-        run: rm package-lock.json && npm install
+        run: rm package-lock.json && npm install --silent
 
       - name: Build frontend
         working-directory: web
@@ -39,14 +39,14 @@ jobs:
 
       - name: Install API dependencies
         working-directory: api
-        run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader
+        run: composer install --no-dev --prefer-dist --no-progress --quiet --optimize-autoloader
 
       - name: Prepare deployment structure
         run: |
           mkdir -p deploy
 
           # Copy API files (excluding sensitive files)
-          rsync -av --exclude='.env' --exclude='.env.local' --exclude='storage/logs/*' api/ deploy/api/
+          rsync -a --exclude='.env' --exclude='.env.local' --exclude='storage/logs/*' api/ deploy/api/
 
           # Copy built frontend
           cp -r web/dist/* deploy/
@@ -63,7 +63,7 @@ jobs:
           password: ${{ secrets.TEST_FTP_PASSWORD }}
           protocol: ftp
           security: loose
-          log-level: verbose
+          log-level: minimal
           local-dir: ./deploy/
           server-dir: /
           exclude: |
@@ -92,7 +92,7 @@ jobs:
 
       - name: Install Composer dependencies
         working-directory: api
-        run: composer install --prefer-dist --no-progress
+        run: composer install --prefer-dist --no-progress --quiet
 
       - name: Run PHPUnit tests
         working-directory: api
