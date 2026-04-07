@@ -7,6 +7,20 @@ export const adminService = {
     return response.data
   },
 
+  // File upload
+  async uploadFile(file, folder) {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('folder', folder)
+
+    const response = await apiClient.post('/admin/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+    return response.data?.url || response.data?.data?.url
+  },
+
   // Clients
   async getClients(page = 1, perPage = 20, search = null) {
     const params = { page, per_page: perPage }
