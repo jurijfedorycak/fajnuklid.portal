@@ -420,10 +420,10 @@ function toggleCount(emp) {
       </div>
     </div>
 
-    <!-- Bottom save bar -->
-    <div class="bottom-save-bar">
+    <!-- Bottom save bar (only show when there are employees to save) -->
+    <div v-if="employees.length > 0" id="employees-save-bar" class="bottom-save-bar">
       <span v-if="saved" class="saved-msg"><CheckCircle2 :size="15" /> Změny uloženy</span>
-      <button class="btn btn-primary" :disabled="saving" @click="save">
+      <button id="employees-save-btn" class="btn btn-primary" :disabled="saving" @click="save">
         <Save :size="16" />
         {{ saving ? 'Ukládám...' : 'Uložit změny' }}
       </button>
