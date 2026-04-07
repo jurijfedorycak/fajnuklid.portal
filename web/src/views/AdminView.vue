@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  ShieldCheck, Users, Plus, Edit2, Power, PowerOff, Search, Loader2, X,
+  ShieldCheck, Users, Plus, Search, Loader2,
 } from 'lucide-vue-next'
 import { adminService } from '../api'
 
@@ -13,7 +13,6 @@ const loading = ref(true)
 const error = ref(null)
 const clients = ref([])
 const searchQuery = ref('')
-const toastError = ref(null)
 
 // Map API response (snake_case) to frontend (camelCase)
 function mapClientFromApi(c) {
@@ -64,21 +63,6 @@ const stats = computed(() => ({
 }))
 
 
-async function toggleActive(client) {
-  try {
-    const response = await adminService.updateClient(client.clientId, { active: !client.active })
-    if (response.success) {
-      client.active = !client.active
-    } else {
-      toastError.value = response.message || 'Nepodařilo se změnit stav klienta'
-      setTimeout(() => { toastError.value = null }, 5000)
-    }
-  } catch (err) {
-    toastError.value = 'Nepodařilo se změnit stav klienta'
-    setTimeout(() => { toastError.value = null }, 5000)
-  }
-}
-
 function editClient(clientId) {
   router.push(`/admin/clients/${clientId}`)
 }
@@ -96,14 +80,6 @@ function formatDate(d) {
 
 <template>
   <div id="admin-clients-page">
-    <!-- Toast error message -->
-    <div v-if="toastError" id="admin-toast-error" class="toast-error" role="alert">
-      {{ toastError }}
-      <button type="button" class="btn btn-ghost btn-sm toast-close" aria-label="Zavřít" @click="toastError = null">
-        <X :size="14" aria-hidden="true" />
-      </button>
-    </div>
-
     <div class="page-header">
       <div>
         <h1 class="page-title">
@@ -192,7 +168,6 @@ function formatDate(d) {
               <th scope="col">IČO</th>
               <th scope="col">Stav</th>
               <th scope="col">Poslední přihlášení</th>
-              <th scope="col">Akce</th>
             </tr>
           </thead>
           <tbody>
@@ -216,21 +191,6 @@ function formatDate(d) {
                 </span>
               </td>
               <td class="text-muted">{{ formatDate(client.lastLogin) }}</td>
-              <td>
-                <div class="action-btns" @click.stop>
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    @click="toggleActive(client)"
-                    :title="client.active ? 'Deaktivovat' : 'Aktivovat'"
-                  >
-                    <PowerOff v-if="client.active" :size="15" style="color:var(--color-danger)" />
-                    <Power    v-else                :size="15" style="color:var(--color-success)" />
-                  </button>
-                  <button class="btn btn-ghost btn-sm" title="Upravit" @click="editClient(client.clientId)">
-                    <Edit2 :size="15" />
-                  </button>
-                </div>
-              </td>
             </tr>
           </tbody>
         </table>
@@ -298,7 +258,6 @@ function formatDate(d) {
 }
 
 .ico-chips { display: flex; gap: 4px; flex-wrap: wrap; }
-.action-btns { display: flex; gap: 4px; }
 
 /* Clickable rows */
 .client-row {
@@ -306,28 +265,6 @@ function formatDate(d) {
 }
 .client-row:hover td {
   background: var(--color-light) !important;
-}
-
-/* Toast error */
-.toast-error {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--color-danger-light, #fef2f2);
-  border: 1px solid var(--color-danger);
-  border-radius: var(--radius-md);
-  color: var(--color-danger);
-  font-size: 14px;
-  margin-bottom: 16px;
-}
-.toast-close {
-  flex-shrink: 0;
-  color: var(--color-danger);
-}
-.toast-close:hover {
-  background: rgba(220, 53, 69, 0.1);
 }
 
 /* Responsive */

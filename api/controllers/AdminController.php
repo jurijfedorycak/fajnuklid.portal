@@ -100,42 +100,74 @@ class AdminController extends Controller
 
     public function getClient(Request $request): void
     {
-        $id = (int) $request->param('id');
-        $client = $this->clientRepo->findById($id);
+        $clientId = $request->param('id');
+        $client = $this->clientRepo->findByClientId($clientId);
 
         if (!$client) {
             throw new NotFoundException('Klient nebyl nalezen');
         }
+
+        $id = (int) $client['id'];
 
         // Get companies (IČOs)
         $companies = $this->companyRepo->findByClientId($id);
 
         // Get login accounts
         $logins = [];
+        $hasActiveLogin = false;
         foreach ($companies as $company) {
             $users = $this->companyUserRepo->findByCompanyId((int) $company['id']);
             foreach ($users as $userLink) {
                 $user = $this->userRepo->findById((int) $userLink['user_id']);
                 if ($user) {
+                    if ($user['portal_enabled']) {
+                        $hasActiveLogin = true;
+                    }
                     $logins[] = [
-                        'id' => $user['id'],
                         'email' => $user['email'],
-                        'portal_enabled' => (bool) $user['portal_enabled'],
-                        'company_ids' => [$company['id']],
+                        'portalEnabled' => (bool) $user['portal_enabled'],
+                        'restriction' => 'all', // TODO: implement restriction logic
+                        'allowedIcos' => [],
                     ];
                 }
             }
         }
 
+        // Format IČOs for frontend (camelCase)
+        $icos = array_map(function ($company) {
+            return [
+                'ico' => $company['registration_number'] ?? '',
+                'officialName' => $company['name'] ?? '',
+                'freshqrEnabled' => false, // TODO: implement
+                'billingModel' => 'hourly',
+                'contractUploaded' => false,
+                'contractFile' => null,
+                'objects' => [], // TODO: load locations
+            ];
+        }, $companies);
+
+        // Get other clients for reassignment dropdown
+        $allClients = $this->clientRepo->findAll();
+        $otherClients = [];
+        foreach ($allClients as $c) {
+            if ($c['client_id'] !== $client['client_id']) {
+                $otherClients[] = [
+                    'clientId' => $c['client_id'],
+                    'displayName' => $c['display_name'],
+                ];
+            }
+        }
+
         Response::success([
-            'client' => [
-                'id' => $client['id'],
-                'client_id' => $client['client_id'],
-                'display_name' => $client['display_name'],
-                'created_at' => $client['created_at'],
-            ],
-            'companies' => $companies,
+            'clientId' => $client['client_id'],
+            'displayName' => $client['display_name'],
+            'notes' => '', // TODO: add notes field to clients table
+            'active' => $hasActiveLogin,
             'logins' => $logins,
+            'icos' => $icos,
+            'staff' => [], // TODO: implement staff assignments
+            'contacts' => [], // TODO: implement contacts
+            'otherClients' => $otherClients,
         ]);
     }
 
@@ -161,12 +193,14 @@ class AdminController extends Controller
 
     public function updateClient(Request $request): void
     {
-        $id = (int) $request->param('id');
-        $client = $this->clientRepo->findById($id);
+        $clientId = $request->param('id');
+        $client = $this->clientRepo->findByClientId($clientId);
 
         if (!$client) {
             throw new NotFoundException('Klient nebyl nalezen');
         }
+
+        $id = (int) $client['id'];
 
         $data = $this->validate($request->all(), [
             'display_name' => 'string|max:255',
@@ -180,13 +214,14 @@ class AdminController extends Controller
 
     public function deleteClient(Request $request): void
     {
-        $id = (int) $request->param('id');
-        $client = $this->clientRepo->findById($id);
+        $clientId = $request->param('id');
+        $client = $this->clientRepo->findByClientId($clientId);
 
         if (!$client) {
             throw new NotFoundException('Klient nebyl nalezen');
         }
 
+        $id = (int) $client['id'];
         $this->clientRepo->delete($id);
 
         Response::success(null, 'Klient byl smazán');
