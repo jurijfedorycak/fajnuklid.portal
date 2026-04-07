@@ -6,6 +6,7 @@ import {
   Clock, Phone, Settings, LogOut, UserCog, Palette,
 } from 'lucide-vue-next'
 import { useAuth } from '../../stores/auth'
+import logoSrc from '../../assets/logo.svg'
 
 defineProps({ open: Boolean })
 const emit = defineEmits(['close'])
@@ -62,17 +63,16 @@ function initials(name) {
 <template>
   <aside class="sidebar" :class="{ open }">
     <!-- Logo -->
-    <div class="sidebar-logo">
-      <span class="logo-mark">FU</span>
-      <span class="logo-text">FAJN ÚKLID</span>
+    <div id="sidebar-logo" class="sidebar-logo">
+      <img :src="logoSrc" alt="Fajn Úklid" class="sidebar-logo-img" />
     </div>
 
     <!-- Client info -->
-    <div class="sidebar-client">
-      <div class="avatar avatar-sm client-avatar">{{ initials(displayName) }}</div>
+    <div id="sidebar-client" class="sidebar-client">
+      <div id="sidebar-client-avatar" class="avatar avatar-sm client-avatar">{{ initials(displayName) }}</div>
       <div class="client-info">
-        <div class="client-name">{{ displayName }}</div>
-        <div id="sidebar-client-ico" class="client-ico" v-if="activeIco && !isAdmin">ICO: {{ activeIco }}</div>
+        <div id="sidebar-client-name" class="client-name">{{ displayName }}</div>
+        <div id="sidebar-client-ico" class="client-ico" v-if="activeIco && !isAdmin">IČO: {{ activeIco }}</div>
       </div>
     </div>
 
@@ -147,29 +147,14 @@ function initials(name) {
 .sidebar-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: flex-start;
   padding: 20px 16px 16px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 
-.logo-mark {
-  width: 36px;
-  height: 36px;
-  background: var(--color-mid);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.logo-text {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: white;
+.sidebar-logo-img {
+  height: 32px;
+  width: auto;
 }
 
 /* Client info */
@@ -256,6 +241,6 @@ function initials(name) {
 
 .logout-item:hover {
   background: rgba(220, 53, 69, 0.15);
-  color: #f8d7da;
+  color: var(--color-danger-light);
 }
 </style>

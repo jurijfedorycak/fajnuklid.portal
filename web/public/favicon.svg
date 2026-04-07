@@ -1,4 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <rect width="32" height="32" rx="8" fill="#162438"/>
-  <text x="16" y="22" font-family="Rubik, sans-serif" font-size="14" font-weight="700" fill="white" text-anchor="middle">FÚ</text>
+  <g transform="translate(4, 2) scale(0.32)">
+    <path fill="none" stroke="#fff" stroke-linecap="round" stroke-miterlimit="10" stroke-width="11" d="M261.89,474.7c-.86,1.21-11.76,17.2-4.58,35.56a37,37,0,0,0,32.21,23.52c15.37.81,31-8.36,36.19-23.71,6.41-18.8-6.88-34.65-7.49-35.35" transform="translate(-249.38 -453.23)"/>
+    <path fill="#fff" d="M291.53,500.2,305,479.54a16.32,16.32,0,0,0,.35-17.66c-3.47-5.44-9.44-8.9-15.54-8.64a17.8,17.8,0,0,0-13.8,8.35,16.44,16.44,0,0,0,.23,17.87l13.61,20.74a1,1,0,0,0,1.39.25,1,1,0,0,0,.25-.25" transform="translate(-249.38 -453.23)"/>
+  </g>
 </svg>

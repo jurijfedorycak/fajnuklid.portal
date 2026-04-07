@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Eye, EyeOff, LogIn } from 'lucide-vue-next'
 import { useAuth } from '../stores/auth'
+import logoSrc from '../assets/logo.svg'
 
 const router = useRouter()
 const { login, isAdmin } = useAuth()
@@ -41,16 +42,18 @@ async function handleLogin() {
   <div class="login-page">
     <div class="login-card">
       <!-- Logo -->
-      <div class="login-logo">
-        <div class="logo-circle">FU</div>
-        <h1 class="login-brand">FAJN UKLID</h1>
-        <p class="login-tagline">Vas klientsky portal</p>
+      <div id="login-logo" class="login-logo">
+        <div class="login-logo-wrapper">
+          <img :src="logoSrc" alt="Fajn Úklid" class="login-logo-img" />
+        </div>
+        <p class="login-tagline">Váš klientský portál</p>
       </div>
 
       <form @submit.prevent="handleLogin" class="login-form">
         <div class="form-group">
-          <label class="form-label">E-mail</label>
+          <label class="form-label" for="login-email-input">E-mail</label>
           <input
+            id="login-email-input"
             v-model="email"
             type="email"
             class="form-input"
@@ -60,9 +63,10 @@ async function handleLogin() {
         </div>
 
         <div class="form-group">
-          <label class="form-label">Heslo</label>
+          <label class="form-label" for="login-password-input">Heslo</label>
           <div class="input-with-icon">
             <input
+              id="login-password-input"
               v-model="password"
               :type="showPassword ? 'text' : 'password'"
               class="form-input"
@@ -70,6 +74,7 @@ async function handleLogin() {
               autocomplete="current-password"
             />
             <button
+              id="login-password-toggle"
               type="button"
               class="input-eye"
               @click="showPassword = !showPassword"
@@ -85,13 +90,13 @@ async function handleLogin() {
           {{ error }}
         </div>
 
-        <button type="submit" class="btn btn-primary btn-full btn-lg" :disabled="loading">
+        <button id="login-submit-btn" type="submit" class="btn btn-primary btn-full btn-lg" :disabled="loading">
           <LogIn v-if="!loading" :size="18" />
-          <span>{{ loading ? 'Prihlasuji...' : 'Prihlasit se' }}</span>
+          <span>{{ loading ? 'Přihlašuji...' : 'Přihlásit se' }}</span>
         </button>
 
         <div class="login-forgot">
-          <RouterLink to="/zapomenute-heslo">Zapomneli jste heslo?</RouterLink>
+          <RouterLink id="login-forgot-password-link" to="/zapomenute-heslo">Zapomněli jste heslo?</RouterLink>
         </div>
       </form>
     </div>
@@ -127,26 +132,19 @@ async function handleLogin() {
   margin-bottom: 32px;
 }
 
-.logo-circle {
-  width: 60px;
-  height: 60px;
+.login-logo-wrapper {
   background: var(--color-primary);
   border-radius: 14px;
+  padding: 16px 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: white;
-  font-size: 20px;
-  font-weight: 700;
   margin-bottom: 12px;
 }
 
-.login-brand {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--color-primary);
-  letter-spacing: 0.06em;
-  margin-bottom: 4px;
+.login-logo-img {
+  height: 40px;
+  width: auto;
 }
 
 .login-tagline {

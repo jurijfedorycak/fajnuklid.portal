@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import Sidebar from '../components/layout/Sidebar.vue'
+import logoSrc from '../assets/logo.svg'
 
 const sidebarOpen = ref(false)
 </script>
@@ -18,11 +19,11 @@ const sidebarOpen = ref(false)
 
     <div class="main-wrapper">
       <!-- Mobile topbar -->
-      <header class="mobile-topbar">
-        <button class="hamburger" @click="sidebarOpen = true" aria-label="Otevřít menu">
+      <header id="mobile-topbar" class="mobile-topbar">
+        <button id="mobile-hamburger-btn" class="hamburger" @click="sidebarOpen = true" aria-label="Otevřít menu">
           <span /><span /><span />
         </button>
-        <span class="mobile-logo">FAJN ÚKLID</span>
+        <img id="mobile-logo" :src="logoSrc" alt="Fajn Úklid" class="mobile-logo" />
       </header>
 
       <main class="main-content">
@@ -75,9 +76,8 @@ const sidebarOpen = ref(false)
 }
 
 .mobile-logo {
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.05em;
+  height: 24px;
+  width: auto;
 }
 
 .hamburger {
