@@ -51,7 +51,7 @@
 
   /* Card styling */
   --card-bg: var(--color-white);
-  --card-radius: 12px;
+  --card-radius: var(--radius-lg);
 
   /* Page background */
   --page-bg: var(--color-gray-50);
