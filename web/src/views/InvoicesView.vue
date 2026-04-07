@@ -1,10 +1,14 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { Download, FileText } from 'lucide-vue-next'
-import { invoices, currentUser } from '../data/mockData.js'
+import { ref, computed, onMounted } from 'vue'
+import { Download, FileText, Loader2 } from 'lucide-vue-next'
+import { invoiceService } from '../api'
 
+const loading = ref(true)
+const error = ref(null)
+const invoices = ref([])
+const icos = ref([])
+const activeIco = ref(null)
 const activeFilter = ref('all')
-const activeIco = ref(currentUser.activeIco)
 
 const filters = [
   { key: 'all',     label: 'Vše' },
@@ -13,17 +17,34 @@ const filters = [
   { key: 'overdue', label: 'Po splatnosti' },
 ]
 
+onMounted(async () => {
+  try {
+    const response = await invoiceService.getInvoices()
+    if (response.success) {
+      invoices.value = response.data.invoices || []
+      icos.value = response.data.icos || []
+      activeIco.value = response.data.activeIco || (icos.value[0]?.ico ?? null)
+    } else {
+      error.value = response.message || 'Nepodařilo se načíst faktury'
+    }
+  } catch (err) {
+    error.value = err.message || 'Nepodařilo se načíst faktury'
+  } finally {
+    loading.value = false
+  }
+})
+
 const filtered = computed(() => {
-  if (activeFilter.value === 'all') return invoices
-  return invoices.filter(i => i.status === activeFilter.value)
+  if (activeFilter.value === 'all') return invoices.value
+  return invoices.value.filter(i => i.status === activeFilter.value)
 })
 
 const totals = computed(() => ({
-  all:     invoices.length,
-  paid:    invoices.filter(i => i.status === 'paid').length,
-  unpaid:  invoices.filter(i => i.status === 'unpaid').length,
-  overdue: invoices.filter(i => i.status === 'overdue').length,
-  debt:    invoices.filter(i => i.status !== 'paid').reduce((s, i) => s + i.amount, 0),
+  all:     invoices.value.length,
+  paid:    invoices.value.filter(i => i.status === 'paid').length,
+  unpaid:  invoices.value.filter(i => i.status === 'unpaid').length,
+  overdue: invoices.value.filter(i => i.status === 'overdue').length,
+  debt:    invoices.value.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.amount || 0), 0),
 }))
 
 function statusBadge(s) {
@@ -33,12 +54,13 @@ function statusBadge(s) {
 }
 
 function formatDate(d) {
+  if (!d) return ''
   const [y, m, day] = d.split('-')
   return `${day}.${m}.${y}`
 }
 
 function formatAmount(n) {
-  return n.toLocaleString('cs-CZ') + ' Kč'
+  return (n || 0).toLocaleString('cs-CZ') + ' Kč'
 }
 
 function dueDays(inv) {
@@ -55,122 +77,137 @@ function dueDaysCls(inv) {
 }
 
 function downloadPdf(inv) {
-  alert(`Stáhnout PDF: ${inv.id}.pdf\n(Ve finální aplikaci zde bude odkaz na skutečný dokument z iDoklad.)`)
+  // TODO: Implement PDF download when iDoklad integration is available
+  console.log('Download PDF:', inv.id)
 }
 </script>
 
 <template>
   <div>
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">Faktury</h1>
-        <p class="page-subtitle">Vydané faktury · IČO: {{ currentUser.activeIco }}</p>
+    <!-- Loading state -->
+    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
+      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám faktury...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="alert alert-danger">
+      {{ error }}
+    </div>
+
+    <!-- Content -->
+    <template v-else>
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Faktury</h1>
+          <p class="page-subtitle">Vydané faktury<span v-if="activeIco"> · IČO: {{ activeIco }}</span></p>
+        </div>
+
+        <!-- IČO tabs (multi-IČO) -->
+        <div class="ico-tabs" v-if="icos.length > 1">
+          <button
+            v-for="ico in icos"
+            :key="ico.ico"
+            class="ico-tab"
+            :class="{ active: activeIco === ico.ico }"
+            @click="activeIco = ico.ico"
+          >
+            {{ ico.ico }}<span class="ico-name">{{ ico.name }}</span>
+          </button>
+        </div>
       </div>
 
-      <!-- IČO tabs (multi-IČO) -->
-      <div class="ico-tabs" v-if="currentUser.icos.length > 1">
+      <!-- Summary bar -->
+      <div class="summary-bar card" style="margin-bottom:16px;">
+        <div class="summary-item">
+          <span class="summary-val">{{ totals.all }}</span>
+          <span class="summary-lbl">Celkem faktur</span>
+        </div>
+        <div class="summary-sep" />
+        <div class="summary-item">
+          <span class="summary-val text-success">{{ totals.paid }}</span>
+          <span class="summary-lbl">Zaplaceno</span>
+        </div>
+        <div class="summary-sep" />
+        <div class="summary-item">
+          <span class="summary-val text-mid">{{ totals.unpaid }}</span>
+          <span class="summary-lbl">Nezaplaceno</span>
+        </div>
+        <div class="summary-sep" />
+        <div class="summary-item">
+          <span class="summary-val text-danger">{{ totals.overdue }}</span>
+          <span class="summary-lbl">Po splatnosti</span>
+        </div>
+        <div class="summary-sep" />
+        <div class="summary-item">
+          <span class="summary-val" :class="totals.debt > 0 ? 'text-danger' : 'text-success'">
+            {{ formatAmount(totals.debt) }}
+          </span>
+          <span class="summary-lbl">Celkem k úhradě</span>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="chip-group" style="margin-bottom:16px;">
         <button
-          v-for="ico in currentUser.icos"
-          :key="ico.ico"
-          class="ico-tab"
-          :class="{ active: activeIco === ico.ico }"
-          @click="activeIco = ico.ico"
+          v-for="f in filters"
+          :key="f.key"
+          class="chip"
+          :class="{ active: activeFilter === f.key }"
+          @click="activeFilter = f.key"
         >
-          {{ ico.ico }}<span class="ico-name">{{ ico.name }}</span>
+          {{ f.label }}
         </button>
       </div>
-    </div>
 
-    <!-- Summary bar -->
-    <div class="summary-bar card" style="margin-bottom:16px;">
-      <div class="summary-item">
-        <span class="summary-val">{{ totals.all }}</span>
-        <span class="summary-lbl">Celkem faktur</span>
-      </div>
-      <div class="summary-sep" />
-      <div class="summary-item">
-        <span class="summary-val text-success">{{ totals.paid }}</span>
-        <span class="summary-lbl">Zaplaceno</span>
-      </div>
-      <div class="summary-sep" />
-      <div class="summary-item">
-        <span class="summary-val text-mid">{{ totals.unpaid }}</span>
-        <span class="summary-lbl">Nezaplaceno</span>
-      </div>
-      <div class="summary-sep" />
-      <div class="summary-item">
-        <span class="summary-val text-danger">{{ totals.overdue }}</span>
-        <span class="summary-lbl">Po splatnosti</span>
-      </div>
-      <div class="summary-sep" />
-      <div class="summary-item">
-        <span class="summary-val" :class="totals.debt > 0 ? 'text-danger' : 'text-success'">
-          {{ formatAmount(totals.debt) }}
-        </span>
-        <span class="summary-lbl">Celkem k úhradě</span>
-      </div>
-    </div>
+      <!-- Table -->
+      <div class="card">
+        <div v-if="filtered.length === 0" class="empty-state">
+          <FileText :size="40" class="empty-state-icon" />
+          <p class="empty-state-title">Zatím zde nejsou žádné faktury.</p>
+        </div>
 
-    <!-- Filters -->
-    <div class="chip-group" style="margin-bottom:16px;">
-      <button
-        v-for="f in filters"
-        :key="f.key"
-        class="chip"
-        :class="{ active: activeFilter === f.key }"
-        @click="activeFilter = f.key"
-      >
-        {{ f.label }}
-      </button>
-    </div>
-
-    <!-- Table -->
-    <div class="card">
-      <div v-if="filtered.length === 0" class="empty-state">
-        <FileText :size="40" class="empty-state-icon" />
-        <p class="empty-state-title">Zatím zde nejsou žádné faktury.</p>
+        <div v-else class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Číslo faktury</th>
+                <th>Vystaveno</th>
+                <th>Splatnost</th>
+                <th class="text-right">Částka</th>
+                <th>VS</th>
+                <th>Stav</th>
+                <th>Zbývá / uplynulo</th>
+                <th>Akce</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="inv in filtered" :key="inv.id">
+                <td class="fw-600" style="color:var(--color-primary)">{{ inv.id }}</td>
+                <td class="text-muted">{{ formatDate(inv.issued) }}</td>
+                <td>{{ formatDate(inv.due) }}</td>
+                <td class="text-right fw-500">{{ formatAmount(inv.amount) }}</td>
+                <td class="text-muted">{{ inv.varSymbol }}</td>
+                <td>
+                  <span class="badge" :class="statusBadge(inv.status).cls">
+                    {{ statusBadge(inv.status).label }}
+                  </span>
+                </td>
+                <td :class="dueDaysCls(inv)" style="font-size:13px;">
+                  {{ inv.status === 'paid' ? '—' : dueDays(inv) }}
+                </td>
+                <td>
+                  <button class="btn btn-ghost btn-sm" @click="downloadPdf(inv)" title="Stáhnout PDF">
+                    <Download :size="16" />
+                    <span>PDF</span>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
-
-      <div v-else class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Číslo faktury</th>
-              <th>Vystaveno</th>
-              <th>Splatnost</th>
-              <th class="text-right">Částka</th>
-              <th>VS</th>
-              <th>Stav</th>
-              <th>Zbývá / uplynulo</th>
-              <th>Akce</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="inv in filtered" :key="inv.id">
-              <td class="fw-600" style="color:var(--color-primary)">{{ inv.id }}</td>
-              <td class="text-muted">{{ formatDate(inv.issued) }}</td>
-              <td>{{ formatDate(inv.due) }}</td>
-              <td class="text-right fw-500">{{ formatAmount(inv.amount) }}</td>
-              <td class="text-muted">{{ inv.varSymbol }}</td>
-              <td>
-                <span class="badge" :class="statusBadge(inv.status).cls">
-                  {{ statusBadge(inv.status).label }}
-                </span>
-              </td>
-              <td :class="dueDaysCls(inv)" style="font-size:13px;">
-                {{ inv.status === 'paid' ? '—' : dueDays(inv) }}
-              </td>
-              <td>
-                <button class="btn btn-ghost btn-sm" @click="downloadPdf(inv)" title="Stáhnout PDF">
-                  <Download :size="16" />
-                  <span>PDF</span>
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -244,6 +281,15 @@ function downloadPdf(inv) {
   height: 36px;
   background: var(--color-gray-200);
   flex-shrink: 0;
+}
+
+.spin {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 @media (max-width: 768px) {

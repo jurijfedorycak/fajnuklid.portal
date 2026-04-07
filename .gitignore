@@ -69,6 +69,7 @@ Desktop.ini
 coverage/
 .nyc_output/
 .phpunit.result.cache
+.playwright-mcp/
 
 # ===================
 # Misc

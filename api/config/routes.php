@@ -37,6 +37,9 @@ $router->group(['middleware' => [AuthMiddleware::class]], function (Router $rout
     // Attendance - cleaning calendar
     $router->get('/attendance', 'AttendanceController@index');
 
+    // Invoices - client invoices
+    $router->get('/invoices', 'InvoiceController@index');
+
     // Settings - user preferences
     $router->get('/settings', 'SettingsController@index');
     $router->put('/settings', 'SettingsController@update');
