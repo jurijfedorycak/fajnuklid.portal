@@ -1,9 +1,15 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ChevronLeft, ChevronRight, CheckCircle2, Loader2 } from 'lucide-vue-next'
-import { cleaningDays, freshqrActive } from '../data/mockData.js'
+import { attendanceService } from '../api'
 
-const today = new Date(2026, 2, 1) // mockup today = 2026-03-01
+// State
+const loading = ref(true)
+const error = ref(null)
+const cleaningDays = ref([])
+const freshqrActive = ref(false)
+
+const today = new Date()
 const viewYear  = ref(today.getFullYear())
 const viewMonth = ref(today.getMonth())
 
@@ -13,9 +19,33 @@ const MONTHS = [
   'Červenec','Srpen','Září','Říjen','Listopad','Prosinec',
 ]
 
+// Fetch data
+async function fetchAttendance() {
+  loading.value = true
+  error.value = null
+  try {
+    const response = await attendanceService.getAttendance(viewYear.value, viewMonth.value + 1)
+    if (response.success) {
+      cleaningDays.value = response.data.cleaningDays || []
+      freshqrActive.value = response.data.freshqrActive || false
+    } else {
+      error.value = response.message || 'Nepodařilo se načíst data'
+    }
+  } catch (err) {
+    error.value = err.message || 'Nepodařilo se načíst data'
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(fetchAttendance)
+
+// Refetch when month changes
+watch([viewYear, viewMonth], fetchAttendance)
+
 const dayMap = computed(() => {
   const m = {}
-  for (const d of cleaningDays) {
+  for (const d of cleaningDays.value) {
     m[d.date] = { note: d.note || '', ongoing: !!d.ongoing }
   }
   return m
@@ -49,7 +79,7 @@ const monthLabel = computed(() => `${MONTHS[viewMonth.value]} ${viewYear.value}`
 
 const monthStats = computed(() => {
   const prefix = `${viewYear.value}-${String(viewMonth.value + 1).padStart(2,'0')}-`
-  const days = cleaningDays.filter(d => d.date.startsWith(prefix))
+  const days = cleaningDays.value.filter(d => d.date.startsWith(prefix))
   return {
     total: days.length,
     done: days.filter(d => !d.ongoing).length,
@@ -80,8 +110,19 @@ function goToday() {
       </div>
     </div>
 
+    <!-- Loading state -->
+    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
+      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám docházku...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="alert alert-danger">
+      {{ error }}
+    </div>
+
     <!-- Fallback when FreshQR not active -->
-    <div v-if="!freshqrActive" class="card" style="padding:40px; text-align:center;">
+    <div v-else-if="!freshqrActive" class="card" style="padding:40px; text-align:center;">
       <p style="font-size:15px; color:var(--color-gray-700); margin-bottom:16px;">
         Docházka přes QR je dostupná jen u vybraných objektů. Pokud ji chcete aktivovat, ozvěte se nám.
       </p>

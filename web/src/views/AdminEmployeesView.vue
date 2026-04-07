@@ -1,11 +1,11 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   ArrowLeft, Users, Plus, Search, Trash2, Upload, FileText,
-  ChevronDown, ChevronUp, Eye, EyeOff, User, Save, CheckCircle2,
+  ChevronDown, ChevronUp, Eye, EyeOff, User, Save, CheckCircle2, Loader2,
 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
-import { adminEmployees } from '../data/mockData.js'
+import { adminService } from '../api'
 
 const router = useRouter()
 
@@ -13,10 +13,28 @@ const router = useRouter()
 let _id = 100
 function uid() { return `emp-new-${++_id}` }
 
-const employees = ref(adminEmployees.map(e => ({ ...e, expanded: false })))
+const loading = ref(true)
+const error = ref(null)
+const employees = ref([])
 const searchQuery = ref('')
 const saving = ref(false)
 const saved = ref(false)
+
+// Fetch employees
+onMounted(async () => {
+  try {
+    const response = await adminService.getEmployees()
+    if (response.success) {
+      employees.value = (response.data || []).map(e => ({ ...e, id: e.id || uid(), expanded: false }))
+    } else {
+      error.value = response.message || 'Nepodařilo se načíst zaměstnance'
+    }
+  } catch (err) {
+    error.value = err.message || 'Nepodařilo se načíst zaměstnance'
+  } finally {
+    loading.value = false
+  }
+})
 
 const filtered = computed(() => {
   const q = searchQuery.value.toLowerCase()
@@ -73,13 +91,39 @@ function handleContractUpload(emp, event) {
   if (file) emp.contractFile = file.name
 }
 
-function save() {
+async function save() {
   saving.value = true
-  setTimeout(() => {
+  try {
+    const response = await adminService.saveEmployees(employees.value.map(e => ({
+      id: e.id,
+      firstName: e.firstName,
+      lastName: e.lastName,
+      role: e.role,
+      phone: e.phone,
+      tenureText: e.tenureText,
+      bio: e.bio,
+      hobbies: e.hobbies,
+      photo: e.photo,
+      contractFile: e.contractFile,
+      showInPortal: e.showInPortal,
+      showPhoto: e.showPhoto,
+      showPhone: e.showPhone,
+      showRole: e.showRole,
+      showHobbies: e.showHobbies,
+      showTenure: e.showTenure,
+      showBio: e.showBio,
+    })))
+    if (response.success) {
+      saved.value = true
+      setTimeout(() => { saved.value = false }, 3000)
+    } else {
+      error.value = response.message || 'Uložení se nezdařilo'
+    }
+  } catch (err) {
+    error.value = err.message || 'Uložení se nezdařilo'
+  } finally {
     saving.value = false
-    saved.value = true
-    setTimeout(() => { saved.value = false }, 3000)
-  }, 900)
+  }
 }
 
 function initials(emp) {
@@ -144,8 +188,19 @@ function toggleCount(emp) {
       </div>
     </div>
 
+    <!-- Loading state -->
+    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
+      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám zaměstnance...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="alert alert-danger">
+      {{ error }}
+    </div>
+
     <!-- Search -->
-    <div class="card">
+    <div v-else class="card">
       <div class="table-toolbar">
         <h3 class="card-title" style="margin-bottom:0;">Seznam zaměstnanců</h3>
         <div class="search-wrap">

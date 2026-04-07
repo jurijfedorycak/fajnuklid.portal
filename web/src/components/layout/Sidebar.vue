@@ -5,27 +5,29 @@ import {
   LayoutDashboard, FileText, Users, FileSignature,
   Clock, Phone, Settings, LogOut, ShieldCheck,
 } from 'lucide-vue-next'
-import { currentUser } from '../../data/mockData.js'
+import { useAuth } from '../../stores/auth'
 
 defineProps({ open: Boolean })
 const emit = defineEmits(['close'])
 
 const router = useRouter()
 const route = useRoute()
+const { user, isAdmin, logout } = useAuth()
 
-const isAdmin = computed(() => sessionStorage.getItem('mock_admin') === 'true')
+const displayName = computed(() => user.value?.display_name || user.value?.email || 'Klient')
+const activeIco = computed(() => user.value?.active_ico || '')
 
 const navItems = [
-  { name: 'Přehled',      route: '/',          icon: LayoutDashboard },
+  { name: 'Prehled',      route: '/',          icon: LayoutDashboard },
   { name: 'Faktury',      route: '/faktury',   icon: FileText },
-  { name: 'Personál',     route: '/personal',  icon: Users },
+  { name: 'Personal',     route: '/personal',  icon: Users },
   { name: 'Smlouva',      route: '/smlouva',   icon: FileSignature },
-  { name: 'Docházka',     route: '/dochazka',  icon: Clock, soon: true },
+  { name: 'Dochazka',     route: '/dochazka',  icon: Clock },
   { name: 'Kontakt',      route: '/kontakt',   icon: Phone },
 ]
 
 const bottomItems = [
-  { name: 'Nastavení',    route: '/nastaveni', icon: Settings },
+  { name: 'Nastaveni',    route: '/nastaveni', icon: Settings },
 ]
 
 function isActive(r) {
@@ -38,24 +40,18 @@ function navigate(r) {
   emit('close')
 }
 
-function toggleAdmin() {
-  const current = sessionStorage.getItem('mock_admin') === 'true'
-  sessionStorage.setItem('mock_admin', String(!current))
-  if (!current) {
-    router.push('/admin')
-  } else {
-    router.push('/')
-  }
+function goToAdmin() {
+  router.push('/admin')
   emit('close')
 }
 
-function logout() {
-  sessionStorage.removeItem('mock_auth')
-  sessionStorage.removeItem('mock_admin')
+async function handleLogout() {
+  await logout()
   router.push('/login')
 }
 
 function initials(name) {
+  if (!name) return '?'
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 }
 </script>
@@ -64,16 +60,16 @@ function initials(name) {
   <aside class="sidebar" :class="{ open }">
     <!-- Logo -->
     <div class="sidebar-logo">
-      <span class="logo-mark">FÚ</span>
-      <span class="logo-text">FAJN ÚKLID</span>
+      <span class="logo-mark">FU</span>
+      <span class="logo-text">FAJN UKLID</span>
     </div>
 
     <!-- Client info -->
     <div class="sidebar-client">
-      <div class="avatar avatar-sm client-avatar">{{ initials(currentUser.displayName) }}</div>
+      <div class="avatar avatar-sm client-avatar">{{ initials(displayName) }}</div>
       <div class="client-info">
-        <div class="client-name">{{ currentUser.displayName }}</div>
-        <div class="client-ico">IČO: {{ currentUser.activeIco }}</div>
+        <div class="client-name">{{ displayName }}</div>
+        <div class="client-ico" v-if="activeIco">ICO: {{ activeIco }}</div>
       </div>
     </div>
 
@@ -90,7 +86,6 @@ function initials(name) {
       >
         <component :is="item.icon" class="nav-icon" :size="18" />
         <span class="nav-label">{{ item.name }}</span>
-        <span v-if="item.soon" class="nav-soon">Brzy</span>
       </button>
     </nav>
 
@@ -109,15 +104,15 @@ function initials(name) {
         <span class="nav-label">{{ item.name }}</span>
       </button>
 
-      <!-- Admin toggle (mockup switcher) -->
-      <button class="nav-item admin-toggle" @click="toggleAdmin">
+      <!-- Admin link (only for admins) -->
+      <button v-if="isAdmin" class="nav-item admin-toggle" @click="goToAdmin">
         <ShieldCheck class="nav-icon" :size="18" />
-        <span class="nav-label">{{ isAdmin ? 'Klientský pohled' : 'Admin pohled' }}</span>
+        <span class="nav-label">Sprava portalu</span>
       </button>
 
-      <button class="nav-item logout-item" @click="logout">
+      <button class="nav-item logout-item" @click="handleLogout">
         <LogOut class="nav-icon" :size="18" />
-        <span class="nav-label">Odhlásit se</span>
+        <span class="nav-label">Odhlasit se</span>
       </button>
     </nav>
   </aside>
@@ -258,15 +253,6 @@ function initials(name) {
 
 .nav-label {
   flex: 1;
-}
-
-.nav-soon {
-  font-size: 10px;
-  font-weight: 600;
-  background: rgba(255,255,255,0.15);
-  padding: 2px 7px;
-  border-radius: 10px;
-  letter-spacing: 0.03em;
 }
 
 .admin-toggle {

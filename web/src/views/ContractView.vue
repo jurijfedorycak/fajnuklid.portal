@@ -1,14 +1,54 @@
 <script setup>
-import { FileSignature, Download, AlertTriangle, Phone, Mail } from 'lucide-vue-next'
-import { contract, contacts } from '../data/mockData.js'
+import { ref, onMounted } from 'vue'
+import { FileSignature, Download, AlertTriangle, Phone, Mail, Loader2 } from 'lucide-vue-next'
+import { contractService } from '../api'
+
+// State
+const loading = ref(true)
+const error = ref(null)
+const contract = ref({
+  contractsEnabled: false,
+  hasPdf: false,
+  filename: null,
+  uploadedAt: null,
+})
+
+// Fetch data
+onMounted(async () => {
+  try {
+    const response = await contractService.getContract()
+    if (response.success) {
+      contract.value = response.data
+    } else {
+      error.value = response.message || 'Nepodařilo se načíst data'
+    }
+  } catch (err) {
+    error.value = err.message || 'Nepodařilo se načíst data'
+  } finally {
+    loading.value = false
+  }
+})
 
 function formatDate(d) {
+  if (!d) return ''
   const [y, m, day] = d.split('-')
   return `${day}.${m}.${y}`
 }
 
-function downloadContract() {
-  alert(`Stáhnout: ${contract.filename}\n(Ve finální aplikaci zde bude odkaz na dokument z Airtable.)`)
+async function downloadContract() {
+  try {
+    const blob = await contractService.downloadContract()
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = contract.value.filename || 'smlouva.pdf'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (err) {
+    console.error('Failed to download contract:', err)
+  }
 }
 </script>
 
@@ -21,8 +61,19 @@ function downloadContract() {
       </div>
     </div>
 
+    <!-- Loading state -->
+    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
+      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám smlouvu...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="alert alert-danger">
+      {{ error }}
+    </div>
+
     <!-- Contract available -->
-    <div v-if="contract.contractsEnabled && contract.hasPdf" class="contract-available">
+    <div v-else-if="contract.contractsEnabled && contract.hasPdf" class="contract-available">
       <div class="card contract-main">
         <div class="contract-icon-wrap">
           <FileSignature :size="48" color="#162438" />

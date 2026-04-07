@@ -1,31 +1,80 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { Users, Clock, Star, BookOpen, MapPin } from 'lucide-vue-next'
-import { personnelByLocation, currentUser } from '../data/mockData.js'
+import { ref, computed, onMounted } from 'vue'
+import { Users, Clock, Star, BookOpen, MapPin, Loader2 } from 'lucide-vue-next'
+import { personnelService } from '../api'
 
-// Active IČO tab — default to the first IČO the client owns
-const activeIco = ref(personnelByLocation[0].ico)
+// State
+const loading = ref(true)
+const error = ref(null)
+const personnelByLocation = ref([])
 
-const activeGroup = computed(() =>
-  personnelByLocation.find(g => g.ico === activeIco.value) || personnelByLocation[0]
-)
+// Active IČO tab
+const activeIco = ref(null)
 
-const totalStaff = computed(() =>
-  activeGroup.value.objects.reduce((sum, obj) => sum + obj.staff.length, 0)
-)
+// Fetch data
+onMounted(async () => {
+  try {
+    const response = await personnelService.getPersonnel()
+    if (response.success) {
+      personnelByLocation.value = response.data || []
+      // Set default active IČO
+      if (personnelByLocation.value.length > 0) {
+        activeIco.value = personnelByLocation.value[0].ico
+      }
+    } else {
+      error.value = response.message || 'Nepodařilo se načíst data'
+    }
+  } catch (err) {
+    error.value = err.message || 'Nepodařilo se načíst data'
+  } finally {
+    loading.value = false
+  }
+})
+
+const activeGroup = computed(() => {
+  if (!personnelByLocation.value.length) return { objects: [] }
+  return personnelByLocation.value.find(g => g.ico === activeIco.value) || personnelByLocation.value[0]
+})
+
+const totalStaff = computed(() => {
+  if (!activeGroup.value.objects) return 0
+  return activeGroup.value.objects.reduce((sum, obj) => sum + (obj.staff?.length || 0), 0)
+})
 
 const colors = ['#667ea1', '#198754', '#0d6efd', '#e67e00', '#6f42c1', '#d63384']
 function avatarColor(id) {
-  return colors[(id - 1) % colors.length]
+  return colors[((id || 1) - 1) % colors.length]
 }
 
 function initials(name) {
+  if (!name) return '?'
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 }
 </script>
 
 <template>
   <div>
+    <!-- Loading state -->
+    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
+      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám personál...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="alert alert-danger">
+      {{ error }}
+    </div>
+
+    <!-- Empty state -->
+    <div v-else-if="personnelByLocation.length === 0" class="card">
+      <div class="empty-state">
+        <Users :size="40" class="empty-state-icon" />
+        <p class="empty-state-title">Zatím nejsou přiřazeni žádní pracovníci.</p>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <template v-else>
     <!-- Page header -->
     <div class="page-header">
       <div>
@@ -131,6 +180,7 @@ function initials(name) {
     <p class="gdpr-note">
       Zobrazené informace jsou sdíleny se souhlasem pracovníků v souladu se zásadami ochrany osobních údajů.
     </p>
+    </template>
   </div>
 </template>
 

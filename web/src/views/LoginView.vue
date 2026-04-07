@@ -2,35 +2,38 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Eye, EyeOff, LogIn } from 'lucide-vue-next'
+import { useAuth } from '../stores/auth'
 
 const router = useRouter()
+const { login } = useAuth()
+
 const email = ref('')
 const password = ref('')
 const showPassword = ref(false)
 const error = ref('')
 const loading = ref(false)
 
-// Mock: deactivated accounts (portal_enabled = false)
-const deactivatedEmails = ['deaktivovany@example.com']
-
-function login() {
+async function handleLogin() {
   error.value = ''
   if (!email.value || !password.value) {
     error.value = 'Zadejte prosím email a heslo.'
     return
   }
+
   loading.value = true
-  setTimeout(() => {
-    loading.value = false
-    if (deactivatedEmails.includes(email.value.toLowerCase())) {
-      error.value = 'Přístup byl deaktivován. Kontaktujte nás.'
-      return
+
+  try {
+    const result = await login(email.value, password.value)
+    if (result.success) {
+      router.push('/')
+    } else {
+      error.value = result.message || 'Neplatné přihlašovací údaje'
     }
-    const isAdmin = email.value === 'jurij.fedorycak@fajnuklid.cz'
-    sessionStorage.setItem('mock_auth', 'true')
-    sessionStorage.setItem('mock_admin', String(isAdmin))
-    router.push('/')
-  }, 800)
+  } catch (err) {
+    error.value = err.message || 'Přihlášení se nezdařilo'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -39,19 +42,19 @@ function login() {
     <div class="login-card">
       <!-- Logo -->
       <div class="login-logo">
-        <div class="logo-circle">FÚ</div>
-        <h1 class="login-brand">FAJN ÚKLID</h1>
-        <p class="login-tagline">Váš klientský portál</p>
+        <div class="logo-circle">FU</div>
+        <h1 class="login-brand">FAJN UKLID</h1>
+        <p class="login-tagline">Vas klientsky portal</p>
       </div>
 
-      <form @submit.prevent="login" class="login-form">
+      <form @submit.prevent="handleLogin" class="login-form">
         <div class="form-group">
           <label class="form-label">E-mail</label>
           <input
             v-model="email"
             type="email"
             class="form-input"
-            placeholder="váš@email.cz"
+            placeholder="vas@email.cz"
             autocomplete="email"
           />
         </div>
@@ -63,7 +66,7 @@ function login() {
               v-model="password"
               :type="showPassword ? 'text' : 'password'"
               class="form-input"
-              placeholder="••••••••"
+              placeholder="********"
               autocomplete="current-password"
             />
             <button
@@ -84,24 +87,17 @@ function login() {
 
         <button type="submit" class="btn btn-primary btn-full btn-lg" :disabled="loading">
           <LogIn v-if="!loading" :size="18" />
-          <span>{{ loading ? 'Přihlašuji...' : 'Přihlásit se' }}</span>
+          <span>{{ loading ? 'Prihlasuji...' : 'Prihlasit se' }}</span>
         </button>
 
         <div class="login-forgot">
-          <RouterLink to="/zapomenute-heslo">Zapomněli jste heslo?</RouterLink>
+          <RouterLink to="/zapomenute-heslo">Zapomneli jste heslo?</RouterLink>
         </div>
       </form>
-
-      <!-- Mockup hint -->
-      <div class="login-hint">
-        <p><strong>Mockup:</strong> Zadejte libovolný email + heslo.</p>
-        <p>Pro admin pohled použijte: <code>jurij.fedorycak@fajnuklid.cz</code></p>
-        <p>Deaktivovaný účet: <code>deaktivovany@example.com</code></p>
-      </div>
     </div>
 
     <footer class="login-footer">
-      © {{ new Date().getFullYear() }} FAJN ÚKLID s.r.o. — Klientský portál
+      (c) {{ new Date().getFullYear() }} FAJN UKLID s.r.o. - Klientsky portal
     </footer>
   </div>
 </template>
@@ -194,25 +190,6 @@ function login() {
   text-align: center;
   margin-top: 16px;
   font-size: 13px;
-}
-
-.login-hint {
-  margin-top: 24px;
-  padding: 12px 14px;
-  background: var(--color-gray-50);
-  border-radius: 8px;
-  font-size: 12px;
-  color: var(--color-gray-600);
-  border: 1px dashed var(--color-gray-300);
-  line-height: 1.6;
-}
-
-.login-hint code {
-  background: var(--color-light);
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 11px;
-  color: var(--color-primary);
 }
 
 .login-footer {

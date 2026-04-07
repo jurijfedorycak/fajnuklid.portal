@@ -30,10 +30,10 @@ class InitialDataSeeder extends AbstractSeed
             return;
         }
 
-        // Insert test login account (password: test123)
+        // Insert test login account (password: Admin@Fajn2024)
         $this->execute(
             "INSERT INTO login_accounts (email, password_hash, portal_enabled) VALUES " .
-            "('admin@fajnuklid.cz', '\$2y\$12\$wPAF6bI50896gazx504PTeumPfcik4WzTnTsMOh3aia0Isr0yZsTO', 1)"
+            "('admin@fajnuklid.cz', '\$2y\$12\$GQO5RtHD2sTU.MYBrhbUa.0cTo9hwK4mVZUfZpcQJX153TNCEb.5y', 1)"
         );
 
         echo "InitialDataSeeder completed successfully.\n";

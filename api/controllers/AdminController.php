@@ -1,0 +1,359 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controllers;
+
+use App\Core\Controller;
+use App\Core\Request;
+use App\Core\Response;
+use App\Repositories\ClientRepository;
+use App\Repositories\CompanyRepository;
+use App\Repositories\CompanyUserRepository;
+use App\Repositories\EmployeeRepository;
+use App\Repositories\EmployeeLocationRepository;
+use App\Repositories\UserRepository;
+use App\Helpers\PasswordHelper;
+use App\Exceptions\NotFoundException;
+use App\Exceptions\ValidationException;
+
+class AdminController extends Controller
+{
+    private ClientRepository $clientRepo;
+    private CompanyRepository $companyRepo;
+    private CompanyUserRepository $companyUserRepo;
+    private EmployeeRepository $employeeRepo;
+    private EmployeeLocationRepository $employeeLocationRepo;
+    private UserRepository $userRepo;
+
+    public function __construct()
+    {
+        $this->clientRepo = new ClientRepository();
+        $this->companyRepo = new CompanyRepository();
+        $this->companyUserRepo = new CompanyUserRepository();
+        $this->employeeRepo = new EmployeeRepository();
+        $this->employeeLocationRepo = new EmployeeLocationRepository();
+        $this->userRepo = new UserRepository();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // CLIENTS
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    public function listClients(Request $request): void
+    {
+        $pagination = $this->getPagination($request);
+        $search = $request->query('search');
+
+        $clients = $this->clientRepo->findPaginated(
+            $pagination['per_page'],
+            $pagination['offset'],
+            $search
+        );
+        $total = $this->clientRepo->countAll($search);
+
+        // Enrich each client with additional info
+        $enrichedClients = [];
+        foreach ($clients as $client) {
+            $companies = $this->companyRepo->findByClientId((int) $client['id']);
+            $icos = array_column($companies, 'registration_number');
+
+            // Get login accounts for this client's companies
+            $logins = [];
+            $lastLogin = null;
+            foreach ($companies as $company) {
+                $users = $this->companyUserRepo->findByCompanyId((int) $company['id']);
+                foreach ($users as $userLink) {
+                    $user = $this->userRepo->findById((int) $userLink['user_id']);
+                    if ($user) {
+                        $logins[] = $user;
+                        if ($lastLogin === null || $user['updated_at'] > $lastLogin) {
+                            $lastLogin = $user['updated_at'];
+                        }
+                    }
+                }
+            }
+
+            // Check if any login is active
+            $active = false;
+            foreach ($logins as $login) {
+                if ($login['portal_enabled']) {
+                    $active = true;
+                    break;
+                }
+            }
+
+            $enrichedClients[] = [
+                'id' => $client['id'],
+                'client_id' => $client['client_id'],
+                'display_name' => $client['display_name'],
+                'icos' => $icos,
+                'active' => $active,
+                'last_login' => $lastLogin,
+                'email' => !empty($logins) ? $logins[0]['email'] : null,
+                'created_at' => $client['created_at'],
+            ];
+        }
+
+        Response::paginated($enrichedClients, $total, $pagination['page'], $pagination['per_page']);
+    }
+
+    public function getClient(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $client = $this->clientRepo->findById($id);
+
+        if (!$client) {
+            throw new NotFoundException('Klient nebyl nalezen');
+        }
+
+        // Get companies (IČOs)
+        $companies = $this->companyRepo->findByClientId($id);
+
+        // Get login accounts
+        $logins = [];
+        foreach ($companies as $company) {
+            $users = $this->companyUserRepo->findByCompanyId((int) $company['id']);
+            foreach ($users as $userLink) {
+                $user = $this->userRepo->findById((int) $userLink['user_id']);
+                if ($user) {
+                    $logins[] = [
+                        'id' => $user['id'],
+                        'email' => $user['email'],
+                        'portal_enabled' => (bool) $user['portal_enabled'],
+                        'company_ids' => [$company['id']],
+                    ];
+                }
+            }
+        }
+
+        Response::success([
+            'client' => [
+                'id' => $client['id'],
+                'client_id' => $client['client_id'],
+                'display_name' => $client['display_name'],
+                'created_at' => $client['created_at'],
+            ],
+            'companies' => $companies,
+            'logins' => $logins,
+        ]);
+    }
+
+    public function createClient(Request $request): void
+    {
+        $data = $this->validate($request->all(), [
+            'client_id' => 'required|string|max:50',
+            'display_name' => 'required|string|max:255',
+        ]);
+
+        // Check if client_id already exists
+        if ($this->clientRepo->existsByClientId($data['client_id'])) {
+            throw new ValidationException('ID klienta již existuje', [
+                'client_id' => ['Toto ID klienta je již použito'],
+            ]);
+        }
+
+        $clientId = $this->clientRepo->create($data);
+        $client = $this->clientRepo->findById($clientId);
+
+        Response::created($client, 'Klient byl vytvořen');
+    }
+
+    public function updateClient(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $client = $this->clientRepo->findById($id);
+
+        if (!$client) {
+            throw new NotFoundException('Klient nebyl nalezen');
+        }
+
+        $data = $this->validate($request->all(), [
+            'display_name' => 'string|max:255',
+        ]);
+
+        $this->clientRepo->update($id, $data);
+        $updated = $this->clientRepo->findById($id);
+
+        Response::success($updated, 'Klient byl aktualizován');
+    }
+
+    public function deleteClient(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $client = $this->clientRepo->findById($id);
+
+        if (!$client) {
+            throw new NotFoundException('Klient nebyl nalezen');
+        }
+
+        $this->clientRepo->delete($id);
+
+        Response::success(null, 'Klient byl smazán');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // EMPLOYEES
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    public function listEmployees(Request $request): void
+    {
+        $pagination = $this->getPagination($request);
+        $search = $request->query('search');
+
+        $employees = $this->employeeRepo->findPaginated(
+            $pagination['per_page'],
+            $pagination['offset'],
+            $search
+        );
+        $total = $this->employeeRepo->countAll($search);
+
+        // Enrich with location assignments
+        $enrichedEmployees = [];
+        foreach ($employees as $emp) {
+            $locations = $this->employeeLocationRepo->findByEmployeeId((int) $emp['id']);
+
+            $enrichedEmployees[] = [
+                'id' => $emp['id'],
+                'first_name' => $emp['first_name'],
+                'last_name' => $emp['last_name'],
+                'email' => $emp['email'],
+                'phone' => $emp['phone'],
+                'position' => $emp['position'],
+                'photo_url' => $emp['photo_url'],
+                'show_name' => (bool) $emp['show_name'],
+                'show_photo' => (bool) $emp['show_photo'],
+                'show_phone' => (bool) $emp['show_phone'],
+                'show_email' => (bool) $emp['show_email'],
+                'show_in_portal' => (bool) $emp['show_name'],
+                'location_count' => count($locations),
+                'created_at' => $emp['created_at'],
+            ];
+        }
+
+        Response::paginated($enrichedEmployees, $total, $pagination['page'], $pagination['per_page']);
+    }
+
+    public function getEmployee(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $employee = $this->employeeRepo->findById($id);
+
+        if (!$employee) {
+            throw new NotFoundException('Zaměstnanec nebyl nalezen');
+        }
+
+        $locations = $this->employeeLocationRepo->findByEmployeeId($id);
+
+        Response::success([
+            'employee' => $employee,
+            'locations' => $locations,
+        ]);
+    }
+
+    public function createEmployee(Request $request): void
+    {
+        $data = $this->validate($request->all(), [
+            'first_name' => 'required|string|max:100',
+            'last_name' => 'required|string|max:100',
+            'email' => 'email|max:255',
+            'phone' => 'string|max:20',
+            'position' => 'string|max:100',
+        ]);
+
+        $employeeId = $this->employeeRepo->create($data);
+        $employee = $this->employeeRepo->findById($employeeId);
+
+        // Handle location assignments if provided
+        $locationIds = $request->input('location_ids', []);
+        if (!empty($locationIds)) {
+            $this->employeeLocationRepo->syncEmployeeLocations($employeeId, array_map('intval', $locationIds));
+        }
+
+        Response::created($employee, 'Zaměstnanec byl vytvořen');
+    }
+
+    public function updateEmployee(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $employee = $this->employeeRepo->findById($id);
+
+        if (!$employee) {
+            throw new NotFoundException('Zaměstnanec nebyl nalezen');
+        }
+
+        $data = $request->all();
+
+        // Filter allowed fields
+        $allowedFields = [
+            'first_name', 'last_name', 'email', 'phone', 'position', 'photo_url',
+            'show_name', 'show_photo', 'show_phone', 'show_email',
+        ];
+        $updateData = array_intersect_key($data, array_flip($allowedFields));
+
+        if (!empty($updateData)) {
+            $this->employeeRepo->update($id, $updateData);
+        }
+
+        // Handle location assignments if provided
+        if (isset($data['location_ids'])) {
+            $this->employeeLocationRepo->syncEmployeeLocations($id, array_map('intval', $data['location_ids']));
+        }
+
+        $updated = $this->employeeRepo->findById($id);
+
+        Response::success($updated, 'Zaměstnanec byl aktualizován');
+    }
+
+    public function deleteEmployee(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $employee = $this->employeeRepo->findById($id);
+
+        if (!$employee) {
+            throw new NotFoundException('Zaměstnanec nebyl nalezen');
+        }
+
+        $this->employeeRepo->delete($id);
+
+        Response::success(null, 'Zaměstnanec byl smazán');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // STATS
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    public function stats(Request $request): void
+    {
+        $totalClients = $this->clientRepo->countAll();
+        $totalEmployees = $this->employeeRepo->countAll();
+
+        // Count active vs inactive clients
+        $clients = $this->clientRepo->findAll();
+        $activeClients = 0;
+        foreach ($clients as $client) {
+            $companies = $this->companyRepo->findByClientId((int) $client['id']);
+            foreach ($companies as $company) {
+                $users = $this->companyUserRepo->findByCompanyId((int) $company['id']);
+                foreach ($users as $userLink) {
+                    $user = $this->userRepo->findById((int) $userLink['user_id']);
+                    if ($user && $user['portal_enabled']) {
+                        $activeClients++;
+                        break 2;
+                    }
+                }
+            }
+        }
+
+        Response::success([
+            'clients' => [
+                'total' => $totalClients,
+                'active' => $activeClients,
+                'inactive' => $totalClients - $activeClients,
+            ],
+            'employees' => [
+                'total' => $totalEmployees,
+            ],
+        ]);
+    }
+}

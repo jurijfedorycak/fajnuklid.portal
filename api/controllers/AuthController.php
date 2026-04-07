@@ -58,7 +58,6 @@ class AuthController extends Controller
             'user' => [
                 'id' => $user['id'],
                 'email' => $user['email'],
-                'client_id' => $user['client_id'],
                 'is_admin' => $isAdmin
             ]
         ], 'Přihlášení bylo úspěšné');
@@ -79,7 +78,6 @@ class AuthController extends Controller
         Response::success([
             'id' => $user['id'],
             'email' => $user['email'],
-            'client_id' => $user['client_id'],
             'is_admin' => $user['is_admin'] ?? false
         ]);
     }

@@ -1,7 +1,41 @@
 <script setup>
-import { ref } from 'vue'
-import { User, Lock, Building2, CheckCircle, Eye, EyeOff } from 'lucide-vue-next'
-import { currentUser } from '../data/mockData.js'
+import { ref, computed, onMounted } from 'vue'
+import { User, Lock, Building2, CheckCircle, Eye, EyeOff, Loader2 } from 'lucide-vue-next'
+import { settingsService } from '../api'
+import { useAuth } from '../stores/auth'
+
+const { user } = useAuth()
+
+// State
+const loading = ref(true)
+const error = ref(null)
+const settingsData = ref({
+  icos: [],
+})
+
+// Fetch settings
+onMounted(async () => {
+  try {
+    const response = await settingsService.getSettings()
+    if (response.success) {
+      settingsData.value = response.data
+    } else {
+      error.value = response.message || 'Nepodařilo se načíst nastavení'
+    }
+  } catch (err) {
+    error.value = err.message || 'Nepodařilo se načíst nastavení'
+  } finally {
+    loading.value = false
+  }
+})
+
+// Computed for user data
+const currentUser = computed(() => ({
+  email: user.value?.email || '',
+  displayName: user.value?.display_name || '',
+  clientId: user.value?.client_id || user.value?.id || '',
+  icos: settingsData.value.icos || [],
+}))
 
 const currentPassword = ref('')
 const newPassword = ref('')
@@ -12,7 +46,7 @@ const passwordError = ref('')
 const passwordSuccess = ref(false)
 const saving = ref(false)
 
-function changePassword() {
+async function changePassword() {
   passwordError.value = ''
   passwordSuccess.value = false
   if (!currentPassword.value || !newPassword.value || !confirmPassword.value) {
@@ -27,15 +61,24 @@ function changePassword() {
     passwordError.value = 'Nové heslo a potvrzení se neshodují.'
     return
   }
+
   saving.value = true
-  setTimeout(() => {
+  try {
+    const response = await settingsService.changePassword(currentPassword.value, newPassword.value, confirmPassword.value)
+    if (response.success) {
+      passwordSuccess.value = true
+      currentPassword.value = ''
+      newPassword.value = ''
+      confirmPassword.value = ''
+      setTimeout(() => { passwordSuccess.value = false }, 4000)
+    } else {
+      passwordError.value = response.message || 'Změna hesla se nezdařila'
+    }
+  } catch (err) {
+    passwordError.value = err.message || 'Změna hesla se nezdařila'
+  } finally {
     saving.value = false
-    passwordSuccess.value = true
-    currentPassword.value = ''
-    newPassword.value = ''
-    confirmPassword.value = ''
-    setTimeout(() => { passwordSuccess.value = false }, 4000)
-  }, 900)
+  }
 }
 </script>
 
@@ -48,7 +91,18 @@ function changePassword() {
       </div>
     </div>
 
-    <div class="settings-layout">
+    <!-- Loading state -->
+    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
+      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám nastavení...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="alert alert-danger">
+      {{ error }}
+    </div>
+
+    <div v-else class="settings-layout">
       <!-- Profile section -->
       <div class="card settings-section">
         <div class="section-header">

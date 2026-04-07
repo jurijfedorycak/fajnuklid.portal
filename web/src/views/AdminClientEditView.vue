@@ -1,20 +1,23 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { adminClients } from '../data/mockData.js'
+import { adminService } from '../api'
 import {
   ArrowLeft, Save, Plus, Trash2, Building2, MapPin, User, Users,
   Lock, Phone, Mail, FileSignature, Clock, ChevronDown, ChevronUp,
   Eye, EyeOff, Upload, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight,
-  Globe, Shield, Copy,
+  Globe, Shield, Copy, Loader2,
 } from 'lucide-vue-next'
 
 const route  = useRoute()
 const router = useRouter()
 
 const isNew  = computed(() => route.params.id === 'novy')
+const loading = ref(!isNew.value)
+const error = ref(null)
 const saving = ref(false)
 const saved  = ref(false)
+const otherClients = ref([])
 
 // ── Section nav ───────────────────────────────────────────────────────────────
 const sections = [
@@ -49,59 +52,48 @@ onUnmounted(() => observer?.disconnect())
 let _idCounter = 100
 function uid() { return `id-${++_idCounter}` }
 
-// Other clients for IČO reassignment dropdown
-const otherClients = computed(() =>
-  adminClients.filter(c => c.clientId !== (isNew.value ? '' : 'CLI-001'))
-)
-
 // ── Form state ────────────────────────────────────────────────────────────────
 const form = reactive({
-  clientId:    isNew.value ? '' : 'CLI-001',
-  displayName: isNew.value ? '' : 'Stavby Novák s.r.o.',
-  notes:       isNew.value ? '' : 'Dlouhodobý klient od roku 2024. Preferuje kontakt e-mailem.',
+  clientId:    '',
+  displayName: '',
+  notes:       '',
   active:      true,
+  logins: [],
+  icos: [],
+  staff: [],
+  contacts: [],
+})
 
-  logins: isNew.value ? [] : [
-    { id: uid(), email: 'info@stavby-novak.cz',    restriction: 'all',      allowedIcos: [],           showPass: false, tempPass: '' },
-    { id: uid(), email: 'ekonom@stavby-novak.cz',  restriction: 'icos',     allowedIcos: ['87654321'], showPass: false, tempPass: '' },
-  ],
-
-  icos: isNew.value ? [] : [
-    {
-      id: 'ico-1', ico: '12345678', officialName: 'Stavby Novák s.r.o.',
-      freshqrEnabled: true, billingModel: 'hourly',
-      contractUploaded: true, contractFile: 'Smlouva_StavbyNovak_2024.pdf',
-      objects: [
-        { id: 'obj-1', name: 'Kanceláře',  address: 'Budějovická 12, Praha 4', lat: 50.0523, lng: 14.4629, expanded: true },
-        { id: 'obj-2', name: 'Sklad',      address: 'Průmyslová 5, Praha 4',   lat: 50.0400, lng: 14.4700, expanded: false },
-      ],
-      expanded: true,
-    },
-    {
-      id: 'ico-2', ico: '87654321', officialName: 'Novák Holding a.s.',
-      freshqrEnabled: false, billingModel: 'fixed',
-      contractUploaded: false, contractFile: null,
-      objects: [
-        { id: 'obj-3', name: 'Recepce a vedení', address: 'Nádražní 5, Praha 5', lat: 50.0714, lng: 14.4027, expanded: false },
-      ],
-      expanded: false,
-    },
-  ],
-
-  staff: isNew.value ? [] : [
-    { id: uid(), name: 'Katarína Horáková', role: 'Vedoucí týmu',        assignedObjects: ['obj-1'],       tenure: '3 roky',           bio: 'Kateřina se stará o koordinaci.', hobbies: 'Zahradničení, jóga', phone: '',               showRole: true, showTenure: true, showBio: true, showHobbies: true, showPhone: false, expanded: false },
-    { id: uid(), name: 'Dmytro Kovalenko',  role: 'Úklidový pracovník',  assignedObjects: ['obj-1'],       tenure: '1 rok a 4 měsíce', bio: 'Specializuje se na strojové mytí.',hobbies: 'Fotbal, cyklistika', phone: '+420 702 111 222', showRole: true, showTenure: true, showBio: true, showHobbies: true, showPhone: true,  expanded: false },
-    { id: uid(), name: 'Monika Blahová',    role: 'Úklidová pracovnice', assignedObjects: ['obj-2'],       tenure: '2 roky',           bio: '',                                hobbies: '',                   phone: '',               showRole: true, showTenure: true, showBio: false,showHobbies: false,showPhone: false, expanded: false },
-    { id: uid(), name: 'Andrij Melnyk',     role: 'Pomocný pracovník',   assignedObjects: ['obj-2'],       tenure: '8 měsíců',         bio: 'Nový člen týmu, rychle se učí.',  hobbies: 'Hudba',              phone: '',               showRole: true, showTenure: true, showBio: true, showHobbies: true, showPhone: false, expanded: false },
-    { id: uid(), name: 'Oksana Petrenko',   role: 'Vedoucí týmu',        assignedObjects: ['obj-3'],       tenure: '2 roky',           bio: 'Zajišťuje úklid recepce.',        hobbies: 'Tenis, cestování',   phone: '',               showRole: true, showTenure: true, showBio: true, showHobbies: true, showPhone: false, expanded: false },
-    { id: uid(), name: 'Taras Bondarenko',  role: 'Úklidový pracovník',  assignedObjects: ['obj-3'],       tenure: '5 měsíců',         bio: '',                                hobbies: '',                   phone: '',               showRole: true, showTenure: true, showBio: false,showHobbies: false,showPhone: false, expanded: false },
-  ],
-
-  contacts: isNew.value ? [] : [
-    { id: uid(), name: 'Petr Novák',   role: 'Jednatel',         phone: '+420 602 111 333', email: 'petr.novak@stavby-novak.cz',   scope: 'global', icoId: null   },
-    { id: uid(), name: 'Jana Marková', role: 'Ekonomka',         phone: '+420 731 222 444', email: 'jana.markova@stavby-novak.cz', scope: 'icos',   icoId: 'ico-1' },
-    { id: uid(), name: 'Tomáš Říha',   role: 'Facility Manager', phone: '',                 email: 'tomas.riha@novak-holding.cz',  scope: 'icos',   icoId: 'ico-2' },
-  ],
+// Fetch client data on mount (for edit mode)
+onMounted(async () => {
+  if (!isNew.value) {
+    try {
+      const response = await adminService.getClient(route.params.id)
+      if (response.success) {
+        const data = response.data
+        form.clientId = data.clientId || ''
+        form.displayName = data.displayName || ''
+        form.notes = data.notes || ''
+        form.active = data.active ?? true
+        form.logins = (data.logins || []).map(l => ({ ...l, id: uid(), showPass: false, tempPass: '' }))
+        form.icos = (data.icos || []).map(i => ({
+          ...i,
+          id: uid(),
+          expanded: false,
+          objects: (i.objects || []).map(o => ({ ...o, id: uid(), expanded: false })),
+        }))
+        form.staff = (data.staff || []).map(s => ({ ...s, id: uid(), expanded: false }))
+        form.contacts = (data.contacts || []).map(c => ({ ...c, id: uid() }))
+        otherClients.value = data.otherClients || []
+      } else {
+        error.value = response.message || 'Nepodařilo se načíst klienta'
+      }
+    } catch (err) {
+      error.value = err.message || 'Nepodařilo se načíst klienta'
+    } finally {
+      loading.value = false
+    }
+  }
 })
 
 // ── All objects flattened (for staff assignment) ───────────────────────────────
@@ -171,13 +163,78 @@ function mapSrc(obj) {
 }
 
 // ── Save ─────────────────────────────────────────────────────────────────────
-function save() {
+async function save() {
   saving.value = true
-  setTimeout(() => {
+  try {
+    const payload = {
+      clientId: form.clientId,
+      displayName: form.displayName,
+      notes: form.notes,
+      active: form.active,
+      logins: form.logins.map(l => ({
+        email: l.email,
+        restriction: l.restriction,
+        allowedIcos: l.allowedIcos,
+        tempPass: l.tempPass,
+      })),
+      icos: form.icos.map(i => ({
+        ico: i.ico,
+        officialName: i.officialName,
+        freshqrEnabled: i.freshqrEnabled,
+        billingModel: i.billingModel,
+        contractFile: i.contractFile,
+        objects: i.objects.map(o => ({
+          name: o.name,
+          address: o.address,
+          lat: o.lat,
+          lng: o.lng,
+        })),
+      })),
+      staff: form.staff.map(s => ({
+        name: s.name,
+        role: s.role,
+        assignedObjects: s.assignedObjects,
+        tenure: s.tenure,
+        bio: s.bio,
+        hobbies: s.hobbies,
+        phone: s.phone,
+        showRole: s.showRole,
+        showTenure: s.showTenure,
+        showBio: s.showBio,
+        showHobbies: s.showHobbies,
+        showPhone: s.showPhone,
+      })),
+      contacts: form.contacts.map(c => ({
+        name: c.name,
+        role: c.role,
+        phone: c.phone,
+        email: c.email,
+        scope: c.scope,
+        icoId: c.icoId,
+      })),
+    }
+
+    let response
+    if (isNew.value) {
+      response = await adminService.createClient(payload)
+    } else {
+      response = await adminService.updateClient(route.params.id, payload)
+    }
+
+    if (response.success) {
+      saved.value = true
+      setTimeout(() => { saved.value = false }, 3000)
+      if (isNew.value && response.data?.clientId) {
+        router.replace(`/admin/klient/${response.data.clientId}`)
+      }
+    } else {
+      error.value = response.message || 'Uložení se nezdařilo'
+    }
+  } catch (err) {
+    error.value = err.message || 'Uložení se nezdařilo'
+  } finally {
     saving.value = false
-    saved.value = true
-    setTimeout(() => { saved.value = false }, 3000)
-  }, 900)
+  }
 }
 
 function generateClientId() {
@@ -199,8 +256,19 @@ function toggleIcoRestriction(login, ico) {
 <template>
   <div class="edit-page">
 
+    <!-- Loading state -->
+    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
+      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám klienta...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="alert alert-danger" style="margin-bottom:16px;">
+      {{ error }}
+    </div>
+
     <!-- Top bar -->
-    <div class="topbar">
+    <div v-if="!loading" class="topbar">
       <button class="btn btn-ghost btn-sm back-btn" @click="router.push('/admin')">
         <ArrowLeft :size="16" /> Správa klientů
       </button>

@@ -1,15 +1,38 @@
 <script setup>
-import { Phone, Mail, MapPin, ChevronDown, ChevronUp, Clock } from 'lucide-vue-next'
-import { ref } from 'vue'
-import { contacts, companies } from '../data/mockData.js'
+import { Phone, Mail, MapPin, ChevronDown, ChevronUp, Clock, Loader2, Users } from 'lucide-vue-next'
+import { ref, onMounted } from 'vue'
+import { contactService } from '../api'
 
+// State
+const loading = ref(true)
+const error = ref(null)
+const contacts = ref([])
+const companies = ref([])
 const expandedCompany = ref(null)
+
+// Fetch data
+onMounted(async () => {
+  try {
+    const response = await contactService.getContacts()
+    if (response.success) {
+      contacts.value = response.data.contacts || []
+      companies.value = response.data.companies || []
+    } else {
+      error.value = response.message || 'Nepodařilo se načíst data'
+    }
+  } catch (err) {
+    error.value = err.message || 'Nepodařilo se načíst data'
+  } finally {
+    loading.value = false
+  }
+})
 
 function toggleCompany(idx) {
   expandedCompany.value = expandedCompany.value === idx ? null : idx
 }
 
 function initials(name) {
+  if (!name) return '?'
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 }
 
@@ -25,6 +48,27 @@ const avatarColors = ['#162438', '#667ea1']
       </div>
     </div>
 
+    <!-- Loading state -->
+    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
+      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám kontakty...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="alert alert-danger">
+      {{ error }}
+    </div>
+
+    <!-- Empty state -->
+    <div v-else-if="contacts.length === 0" class="card">
+      <div class="empty-state">
+        <Users :size="40" class="empty-state-icon" />
+        <p class="empty-state-title">Kontakty nejsou k dispozici.</p>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <template v-else>
     <!-- Availability note -->
     <div class="alert alert-info" style="margin-bottom:24px;">
       <Clock :size="18" />
@@ -96,6 +140,7 @@ const avatarColors = ['#162438', '#667ea1']
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 

@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { Doughnut } from 'vue-chartjs'
 import {
@@ -9,22 +9,55 @@ import {
   FileText, Calendar, Users, FileSignature, Phone, Mail, ArrowRight,
   CheckCircle2, Loader2,
 } from 'lucide-vue-next'
-import { invoices, personnel, contract, contacts, currentUser, cleaningDays } from '../data/mockData.js'
+import { dashboardService } from '../api'
+import { useAuth } from '../stores/auth'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
-const paid    = computed(() => invoices.filter(i => i.status === 'paid').length)
-const unpaid  = computed(() => invoices.filter(i => i.status === 'unpaid').length)
-const overdue = computed(() => invoices.filter(i => i.status === 'overdue').length)
+const { user } = useAuth()
 
-const nextDue = computed(() => {
-  const upcoming = invoices
-    .filter(i => i.status === 'unpaid' && i.daysRelative >= 0)
-    .sort((a, b) => a.daysRelative - b.daysRelative)
-  return upcoming[0] || null
+// State
+const loading = ref(true)
+const error = ref(null)
+const dashboardData = ref({
+  personnelCount: 0,
+  contract: { contractsEnabled: false, hasPdf: false },
+  contacts: [],
+  cleaningDays: [],
+  locations: [],
 })
 
-const recentInvoices = computed(() => invoices.slice(0, 5))
+// Fetch dashboard data
+onMounted(async () => {
+  try {
+    const response = await dashboardService.getDashboard()
+    if (response.success) {
+      dashboardData.value = response.data
+    } else {
+      error.value = response.message || 'Nepodařilo se načíst data'
+    }
+  } catch (err) {
+    error.value = err.message || 'Nepodařilo se načíst data'
+  } finally {
+    loading.value = false
+  }
+})
+
+// Computed from dashboard data
+// Note: Invoices are skipped in this phase - showing placeholders
+const paid = computed(() => 0)
+const unpaid = computed(() => 0)
+const overdue = computed(() => 0)
+const invoicesTotal = computed(() => 0)
+const nextDue = computed(() => null)
+const recentInvoices = computed(() => [])
+const personnel = computed(() => ({
+  count: dashboardData.value.personnelCount || 0,
+  locationName: dashboardData.value.locations?.[0]?.name || '',
+}))
+const contract = computed(() => dashboardData.value.contract || { contractsEnabled: false, hasPdf: false })
+const contacts = computed(() => dashboardData.value.contacts || [])
+const cleaningDays = computed(() => dashboardData.value.cleaningDays || [])
 
 const chartData = computed(() => ({
   labels: ['Zaplaceno', 'Nezaplaceno', 'Po splatnosti'],
@@ -65,6 +98,7 @@ function statusBadge(s) {
 }
 
 function formatDate(d) {
+  if (!d) return ''
   const [y,m,day] = d.split('-')
   return `${day}.${m}.${y}`
 }
@@ -74,6 +108,7 @@ function formatAmount(n) {
 }
 
 function initials(name) {
+  if (!name) return '?'
   return name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()
 }
 
@@ -84,21 +119,24 @@ const greeting = computed(() => {
   return 'Dobrý večer'
 })
 
+const displayName = computed(() => user.value?.display_name || user.value?.email || 'Klient')
+const activeIco = computed(() => user.value?.active_ico || '')
+
 // ── Cleanings mini-calendar (current month) ───────────────────────────────────
-const mockToday = new Date(2026, 2, 1) // 2026-03-01
+const today = new Date()
 
 const cleaningDayMap = computed(() => {
   const m = {}
-  for (const d of cleaningDays) m[d.date] = { ongoing: !!d.ongoing, note: d.note || '' }
+  for (const d of cleaningDays.value) m[d.date] = { ongoing: !!d.ongoing, note: d.note || '' }
   return m
 })
 
 // Build day cells for the current month up to today
 const cleaningMiniDays = computed(() => {
-  const year  = mockToday.getFullYear()
-  const month = mockToday.getMonth()
+  const year  = today.getFullYear()
+  const month = today.getMonth()
   const days  = []
-  for (let d = 1; d <= mockToday.getDate(); d++) {
+  for (let d = 1; d <= today.getDate(); d++) {
     const key = `${year}-${String(month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
     const info = cleaningDayMap.value[key]
     days.push({ day: d, key, hasCleaning: !!info, ongoing: info?.ongoing || false, note: info?.note || '' })
@@ -106,18 +144,40 @@ const cleaningMiniDays = computed(() => {
   return days
 })
 
-const thisMonthCleanings = computed(() => cleaningDays.filter(d => d.date.startsWith('2026-03')))
-const cleaningCountDone    = computed(() => thisMonthCleanings.value.filter(d => !d.ongoing).length)
+const currentMonthPrefix = computed(() => {
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  return `${year}-${month}`
+})
+
+const thisMonthCleanings = computed(() => cleaningDays.value.filter(d => d.date.startsWith(currentMonthPrefix.value)))
+const cleaningCountDone = computed(() => thisMonthCleanings.value.filter(d => !d.ongoing).length)
 const cleaningCountOngoing = computed(() => thisMonthCleanings.value.filter(d => d.ongoing).length)
+
+const MONTHS = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec']
+const currentMonthLabel = computed(() => `${MONTHS[today.getMonth()]} ${today.getFullYear()}`)
 </script>
 
 <template>
   <div>
+    <!-- Loading state -->
+    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
+      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám přehled...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="alert alert-danger">
+      {{ error }}
+    </div>
+
+    <!-- Content -->
+    <template v-else>
     <!-- Header -->
     <div class="page-header">
       <div>
-        <h1 class="page-title">{{ greeting }}, {{ currentUser.displayName.split(' ')[0] }} 👋</h1>
-        <p class="page-subtitle">Přehled vašeho účtu · IČO: {{ currentUser.activeIco }}</p>
+        <h1 class="page-title">{{ greeting }}, {{ displayName.split(' ')[0] }} 👋</h1>
+        <p class="page-subtitle">Přehled vašeho účtu<span v-if="activeIco"> · IČO: {{ activeIco }}</span></p>
       </div>
     </div>
 
@@ -128,7 +188,7 @@ const cleaningCountOngoing = computed(() => thisMonthCleanings.value.filter(d =>
           <FileText :size="22" />
         </div>
         <div class="stat-body">
-          <div class="stat-value">{{ invoices.length }}</div>
+          <div class="stat-value">{{ invoicesTotal }}</div>
           <div class="stat-label">Faktur celkem</div>
           <div class="stat-sub">
             <span class="badge badge-danger" v-if="overdue > 0">{{ overdue }} po splatnosti</span>
@@ -154,9 +214,9 @@ const cleaningCountOngoing = computed(() => thisMonthCleanings.value.filter(d =>
           <Users :size="22" />
         </div>
         <div class="stat-body">
-          <div class="stat-value">{{ personnel.length }}</div>
+          <div class="stat-value">{{ personnel.count }}</div>
           <div class="stat-label">Přiřazených pracovníků</div>
-          <div class="stat-sub-text">Vaše místo: Praha 4</div>
+          <div class="stat-sub-text" v-if="personnel.locationName">Vaše místo: {{ personnel.locationName }}</div>
         </div>
       </div>
 
@@ -238,7 +298,7 @@ const cleaningCountOngoing = computed(() => thisMonthCleanings.value.filter(d =>
     <div class="card cleaning-card">
       <div class="card-header-row">
         <div>
-          <h3 class="card-title" style="margin-bottom:2px;">Úklidy – březen 2026</h3>
+          <h3 class="card-title" style="margin-bottom:2px;">Úklidy – {{ currentMonthLabel }}</h3>
           <p style="font-size:12px; color:var(--color-gray-500); margin:0;">
             Přehled úklidů od začátku měsíce
           </p>
@@ -281,7 +341,7 @@ const cleaningCountOngoing = computed(() => thisMonthCleanings.value.filter(d =>
     </div>
 
     <!-- Quick contact -->
-    <div class="card" style="margin-top:24px;">
+    <div class="card" style="margin-top:24px;" v-if="contacts.length > 0">
       <h3 class="card-title" style="margin-bottom:16px;">Rychlý kontakt</h3>
       <div class="contact-quick-grid">
         <div v-for="c in contacts" :key="c.email" class="contact-quick-card">
@@ -290,10 +350,10 @@ const cleaningCountOngoing = computed(() => thisMonthCleanings.value.filter(d =>
             <div class="fw-500">{{ c.name }}</div>
             <div class="text-muted" style="font-size:12px; margin-bottom:6px;">{{ c.role }}</div>
             <div class="contact-links">
-              <a :href="'tel:' + c.phone.replace(/\s/g,'')" class="contact-link">
+              <a v-if="c.phone" :href="'tel:' + c.phone.replace(/\s/g,'')" class="contact-link">
                 <Phone :size="13" /> {{ c.phone }}
               </a>
-              <a :href="'mailto:' + c.email" class="contact-link">
+              <a v-if="c.email" :href="'mailto:' + c.email" class="contact-link">
                 <Mail :size="13" /> {{ c.email }}
               </a>
             </div>
@@ -301,6 +361,7 @@ const cleaningCountOngoing = computed(() => thisMonthCleanings.value.filter(d =>
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 

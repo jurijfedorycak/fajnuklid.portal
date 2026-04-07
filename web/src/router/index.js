@@ -1,8 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-
-// Mock auth state (in real app this would be a store)
-const isAuthenticated = () => sessionStorage.getItem('mock_auth') === 'true'
-const isAdmin = () => sessionStorage.getItem('mock_admin') === 'true'
+import { useAuth } from '../stores/auth'
 
 const routes = [
   {
@@ -92,10 +89,15 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  if (!to.meta.public && !isAuthenticated()) {
+  const { isAuthenticated, isAdmin } = useAuth()
+
+  // Check if route requires authentication
+  if (!to.meta.public && !isAuthenticated.value) {
     return { name: 'Login' }
   }
-  if (to.meta.requiresAdmin && !isAdmin()) {
+
+  // Check if route requires admin
+  if (to.meta.requiresAdmin && !isAdmin.value) {
     return { name: 'Dashboard' }
   }
 })

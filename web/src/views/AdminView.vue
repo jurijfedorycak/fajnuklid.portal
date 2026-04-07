@@ -1,22 +1,44 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  ShieldCheck, Users, Plus, Edit2, Power, PowerOff, Search, ExternalLink, ArrowRight
+  ShieldCheck, Users, Plus, Edit2, Power, PowerOff, Search, ExternalLink, ArrowRight, Loader2
 } from 'lucide-vue-next'
-import { adminClients, adminEmployees } from '../data/mockData.js'
+import { adminService } from '../api'
 
 const router = useRouter()
-const clients = ref(adminClients.map(c => ({ ...c })))
+
+// State
+const loading = ref(true)
+const error = ref(null)
+const clients = ref([])
+const employeeStats = ref({ total: 0, visible: 0, withContract: 0 })
 const searchQuery = ref('')
+
+// Fetch data
+onMounted(async () => {
+  try {
+    const response = await adminService.getClients()
+    if (response.success) {
+      clients.value = response.data.clients || []
+      employeeStats.value = response.data.employeeStats || { total: 0, visible: 0, withContract: 0 }
+    } else {
+      error.value = response.message || 'Nepodařilo se načíst data'
+    }
+  } catch (err) {
+    error.value = err.message || 'Nepodařilo se načíst data'
+  } finally {
+    loading.value = false
+  }
+})
 
 const filtered = computed(() => {
   const q = searchQuery.value.toLowerCase()
   if (!q) return clients.value
   return clients.value.filter(c =>
-    c.displayName.toLowerCase().includes(q) ||
-    c.email.toLowerCase().includes(q) ||
-    c.icos.some(i => i.includes(q))
+    (c.displayName || '').toLowerCase().includes(q) ||
+    (c.email || '').toLowerCase().includes(q) ||
+    (c.icos || []).some(i => i.includes(q))
   )
 })
 
@@ -26,7 +48,16 @@ const stats = computed(() => ({
   inactive: clients.value.filter(c => !c.active).length,
 }))
 
-function toggleActive(client) { client.active = !client.active }
+async function toggleActive(client) {
+  try {
+    const response = await adminService.updateClient(client.clientId, { active: !client.active })
+    if (response.success) {
+      client.active = !client.active
+    }
+  } catch (err) {
+    console.error('Failed to toggle client status:', err)
+  }
+}
 
 function editClient(clientId) {
   router.push(`/admin/klient/${clientId}`)
@@ -37,7 +68,7 @@ function newClient() {
 }
 
 function formatDate(d) {
-  if (d === '—') return '—'
+  if (!d || d === '—') return '—'
   const [y, m, day] = d.split('-')
   return `${day}.${m}.${y}`
 }
@@ -59,6 +90,19 @@ function formatDate(d) {
       </button>
     </div>
 
+    <!-- Loading state -->
+    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
+      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám data...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="alert alert-danger">
+      {{ error }}
+    </div>
+
+    <!-- Content -->
+    <template v-else>
     <!-- Stats -->
     <div class="admin-stats">
       <div class="card admin-stat">
@@ -161,15 +205,15 @@ function formatDate(d) {
         <div class="emp-section-right">
           <div class="emp-mini-stats">
             <span class="emp-mini-stat">
-              <strong>{{ adminEmployees.length }}</strong>
+              <strong>{{ employeeStats.total }}</strong>
               <span class="text-muted">celkem</span>
             </span>
             <span class="emp-mini-stat">
-              <strong class="text-success">{{ adminEmployees.filter(e => e.showInPortal).length }}</strong>
+              <strong class="text-success">{{ employeeStats.visible }}</strong>
               <span class="text-muted">v portálu</span>
             </span>
             <span class="emp-mini-stat">
-              <strong style="color:var(--color-mid);">{{ adminEmployees.filter(e => e.contractFile).length }}</strong>
+              <strong style="color:var(--color-mid);">{{ employeeStats.withContract }}</strong>
               <span class="text-muted">se smlouvou</span>
             </span>
           </div>
@@ -177,6 +221,7 @@ function formatDate(d) {
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
