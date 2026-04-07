@@ -16,12 +16,32 @@ use App\Exceptions\NotFoundException;
 // Load configuration
 Config::load();
 
+// Helper to send CORS headers (needed for error responses too)
+function sendCorsHeaders(): void
+{
+    $allowedOrigins = Config::getArray('CORS_ALLOWED_ORIGINS');
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+
+    if (in_array($origin, $allowedOrigins, true) || in_array('*', $allowedOrigins, true)) {
+        header("Access-Control-Allow-Origin: {$origin}");
+    } elseif (count($allowedOrigins) > 0) {
+        header("Access-Control-Allow-Origin: {$allowedOrigins[0]}");
+    }
+
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+    header('Access-Control-Allow-Credentials: true');
+}
+
 // Set error handling
 set_error_handler(function ($severity, $message, $file, $line) {
     throw new ErrorException($message, 0, $severity, $file, $line);
 });
 
 set_exception_handler(function (Throwable $e) {
+    // Send CORS headers for error responses
+    sendCorsHeaders();
+
     $statusCode = 500;
     $message = 'Internal Server Error';
     $errors = null;
