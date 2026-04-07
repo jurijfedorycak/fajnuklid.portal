@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import {
-  ArrowLeft, Users, Plus, Search, Trash2, Upload, FileText,
+  Users, Plus, Search, Trash2, Upload, FileText,
   ChevronDown, ChevronUp, Eye, EyeOff, User, Save, CheckCircle2, Loader2, Lightbulb,
 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
@@ -149,16 +149,11 @@ function toggleCount(emp) {
     <!-- Top bar -->
     <div class="page-header">
       <div>
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-          <button class="btn btn-ghost btn-sm back-btn" @click="router.push('/admin/clients')">
-            <ArrowLeft :size="16" /> Správa portálu
-          </button>
-        </div>
         <h1 class="page-title">
           <Users :size="24" style="vertical-align:middle; margin-right:8px; color:var(--color-mid);" />
           Zaměstnanci
         </h1>
-        <p class="page-subtitle">Správa zaměstnanců Fajn Úklid · pracovní smlouvy, GDPR viditelnost v portálu</p>
+        <p class="page-subtitle">Admin sekce · správa zaměstnanců, pracovní smlouvy, GDPR viditelnost v portálu</p>
       </div>
       <div class="top-actions">
         <span v-if="saved" class="saved-msg"><CheckCircle2 :size="15" /> Uloženo</span>
@@ -427,7 +422,6 @@ function toggleCount(emp) {
 
     <!-- Bottom save bar -->
     <div class="bottom-save-bar">
-      <button class="btn btn-ghost" @click="router.push('/admin/clients')">Zpět na správu</button>
       <span v-if="saved" class="saved-msg"><CheckCircle2 :size="15" /> Změny uloženy</span>
       <button class="btn btn-primary" :disabled="saving" @click="save">
         <Save :size="16" />
@@ -488,10 +482,6 @@ function toggleCount(emp) {
   align-items: center;
   gap: 10px;
 }
-
-/* Back button */
-.back-btn { color: var(--color-gray-600); }
-.back-btn:hover { color: var(--color-primary); }
 
 /* Saved msg */
 .saved-msg {
