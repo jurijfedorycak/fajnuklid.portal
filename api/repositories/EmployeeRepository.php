@@ -285,10 +285,21 @@ class EmployeeRepository
             'show_in_portal', 'show_role', 'show_hobbies', 'show_tenure', 'show_bio'
         ];
 
+        // Boolean fields that need to be cast to int
+        $booleanFields = [
+            'show_name', 'show_photo', 'show_phone', 'show_email',
+            'show_in_portal', 'show_role', 'show_hobbies', 'show_tenure', 'show_bio'
+        ];
+
         foreach ($allowedFields as $field) {
             if (array_key_exists($field, $data)) {
                 $fields[] = "{$field} = :{$field}";
-                $params[$field] = $data[$field];
+                // Cast boolean fields to int to avoid MySQL type errors
+                if (in_array($field, $booleanFields, true)) {
+                    $params[$field] = (int) (bool) $data[$field];
+                } else {
+                    $params[$field] = $data[$field];
+                }
             }
         }
 

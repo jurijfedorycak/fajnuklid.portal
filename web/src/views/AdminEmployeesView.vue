@@ -27,12 +27,37 @@ const deleteConfirm = ref({ show: false, empId: null, empName: '' })
 // Pending file uploads
 const pendingUploads = ref(new Map())
 
+// Map API response (snake_case) to frontend (camelCase)
+function mapEmployeeFromApi(e) {
+  return {
+    id: e.id || uid(),
+    firstName: e.first_name || '',
+    lastName: e.last_name || '',
+    role: e.position || '',
+    phone: e.phone || '',
+    tenureText: e.tenure_text || '',
+    bio: e.bio || '',
+    hobbies: e.hobbies || '',
+    photo: e.photo_url || null,
+    photoUrl: e.photo_url || null,
+    contractFile: e.contract_file || null,
+    showInPortal: !!e.show_in_portal,
+    showPhoto: !!e.show_photo,
+    showPhone: !!e.show_phone,
+    showRole: e.show_role !== false,
+    showHobbies: !!e.show_hobbies,
+    showTenure: e.show_tenure !== false,
+    showBio: !!e.show_bio,
+    expanded: false,
+  }
+}
+
 // Fetch employees
 onMounted(async () => {
   try {
     const response = await adminService.getEmployees()
     if (response.success) {
-      employees.value = (response.data || []).map(e => ({ ...e, id: e.id || uid(), expanded: false }))
+      employees.value = (response.data || []).map(mapEmployeeFromApi)
     } else {
       loadError.value = response.message || 'Nepodařilo se načíst zaměstnance'
     }
@@ -438,6 +463,17 @@ function clearSearch() {
           <!-- Expanded body -->
           <div v-if="emp.expanded" :id="`emp-card-body-${emp.id}`" class="emp-card-body">
 
+            <!-- Back to list button -->
+            <button
+              :id="`emp-${emp.id}-back-btn`"
+              type="button"
+              class="btn btn-ghost btn-sm emp-back-btn"
+              @click="emp.expanded = false"
+            >
+              <ChevronUp :size="14" aria-hidden="true" />
+              Zpět na seznam
+            </button>
+
             <!-- Basic info -->
             <div class="field-grid-2">
               <div class="form-group">
@@ -488,7 +524,7 @@ function clearSearch() {
                   placeholder="+420 7xx xxx xxx"
                   :aria-describedby="`emp-${emp.id}-phone-hint`"
                 />
-                <p :id="`emp-${emp.id}-phone-hint`" class="field-hint">V MVP se klientům nikdy nezobrazuje.</p>
+                <p :id="`emp-${emp.id}-phone-hint`" class="field-hint">Zobrazení v portálu nastavte níže v GDPR sekci.</p>
               </div>
               <div class="form-group">
                 <label :for="`emp-${emp.id}-tenure`" class="form-label">Délka spolupráce</label>
@@ -608,7 +644,7 @@ function clearSearch() {
             <!-- GDPR portal visibility toggles -->
             <fieldset :id="`emp-${emp.id}-gdpr-section`" class="gdpr-section">
               <legend class="form-label gdpr-legend">Viditelnost v portálu</legend>
-              <p :id="`emp-${emp.id}-gdpr-hint`" class="field-hint gdpr-hint">Nastavte, co z profilu zaměstnance uvidí klient na portálu. Telefon se v MVP nikdy nezobrazuje.</p>
+              <p :id="`emp-${emp.id}-gdpr-hint`" class="field-hint gdpr-hint">Nastavte, co z profilu zaměstnance uvidí klient na portálu.</p>
 
               <!-- Master toggle -->
               <div class="gdpr-master">
@@ -708,7 +744,7 @@ function clearSearch() {
                   </button>
                   <span>Záliby</span>
                 </div>
-                <div class="gdpr-toggle-item gdpr-disabled" title="V MVP se telefon klientům nikdy nezobrazuje">
+                <div class="gdpr-toggle-item">
                   <button
                     :id="`emp-${emp.id}-toggle-phone`"
                     type="button"
@@ -716,13 +752,12 @@ function clearSearch() {
                     :class="{ 'toggle-on': emp.showPhone }"
                     role="switch"
                     :aria-checked="emp.showPhone"
-                    aria-label="Zobrazit telefon (nedostupné)"
-                    disabled
+                    aria-label="Zobrazit telefon"
                     @click="emp.showPhone = !emp.showPhone"
                   >
                     <span class="toggle-knob" aria-hidden="true" />
                   </button>
-                  <span>Telefon <span class="field-hint gdpr-phone-hint">(MVP: skrytý)</span></span>
+                  <span>Telefon</span>
                 </div>
               </div>
             </fieldset>
@@ -986,6 +1021,12 @@ function clearSearch() {
   padding-top: 14px;
 }
 
+/* Back button */
+.emp-back-btn {
+  margin-bottom: 12px;
+  color: var(--color-mid);
+}
+
 /* Field grid */
 .field-grid-2 {
   display: grid;
@@ -1088,13 +1129,6 @@ function clearSearch() {
   color: var(--color-gray-700);
 }
 
-.gdpr-disabled {
-  opacity: 0.5;
-}
-.gdpr-disabled button { cursor: not-allowed; }
-.gdpr-phone-hint {
-  margin: 0;
-}
 
 /* Toggle switch (matches AdminClientEditView) */
 .toggle-btn {
