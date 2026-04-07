@@ -18,24 +18,24 @@ const displayName = computed(() => user.value?.display_name || user.value?.email
 const activeIco = computed(() => user.value?.active_ico || '')
 
 const clientNavItems = [
-  { name: 'Prehled',      route: '/',          icon: LayoutDashboard },
+  { name: 'Přehled',      route: '/',          icon: LayoutDashboard },
   { name: 'Faktury',      route: '/faktury',   icon: FileText },
-  { name: 'Personal',     route: '/personal',  icon: Users },
+  { name: 'Personál',     route: '/personal',  icon: Users },
   { name: 'Smlouva',      route: '/smlouva',   icon: FileSignature },
-  { name: 'Dochazka',     route: '/dochazka',  icon: Clock },
+  { name: 'Docházka',     route: '/dochazka',  icon: Clock },
   { name: 'Kontakt',      route: '/kontakt',   icon: Phone },
 ]
 
 const adminNavItems = [
   { name: 'Klienti',      route: '/admin/clients',       icon: Users },
-  { name: 'Zamestnanci',  route: '/admin/employees',     icon: UserCog },
+  { name: 'Zaměstnanci',  route: '/admin/employees',     icon: UserCog },
   { name: 'Design',       route: '/admin/design-tokens', icon: Palette },
 ]
 
 const navItems = computed(() => isAdmin.value ? adminNavItems : clientNavItems)
 
 const bottomItems = [
-  { name: 'Nastaveni',    route: '/nastaveni', icon: Settings },
+  { name: 'Nastavení',    route: '/nastaveni', icon: Settings },
 ]
 
 function isActive(r) {
@@ -64,7 +64,7 @@ function initials(name) {
     <!-- Logo -->
     <div class="sidebar-logo">
       <span class="logo-mark">FU</span>
-      <span class="logo-text">FAJN UKLID</span>
+      <span class="logo-text">FAJN ÚKLID</span>
     </div>
 
     <!-- Client info -->
@@ -111,7 +111,7 @@ function initials(name) {
 
       <button id="sidebar-logout-btn" class="nav-item logout-item" @click="handleLogout">
         <LogOut class="nav-icon" :size="18" />
-        <span class="nav-label">Odhlasit se</span>
+        <span class="nav-label">Odhlásit se</span>
       </button>
     </nav>
   </aside>
