@@ -4,7 +4,7 @@ The app is a web client portal of a cleaning company called Fajnuklid. Each clie
 
 Backend: PHP REST API using without a framework, using custom router, controller and service architecture
 Database: MySQL, direct SQL queries
-Frontend: Vue.JS 3 using latest and most modern approach. Fontawesome icons.
+Frontend: Vue.JS 3 using latest and most modern approach. Fontawesome icons. Validate each form on both FE and BE.
 App Language: Czech, but use English URL routing
 
 ## App modes
