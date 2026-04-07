@@ -6,7 +6,7 @@ import {
   ArrowLeft, Save, Plus, Trash2, Building2, MapPin, User, Users,
   Lock, Phone, Mail, FileSignature, Clock, ChevronDown, ChevronUp,
   Eye, EyeOff, Upload, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight,
-  Globe, Shield, Copy, Loader2, HelpCircle, Lightbulb,
+  Globe, Shield, Copy, Loader2, HelpCircle, Lightbulb, Search, X,
 } from 'lucide-vue-next'
 
 const route  = useRoute()
@@ -18,6 +18,11 @@ const error = ref(null)
 const saving = ref(false)
 const saved  = ref(false)
 const otherClients = ref([])
+
+// Employee picker
+const availableEmployees = ref([])
+const showEmployeePicker = ref(false)
+const employeeSearch = ref('')
 
 // ── Validation ────────────────────────────────────────────────────────────────
 const validationErrors = reactive({})
@@ -118,6 +123,28 @@ onMounted(async () => {
   // Set up beforeunload listener for unsaved changes warning
   window.addEventListener('beforeunload', handleBeforeUnload)
 
+  // Fetch available employees for picker
+  try {
+    const empResponse = await adminService.getEmployees()
+    if (empResponse.success) {
+      availableEmployees.value = (empResponse.data || []).map(e => ({
+        id: e.id,
+        name: `${e.first_name || ''} ${e.last_name || ''}`.trim(),
+        firstName: e.first_name || '',
+        lastName: e.last_name || '',
+        role: e.position || '',
+        phone: e.phone || '',
+        tenure: e.tenure_text || '',
+        bio: e.bio || '',
+        hobbies: e.hobbies || '',
+        photoUrl: e.photo_url || null,
+        showInPortal: !!e.show_in_portal,
+      }))
+    }
+  } catch (err) {
+    console.error('Failed to load employees:', err)
+  }
+
   // Fetch client data (for edit mode)
   if (!isNew.value) {
     try {
@@ -187,8 +214,43 @@ function addObject(ico) {
 function removeObject(ico, objId) { ico.objects = ico.objects.filter(o => o.id !== objId) }
 
 function addStaff() {
-  form.staff.push({ id: uid(), name: '', role: '', assignedObjects: [], tenure: '', bio: '', hobbies: '', phone: '', showRole: true, showTenure: true, showBio: true, showHobbies: true, showPhone: false, showPhoto: false, expanded: true })
+  showEmployeePicker.value = true
+  employeeSearch.value = ''
 }
+
+function selectEmployee(emp) {
+  // Check if already added
+  if (form.staff.some(s => s.employeeId === emp.id)) {
+    return
+  }
+  form.staff.push({
+    id: uid(),
+    employeeId: emp.id,
+    name: emp.name,
+    role: emp.role,
+    phone: emp.phone,
+    tenure: emp.tenure,
+    bio: emp.bio,
+    assignedObjects: [],
+    expanded: false,
+  })
+  showEmployeePicker.value = false
+}
+
+function closeEmployeePicker() {
+  showEmployeePicker.value = false
+  employeeSearch.value = ''
+}
+
+const filteredEmployees = computed(() => {
+  const q = employeeSearch.value.toLowerCase()
+  const alreadyAdded = new Set(form.staff.map(s => s.employeeId))
+  return availableEmployees.value.filter(e =>
+    !alreadyAdded.has(e.id) &&
+    (!q || e.name.toLowerCase().includes(q) || (e.role || '').toLowerCase().includes(q))
+  )
+})
+
 function removeStaff(id) { form.staff = form.staff.filter(s => s.id !== id) }
 
 function addContact() {
@@ -267,18 +329,8 @@ async function save() {
         })),
       })),
       staff: form.staff.map(s => ({
-        name: s.name,
-        role: s.role,
+        employee_id: s.employeeId,
         assigned_objects: s.assignedObjects,
-        tenure: s.tenure,
-        bio: s.bio,
-        hobbies: s.hobbies,
-        phone: s.phone,
-        show_role: s.showRole,
-        show_tenure: s.showTenure,
-        show_bio: s.showBio,
-        show_hobbies: s.showHobbies,
-        show_phone: s.showPhone,
       })),
       contacts: form.contacts.map(c => ({
         name: c.name,
@@ -321,7 +373,11 @@ async function save() {
 }
 
 function generateClientId() {
-  form.clientId = 'CLI-' + Math.floor(Math.random() * 900 + 100)
+  // Generate more unique ID with timestamp component
+  const timestamp = Date.now().toString(36).slice(-4).toUpperCase()
+  const random = Math.floor(Math.random() * 900 + 100)
+  form.clientId = `CLI-${timestamp}${random}`
+  clearFieldError('clientId')
 }
 
 function copyId() {
@@ -514,9 +570,14 @@ onBeforeUnmount(() => {
                   <Copy :size="14" />
                 </button>
               </div>
-              <p v-if="validationErrors.clientId" id="error-clientId" class="field-error" role="alert">
-                <AlertTriangle :size="12" /> {{ validationErrors.clientId }}
-              </p>
+              <div v-if="validationErrors.clientId" id="error-clientId" class="field-error-wrap" role="alert">
+                <p class="field-error">
+                  <AlertTriangle :size="12" /> {{ validationErrors.clientId }}
+                </p>
+                <button v-if="isNew" type="button" class="btn btn-outline btn-sm" @click="generateClientId">
+                  <Copy :size="12" /> Vygenerovat nové ID
+                </button>
+              </div>
               <p v-else id="hint-clientId" class="field-hint">Unikátní identifikátor, nelze změnit po vytvoření.</p>
             </div>
           </div>
@@ -884,21 +945,29 @@ onBeforeUnmount(() => {
         <section id="sec-staff" class="form-section">
           <div class="sec-header-row">
             <h2 class="sec-title"><Users :size="18" /> Personál</h2>
-            <button class="btn btn-outline btn-sm" @click="addStaff">
+            <button class="btn btn-outline btn-sm" @click="addStaff" :disabled="availableEmployees.length === 0">
               <Plus :size="14" /> Přidat pracovníka
             </button>
           </div>
-          <p class="sec-desc">Každý pracovník je přiřazen k provozovnám a má vlastní nastavení GDPR viditelnosti.</p>
+          <p class="sec-desc">Vyberte zaměstnance ze seznamu a přiřaďte je k provozovnám s nastavením GDPR viditelnosti.</p>
 
           <div v-if="form.staff.length === 0" class="empty-state-guide">
             <div class="empty-state-guide-icon"><Users :size="28" /></div>
             <div class="empty-state-guide-title">Zatím nemáte žádné pracovníky</div>
             <div class="empty-state-guide-desc">
-              Pracovníci se zobrazí klientovi v portálu – přiřaďte je k provozovnám a nastavte GDPR.
+              <template v-if="availableEmployees.length > 0">
+                Vyberte zaměstnance ze seznamu a přiřaďte je k provozovnám.
+              </template>
+              <template v-else>
+                Nejdříve přidejte zaměstnance v sekci <router-link to="/admin/employees" class="text-link">Zaměstnanci</router-link>.
+              </template>
             </div>
-            <button class="btn btn-primary" @click="addStaff">
-              <Plus :size="16" /> Přidat prvního pracovníka
+            <button v-if="availableEmployees.length > 0" class="btn btn-primary" @click="addStaff">
+              <Plus :size="16" /> Vybrat pracovníka
             </button>
+            <router-link v-else to="/admin/employees" class="btn btn-primary">
+              <Users :size="16" /> Přejít na zaměstnance
+            </router-link>
           </div>
 
           <div class="staff-list">
@@ -921,32 +990,23 @@ onBeforeUnmount(() => {
               </div>
 
               <div v-if="person.expanded" class="staff-card-body">
-                <div class="field-grid-2">
-                  <div class="form-group">
-                    <label class="form-label">Jméno a příjmení *</label>
-                    <input v-model="person.name" type="text" class="form-input" placeholder="Jan Novák" />
+                <!-- Employee info (read-only) -->
+                <div class="staff-info-summary">
+                  <div class="staff-info-item" v-if="person.role">
+                    <span class="staff-info-label">Pozice:</span>
+                    <span>{{ person.role }}</span>
                   </div>
-                  <div class="form-group">
-                    <label class="form-label">Pozice / Role</label>
-                    <input v-model="person.role" type="text" class="form-input" placeholder="Vedoucí týmu" />
+                  <div class="staff-info-item" v-if="person.tenure">
+                    <span class="staff-info-label">Spolupráce:</span>
+                    <span>{{ person.tenure }}</span>
                   </div>
-                  <div class="form-group">
-                    <label class="form-label">Délka spolupráce</label>
-                    <input v-model="person.tenure" type="text" class="form-input" placeholder="2 roky" />
+                  <div class="staff-info-item" v-if="person.phone">
+                    <span class="staff-info-label">Telefon:</span>
+                    <span>{{ person.phone }}</span>
                   </div>
-                  <div class="form-group">
-                    <label class="form-label">Telefon</label>
-                    <input v-model="person.phone" type="tel" class="form-input" placeholder="+420 7xx xxx xxx" />
-                  </div>
-                </div>
-                <div class="field-grid-2">
-                  <div class="form-group">
-                    <label class="form-label">O pracovníkovi (bio)</label>
-                    <textarea v-model="person.bio" class="form-input form-textarea" rows="2" placeholder="Krátký popis..." />
-                  </div>
-                  <div class="form-group">
-                    <label class="form-label">Záliby</label>
-                    <textarea v-model="person.hobbies" class="form-input form-textarea" rows="2" placeholder="Sport, cestování..." />
+                  <div class="staff-info-item" v-if="person.bio">
+                    <span class="staff-info-label">Bio:</span>
+                    <span>{{ person.bio }}</span>
                   </div>
                 </div>
 
@@ -968,28 +1028,6 @@ onBeforeUnmount(() => {
                     </label>
                   </div>
                   <p v-else class="field-hint">Nejprve přidejte IČO a provozovny výše.</p>
-                </div>
-
-                <!-- GDPR toggles -->
-                <div class="gdpr-section">
-                  <div class="form-label" style="margin-bottom:10px;">Viditelnost v portálu (GDPR)</div>
-                  <div class="gdpr-grid">
-                    <div v-for="(label, key) in { showRole: 'Pozice', showTenure: 'Délka spolupráce', showBio: 'Bio', showHobbies: 'Záliby', showPhone: 'Telefon', showPhoto: 'Fotografie' }"
-                      :key="key" class="gdpr-toggle-item">
-                      <button
-                        :id="`staff-${person.id}-toggle-${key}`"
-                        class="toggle-btn toggle-sm"
-                        :class="{ 'toggle-on': person[key] }"
-                        role="switch"
-                        :aria-checked="person[key]"
-                        :aria-label="label"
-                        @click="person[key] = !person[key]"
-                      >
-                        <span class="toggle-knob" aria-hidden="true" />
-                      </button>
-                      <span>{{ label }}</span>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1096,6 +1134,57 @@ onBeforeUnmount(() => {
 
       </div><!-- /form-content -->
     </div><!-- /edit-layout -->
+
+    <!-- Employee picker modal -->
+    <Teleport to="body">
+      <div v-if="showEmployeePicker" id="employee-picker-modal" class="modal-overlay" @click.self="closeEmployeePicker">
+        <div class="modal-content employee-picker" role="dialog" aria-modal="true" aria-labelledby="employee-picker-title">
+          <div class="modal-header">
+            <h3 id="employee-picker-title" class="modal-title">Vybrat zaměstnance</h3>
+            <button type="button" class="btn btn-ghost btn-sm" aria-label="Zavřít" @click="closeEmployeePicker">
+              <X :size="18" />
+            </button>
+          </div>
+
+          <div class="picker-search">
+            <Search :size="15" class="picker-search-icon" />
+            <input
+              id="employee-picker-search"
+              v-model="employeeSearch"
+              type="search"
+              class="form-input"
+              placeholder="Hledat zaměstnance..."
+              aria-label="Hledat zaměstnance"
+            />
+          </div>
+
+          <div class="picker-list">
+            <div v-if="filteredEmployees.length === 0" class="picker-empty">
+              <Users :size="24" class="text-muted" />
+              <p v-if="employeeSearch">Žádný zaměstnanec neodpovídá hledání.</p>
+              <p v-else>Všichni zaměstnanci jsou již přiřazeni.</p>
+            </div>
+
+            <button
+              v-for="emp in filteredEmployees"
+              :key="emp.id"
+              type="button"
+              class="picker-item"
+              @click="selectEmployee(emp)"
+            >
+              <div class="picker-item-avatar">
+                {{ emp.name.split(' ').map(w => w[0]).join('').slice(0, 2) || '?' }}
+              </div>
+              <div class="picker-item-info">
+                <span class="picker-item-name">{{ emp.name }}</span>
+                <span class="picker-item-role">{{ emp.role || 'Bez pozice' }}</span>
+              </div>
+              <Plus :size="16" class="picker-item-add" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1267,13 +1356,23 @@ onBeforeUnmount(() => {
 }
 
 /* Validation errors */
+.field-error-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.field-error-wrap .btn {
+  align-self: flex-start;
+}
+
 .field-error {
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 12px;
   color: var(--color-danger);
-  margin-top: 4px;
+  margin: 0;
   font-weight: 500;
 }
 
@@ -1696,6 +1795,158 @@ onBeforeUnmount(() => {
   padding: 20px 0 8px;
   border-top: 1px solid var(--color-gray-200);
   margin-top: 12px;
+}
+
+/* Staff info summary (read-only) */
+.staff-info-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 12px 14px;
+  background: var(--color-gray-50);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.staff-info-item {
+  display: flex;
+  gap: 6px;
+}
+.staff-info-label {
+  color: var(--color-gray-500);
+}
+
+/* Text link */
+.text-link {
+  color: var(--color-mid);
+  text-decoration: underline;
+}
+.text-link:hover {
+  color: var(--color-primary);
+}
+
+/* Employee picker modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: white;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.employee-picker {
+  width: 420px;
+  max-width: 95vw;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-gray-200);
+}
+.modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 0;
+}
+
+.picker-search {
+  position: relative;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-gray-100);
+}
+.picker-search-icon {
+  position: absolute;
+  left: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-gray-400);
+  pointer-events: none;
+}
+.picker-search .form-input {
+  padding-left: 36px;
+}
+
+.picker-list {
+  overflow-y: auto;
+  max-height: 400px;
+  padding: 8px;
+}
+.picker-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--color-gray-500);
+  font-size: 13px;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+.picker-item:hover {
+  background: var(--color-gray-100);
+}
+.picker-item:hover .picker-item-add {
+  opacity: 1;
+}
+
+.picker-item-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-mid);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.picker-item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.picker-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-primary);
+}
+.picker-item-role {
+  font-size: 12px;
+  color: var(--color-gray-500);
+}
+.picker-item-add {
+  color: var(--color-mid);
+  opacity: 0;
+  transition: opacity 0.15s;
 }
 
 /* Responsive */

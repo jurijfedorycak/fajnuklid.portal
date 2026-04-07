@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  ShieldCheck, Users, Plus, Edit2, Power, PowerOff, Search, ExternalLink, Loader2, X,
+  ShieldCheck, Users, Plus, Edit2, Power, PowerOff, Search, Loader2, X,
 } from 'lucide-vue-next'
 import { adminService } from '../api'
 
@@ -15,12 +15,28 @@ const clients = ref([])
 const searchQuery = ref('')
 const toastError = ref(null)
 
+// Map API response (snake_case) to frontend (camelCase)
+function mapClientFromApi(c) {
+  return {
+    id: c.id,
+    clientId: c.client_id,
+    displayName: c.display_name,
+    email: c.email,
+    icos: c.icos || [],
+    active: !!c.active,
+    lastLogin: c.last_login,
+    createdAt: c.created_at,
+  }
+}
+
 // Fetch data
 onMounted(async () => {
   try {
     const response = await adminService.getClients()
     if (response.success) {
-      clients.value = response.data.clients || []
+      // API returns data as array directly, not nested under 'clients'
+      const rawData = Array.isArray(response.data) ? response.data : (response.data?.clients || [])
+      clients.value = rawData.map(mapClientFromApi)
     } else {
       error.value = response.message || 'Nepodařilo se načíst data'
     }
@@ -212,9 +228,6 @@ function formatDate(d) {
                   </button>
                   <button class="btn btn-ghost btn-sm" title="Upravit" @click="editClient(client.clientId)">
                     <Edit2 :size="15" />
-                  </button>
-                  <button class="btn btn-ghost btn-sm" title="Otevřít v Airtable">
-                    <ExternalLink :size="15" />
                   </button>
                 </div>
               </td>
