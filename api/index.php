@@ -63,6 +63,11 @@ set_exception_handler(function (Throwable $e) {
         $message = 'Database Error: ' . $e->getMessage();
     }
 
+    // Log all errors to file for debugging
+    $logMessage = date('Y-m-d H:i:s') . ' ' . get_class($e) . ': ' . $e->getMessage()
+        . ' in ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString() . "\n\n";
+    file_put_contents(__DIR__ . '/error.log', $logMessage, FILE_APPEND);
+
     // Log error in production
     if (Config::get('APP_ENV') !== 'development') {
         error_log($e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
@@ -72,12 +77,13 @@ set_exception_handler(function (Throwable $e) {
         'success' => false,
         'message' => $message,
         'errors' => $errors,
-        'debug' => Config::get('APP_ENV') === 'development' ? [
+        'debug' => [
             'exception' => get_class($e),
+            'message' => $e->getMessage(),
             'file' => $e->getFile(),
             'line' => $e->getLine(),
             'trace' => $e->getTraceAsString()
-        ] : null
+        ]
     ], $statusCode);
 });
 

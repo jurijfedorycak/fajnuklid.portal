@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Core;
 
+use App\Config\Config;
+
 class Request
 {
     private array $body;
@@ -63,9 +65,13 @@ class Request
         $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
         $path = $path ?: '/';
 
-        // Strip /api prefix if present (API is served at /api path)
-        if ($path === '/api' || str_starts_with($path, '/api/')) {
-            $path = substr($path, 4) ?: '/';
+        // Strip API prefix if configured (e.g., /api)
+        $prefix = Config::get('API_PREFIX', '/api');
+        if ($prefix && $prefix !== '/') {
+            $prefixLen = strlen($prefix);
+            if ($path === $prefix || str_starts_with($path, $prefix . '/')) {
+                $path = substr($path, $prefixLen) ?: '/';
+            }
         }
 
         return $path;
