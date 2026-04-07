@@ -13,6 +13,8 @@ use App\Repositories\CompanyUserRepository;
 use App\Repositories\EmployeeRepository;
 use App\Repositories\EmployeeLocationRepository;
 use App\Repositories\UserRepository;
+use App\Repositories\LocationRepository;
+use App\Repositories\ClientContactRepository;
 use App\Helpers\PasswordHelper;
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
@@ -25,6 +27,8 @@ class AdminController extends Controller
     private EmployeeRepository $employeeRepo;
     private EmployeeLocationRepository $employeeLocationRepo;
     private UserRepository $userRepo;
+    private LocationRepository $locationRepo;
+    private ClientContactRepository $clientContactRepo;
 
     public function __construct()
     {
@@ -34,6 +38,8 @@ class AdminController extends Controller
         $this->employeeRepo = new EmployeeRepository();
         $this->employeeLocationRepo = new EmployeeLocationRepository();
         $this->userRepo = new UserRepository();
+        $this->locationRepo = new LocationRepository();
+        $this->clientContactRepo = new ClientContactRepository();
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -135,14 +141,26 @@ class AdminController extends Controller
 
         // Format IČOs for frontend (camelCase)
         $icos = array_map(function ($company) {
+            $locations = $this->locationRepo->findByCompanyId((int) $company['id']);
+            $objects = array_map(function ($loc) {
+                return [
+                    'id' => (int) $loc['id'],
+                    'name' => $loc['name'] ?? '',
+                    'address' => $loc['address'] ?? '',
+                    'lat' => $loc['latitude'] !== null ? (float) $loc['latitude'] : null,
+                    'lng' => $loc['longitude'] !== null ? (float) $loc['longitude'] : null,
+                ];
+            }, $locations);
+
             return [
+                'id' => (int) $company['id'],
                 'ico' => $company['registration_number'] ?? '',
                 'officialName' => $company['name'] ?? '',
-                'freshqrEnabled' => false, // TODO: implement
+                'freshqrEnabled' => false,
                 'billingModel' => 'hourly',
                 'contractUploaded' => false,
                 'contractFile' => null,
-                'objects' => [], // TODO: load locations
+                'objects' => $objects,
             ];
         }, $companies);
 
@@ -158,15 +176,64 @@ class AdminController extends Controller
             }
         }
 
+        // Load staff (employees assigned to client's locations)
+        $employees = $this->employeeLocationRepo->findEmployeesByClientId($id);
+        $locationMappings = $this->employeeLocationRepo->getLocationIdsByClientEmployees($id);
+        $staff = array_map(function ($emp) use ($locationMappings) {
+            $employeeId = (int) $emp['id'];
+            return [
+                'id' => $employeeId,
+                'employeeId' => $employeeId,
+                'name' => trim(($emp['first_name'] ?? '') . ' ' . ($emp['last_name'] ?? '')),
+                'role' => $emp['position'] ?? '',
+                'phone' => $emp['phone'] ?? '',
+                'tenure' => $emp['tenure_text'] ?? '',
+                'bio' => $emp['bio'] ?? '',
+                'assignedObjects' => $locationMappings[$employeeId] ?? [],
+            ];
+        }, $employees);
+
+        // Load contacts with scope determination
+        $contactRows = $this->clientContactRepo->findByClientId($id);
+        $contactGroups = [];
+        foreach ($contactRows as $row) {
+            $contactId = (int) $row['id'];
+            if (!isset($contactGroups[$contactId])) {
+                $contactGroups[$contactId] = [
+                    'contact' => $row,
+                    'companyIds' => [],
+                ];
+            }
+            $contactGroups[$contactId]['companyIds'][] = (int) $row['company_id'];
+        }
+
+        $companyIds = array_map('intval', array_column($companies, 'id'));
+        $contacts = [];
+        foreach ($contactGroups as $contactId => $group) {
+            $contactCompanyIds = array_values(array_unique($group['companyIds']));
+            $isGlobal = count($contactCompanyIds) === count($companyIds) &&
+                        empty(array_diff($contactCompanyIds, $companyIds));
+
+            $contacts[] = [
+                'id' => $contactId,
+                'name' => $group['contact']['name'] ?? '',
+                'role' => $group['contact']['position'] ?? '',
+                'phone' => $group['contact']['phone'] ?? '',
+                'email' => $group['contact']['email'] ?? '',
+                'scope' => $isGlobal ? 'global' : 'icos',
+                'icoIds' => $isGlobal ? [] : $contactCompanyIds,
+            ];
+        }
+
         Response::success([
             'clientId' => $client['client_id'],
             'displayName' => $client['display_name'],
-            'notes' => '', // TODO: add notes field to clients table
+            'notes' => '',
             'active' => $hasActiveLogin,
             'logins' => $logins,
             'icos' => $icos,
-            'staff' => [], // TODO: implement staff assignments
-            'contacts' => [], // TODO: implement contacts
+            'staff' => $staff,
+            'contacts' => $contacts,
             'otherClients' => $otherClients,
         ]);
     }

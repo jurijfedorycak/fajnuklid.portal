@@ -230,4 +230,28 @@ class ClientContactRepository
 
         return $stmt->fetchAll();
     }
+
+    public function findByClientId(int $clientId): array
+    {
+        $stmt = $this->db->prepare('
+            SELECT
+                cc.id,
+                cc.name,
+                cc.position,
+                cc.phone,
+                cc.email,
+                cc.created_at,
+                cc.updated_at,
+                coc.company_id,
+                coc.is_primary
+            FROM client_contacts cc
+            INNER JOIN company_contacts coc ON cc.id = coc.contact_id
+            INNER JOIN companies c ON coc.company_id = c.id
+            WHERE c.client_id = :client_id
+            ORDER BY cc.name ASC
+        ');
+        $stmt->execute(['client_id' => $clientId]);
+
+        return $stmt->fetchAll();
+    }
 }

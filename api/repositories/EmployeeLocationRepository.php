@@ -231,4 +231,67 @@ class EmployeeLocationRepository
 
         return array_column($stmt->fetchAll(), 'employee_id');
     }
+
+    public function findEmployeesByClientId(int $clientId): array
+    {
+        $stmt = $this->db->prepare('
+            SELECT DISTINCT
+                e.id,
+                e.first_name,
+                e.last_name,
+                e.position,
+                e.phone,
+                e.email,
+                e.photo_url,
+                e.tenure_text,
+                e.bio,
+                e.hobbies,
+                e.show_name,
+                e.show_photo,
+                e.show_phone,
+                e.show_email,
+                e.show_in_portal,
+                e.show_role,
+                e.show_hobbies,
+                e.show_tenure,
+                e.show_bio
+            FROM employees e
+            INNER JOIN employee_locations el ON e.id = el.employee_id
+            INNER JOIN locations l ON el.location_id = l.id
+            INNER JOIN companies c ON l.company_id = c.id
+            WHERE c.client_id = :client_id AND e.deleted_at IS NULL
+            ORDER BY e.last_name ASC, e.first_name ASC
+        ');
+        $stmt->execute(['client_id' => $clientId]);
+
+        return $stmt->fetchAll();
+    }
+
+    public function getLocationIdsByClientEmployees(int $clientId): array
+    {
+        $stmt = $this->db->prepare('
+            SELECT
+                el.employee_id,
+                el.location_id
+            FROM employee_locations el
+            INNER JOIN employees e ON el.employee_id = e.id
+            INNER JOIN locations l ON el.location_id = l.id
+            INNER JOIN companies c ON l.company_id = c.id
+            WHERE c.client_id = :client_id AND e.deleted_at IS NULL
+            ORDER BY el.employee_id ASC
+        ');
+        $stmt->execute(['client_id' => $clientId]);
+
+        $result = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $employeeId = (int) $row['employee_id'];
+            $locationId = (int) $row['location_id'];
+            if (!isset($result[$employeeId])) {
+                $result[$employeeId] = [];
+            }
+            $result[$employeeId][] = $locationId;
+        }
+
+        return $result;
+    }
 }
