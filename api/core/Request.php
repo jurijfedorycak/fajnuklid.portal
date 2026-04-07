@@ -64,7 +64,7 @@ class Request
         $path = $path ?: '/';
 
         // Strip /api prefix if present (API is served at /api path)
-        if (str_starts_with($path, '/api')) {
+        if ($path === '/api' || str_starts_with($path, '/api/')) {
             $path = substr($path, 4) ?: '/';
         }
 
