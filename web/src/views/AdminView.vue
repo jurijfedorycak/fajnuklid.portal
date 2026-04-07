@@ -2,8 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  ShieldCheck, Users, Plus, Edit2, Power, PowerOff, Search, ExternalLink, ArrowRight, Loader2,
-  Lightbulb,
+  ShieldCheck, Users, Plus, Edit2, Power, PowerOff, Search, ExternalLink, Loader2, X,
 } from 'lucide-vue-next'
 import { adminService } from '../api'
 
@@ -13,8 +12,8 @@ const router = useRouter()
 const loading = ref(true)
 const error = ref(null)
 const clients = ref([])
-const employeeStats = ref({ total: 0, visible: 0, withContract: 0 })
 const searchQuery = ref('')
+const toastError = ref(null)
 
 // Fetch data
 onMounted(async () => {
@@ -22,7 +21,6 @@ onMounted(async () => {
     const response = await adminService.getClients()
     if (response.success) {
       clients.value = response.data.clients || []
-      employeeStats.value = response.data.employeeStats || { total: 0, visible: 0, withContract: 0 }
     } else {
       error.value = response.message || 'Nepodařilo se načíst data'
     }
@@ -55,9 +53,13 @@ async function toggleActive(client) {
     const response = await adminService.updateClient(client.clientId, { active: !client.active })
     if (response.success) {
       client.active = !client.active
+    } else {
+      toastError.value = response.message || 'Nepodařilo se změnit stav klienta'
+      setTimeout(() => { toastError.value = null }, 5000)
     }
   } catch (err) {
-    console.error('Failed to toggle client status:', err)
+    toastError.value = 'Nepodařilo se změnit stav klienta'
+    setTimeout(() => { toastError.value = null }, 5000)
   }
 }
 
@@ -77,7 +79,15 @@ function formatDate(d) {
 </script>
 
 <template>
-  <div>
+  <div id="admin-clients-page">
+    <!-- Toast error message -->
+    <div v-if="toastError" id="admin-toast-error" class="toast-error" role="alert">
+      {{ toastError }}
+      <button type="button" class="btn btn-ghost btn-sm toast-close" aria-label="Zavřít" @click="toastError = null">
+        <X :size="14" aria-hidden="true" />
+      </button>
+    </div>
+
     <div class="page-header">
       <div>
         <h1 class="page-title">
@@ -128,10 +138,12 @@ function formatDate(d) {
         <div class="search-wrap">
           <Search :size="15" class="search-icon" />
           <input
+            id="admin-client-search"
             v-model="searchQuery"
-            type="text"
+            type="search"
             class="form-input search-input"
             placeholder="Hledat klienta, email, IČO..."
+            aria-label="Hledat klienta"
           />
         </div>
       </div>
@@ -146,10 +158,6 @@ function formatDate(d) {
         <button class="btn btn-primary" @click="newClient">
           <Plus :size="16" /> Přidat prvního klienta
         </button>
-        <div v-if="employeeStats.total === 0" class="empty-state-guide-tip">
-          <Lightbulb :size="14" style="vertical-align:middle;margin-right:4px;" />
-          Tip: Nejdříve přidejte zaměstnance, abyste je mohli přiřadit ke klientům.
-        </div>
       </div>
 
       <!-- Empty state for search with no results -->
@@ -158,17 +166,17 @@ function formatDate(d) {
       </div>
 
       <!-- Table with clients -->
-      <div v-else class="table-wrap" style="margin-top:16px;">
+      <div v-else id="admin-client-table-wrap" class="table-wrap">
         <table class="data-table">
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Název firmy</th>
-              <th>E-mail</th>
-              <th>IČO</th>
-              <th>Stav</th>
-              <th>Poslední přihlášení</th>
-              <th>Akce</th>
+              <th scope="col">ID</th>
+              <th scope="col">Název firmy</th>
+              <th scope="col">E-mail</th>
+              <th scope="col">IČO</th>
+              <th scope="col">Stav</th>
+              <th scope="col">Poslední přihlášení</th>
+              <th scope="col">Akce</th>
             </tr>
           </thead>
           <tbody>
@@ -216,35 +224,6 @@ function formatDate(d) {
       </div>
     </div>
 
-    <!-- Employees section -->
-    <div class="card emp-section" @click="router.push('/admin/employees')" style="cursor:pointer;">
-      <div class="emp-section-row">
-        <div class="emp-section-left">
-          <Users :size="20" style="color:var(--color-mid);" />
-          <div>
-            <h3 class="card-title" style="margin-bottom:2px;">Zaměstnanci</h3>
-            <p class="text-muted" style="font-size:13px;">Správa zaměstnanců, pracovní smlouvy, GDPR viditelnost v portálu</p>
-          </div>
-        </div>
-        <div class="emp-section-right">
-          <div class="emp-mini-stats">
-            <span class="emp-mini-stat">
-              <strong>{{ employeeStats.total }}</strong>
-              <span class="text-muted">celkem</span>
-            </span>
-            <span class="emp-mini-stat">
-              <strong class="text-success">{{ employeeStats.visible }}</strong>
-              <span class="text-muted">v portálu</span>
-            </span>
-            <span class="emp-mini-stat">
-              <strong style="color:var(--color-mid);">{{ employeeStats.withContract }}</strong>
-              <span class="text-muted">se smlouvou</span>
-            </span>
-          </div>
-          <ArrowRight :size="18" class="text-muted" />
-        </div>
-      </div>
-    </div>
     </template>
   </div>
 </template>
@@ -299,6 +278,12 @@ function formatDate(d) {
   font-size: 13px;
 }
 
+.table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .ico-chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .action-btns { display: flex; gap: 4px; }
 
@@ -310,51 +295,37 @@ function formatDate(d) {
   background: var(--color-light) !important;
 }
 
-/* Employee section */
-.emp-section {
-  margin-top: 20px;
-  transition: box-shadow var(--transition), border-color var(--transition);
-  border: 1.5px solid transparent;
-}
-.emp-section:hover {
-  box-shadow: var(--shadow-lg);
-  border-color: var(--color-light);
-}
-
-.emp-section-row {
+/* Toast error */
+.toast-error {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--color-danger-light, #fef2f2);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+.toast-close {
+  flex-shrink: 0;
+  color: var(--color-danger);
+}
+.toast-close:hover {
+  background: rgba(220, 53, 69, 0.1);
 }
 
-.emp-section-left {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+/* Responsive */
+@media (max-width: 900px) {
+  .admin-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
-
-.emp-section-right {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-
-.emp-mini-stats {
-  display: flex;
-  gap: 20px;
-}
-
-.emp-mini-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  font-size: 12px;
-}
-.emp-mini-stat strong {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--color-primary);
+@media (max-width: 600px) {
+  .admin-stats {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

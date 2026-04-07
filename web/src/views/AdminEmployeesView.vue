@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import {
   Users, Plus, Search, Trash2, Upload, FileText,
   ChevronDown, ChevronUp, Eye, EyeOff, User, Save, CheckCircle2, Loader2, Lightbulb, X,
@@ -7,8 +8,7 @@ import {
 import { adminService } from '../api'
 
 // ── State ────────────────────────────────────────────────────────────────────
-let _id = 100
-function uid() { return `emp-new-${++_id}` }
+function uid() { return crypto.randomUUID() }
 
 const loading = ref(true)
 const loadError = ref(null)
@@ -54,6 +54,9 @@ function mapEmployeeFromApi(e) {
 
 // Fetch employees
 onMounted(async () => {
+  // Set up beforeunload listener for unsaved changes warning
+  window.addEventListener('beforeunload', handleBeforeUnload)
+
   try {
     const response = await adminService.getEmployees()
     if (response.success) {
@@ -294,6 +297,88 @@ function toggleCount(emp) {
 function clearSearch() {
   searchQuery.value = ''
 }
+
+// ── Unsaved changes tracking ──────────────────────────────────────────────────
+const initialEmployeesState = ref(null)
+const isDirty = computed(() => {
+  if (!initialEmployeesState.value) return false
+  const currentState = JSON.stringify(employees.value.map(e => ({
+    id: e.id,
+    firstName: e.firstName,
+    lastName: e.lastName,
+    role: e.role,
+    phone: e.phone,
+    tenureText: e.tenureText,
+    bio: e.bio,
+    hobbies: e.hobbies,
+    photo: e.photo,
+    contractFile: e.contractFile,
+    showInPortal: e.showInPortal,
+    showPhoto: e.showPhoto,
+    showPhone: e.showPhone,
+    showRole: e.showRole,
+    showHobbies: e.showHobbies,
+    showTenure: e.showTenure,
+    showBio: e.showBio,
+  })))
+  return currentState !== initialEmployeesState.value
+})
+
+// Capture initial state after data loads
+watch(loading, (isLoading) => {
+  if (!isLoading && !initialEmployeesState.value) {
+    captureInitialState()
+  }
+})
+
+function captureInitialState() {
+  initialEmployeesState.value = JSON.stringify(employees.value.map(e => ({
+    id: e.id,
+    firstName: e.firstName,
+    lastName: e.lastName,
+    role: e.role,
+    phone: e.phone,
+    tenureText: e.tenureText,
+    bio: e.bio,
+    hobbies: e.hobbies,
+    photo: e.photo,
+    contractFile: e.contractFile,
+    showInPortal: e.showInPortal,
+    showPhoto: e.showPhoto,
+    showPhone: e.showPhone,
+    showRole: e.showRole,
+    showHobbies: e.showHobbies,
+    showTenure: e.showTenure,
+    showBio: e.showBio,
+  })))
+}
+
+// Update initial state after successful save
+watch(saved, (wasSaved) => {
+  if (wasSaved) {
+    captureInitialState()
+  }
+})
+
+// Navigation guard for unsaved changes
+onBeforeRouteLeave((to, from) => {
+  if (isDirty.value) {
+    const answer = window.confirm('Máte neuložené změny. Opravdu chcete odejít?')
+    if (!answer) return false
+  }
+})
+
+// Browser beforeunload event for page refresh/close
+function handleBeforeUnload(e) {
+  if (isDirty.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 </script>
 
 <template>

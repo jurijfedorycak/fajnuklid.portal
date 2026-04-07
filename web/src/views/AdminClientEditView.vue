@@ -1,6 +1,6 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { adminService } from '../api'
 import {
   ArrowLeft, Save, Plus, Trash2, Building2, MapPin, User, Users,
@@ -19,6 +19,59 @@ const saving = ref(false)
 const saved  = ref(false)
 const otherClients = ref([])
 
+// ── Validation ────────────────────────────────────────────────────────────────
+const validationErrors = reactive({})
+
+function clearFieldError(field) {
+  if (validationErrors[field]) {
+    delete validationErrors[field]
+  }
+}
+
+function clearAllErrors() {
+  Object.keys(validationErrors).forEach(key => delete validationErrors[key])
+}
+
+function validateForm() {
+  clearAllErrors()
+  let isValid = true
+
+  // Validate displayName (required)
+  if (!form.displayName?.trim()) {
+    validationErrors.displayName = 'Název pro portál je povinný'
+    isValid = false
+  }
+
+  // Validate clientId (required for new clients)
+  if (isNew.value && !form.clientId?.trim()) {
+    validationErrors.clientId = 'ID klienta je povinné'
+    isValid = false
+  } else if (form.clientId && !/^[A-Za-z0-9_-]+$/.test(form.clientId)) {
+    validationErrors.clientId = 'ID může obsahovat pouze písmena, čísla, pomlčky a podtržítka'
+    isValid = false
+  }
+
+  // Note: Logins, IČOs, staff, and contacts are optional - no validation required
+  // Server will validate format if values are provided
+
+  return isValid
+}
+
+function mapServerErrors(errors) {
+  // Map server field names to our field names
+  const fieldMap = {
+    'client_id': 'clientId',
+    'display_name': 'displayName',
+  }
+
+  Object.entries(errors).forEach(([field, messages]) => {
+    const mappedField = fieldMap[field] || field
+    validationErrors[mappedField] = Array.isArray(messages) ? messages[0] : messages
+  })
+}
+
+const hasErrors = computed(() => Object.keys(validationErrors).length > 0)
+
 // ── Section nav ───────────────────────────────────────────────────────────────
 const sections = [
   { id: 'sec-basic',    label: 'Základní informace', icon: User },
@@ -34,23 +87,8 @@ function scrollToSection(id) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-// Update active section on scroll
-let observer = null
-onMounted(() => {
-  observer = new IntersectionObserver(
-    entries => entries.forEach(e => { if (e.isIntersecting) activeSection.value = e.target.id }),
-    { threshold: 0.3 }
-  )
-  sections.forEach(s => {
-    const el = document.getElementById(s.id)
-    if (el) observer.observe(el)
-  })
-})
-onUnmounted(() => observer?.disconnect())
-
 // ── ID generator ──────────────────────────────────────────────────────────────
-let _idCounter = 100
-function uid() { return `id-${++_idCounter}` }
+function uid() { return crypto.randomUUID() }
 
 // ── Form state ────────────────────────────────────────────────────────────────
 const form = reactive({
@@ -64,8 +102,23 @@ const form = reactive({
   contacts: [],
 })
 
-// Fetch client data on mount (for edit mode)
+// Initialize on mount
+let observer = null
 onMounted(async () => {
+  // Set up intersection observer for section navigation
+  observer = new IntersectionObserver(
+    entries => entries.forEach(e => { if (e.isIntersecting) activeSection.value = e.target.id }),
+    { threshold: 0.3 }
+  )
+  sections.forEach(s => {
+    const el = document.getElementById(s.id)
+    if (el) observer.observe(el)
+  })
+
+  // Set up beforeunload listener for unsaved changes warning
+  window.addEventListener('beforeunload', handleBeforeUnload)
+
+  // Fetch client data (for edit mode)
   if (!isNew.value) {
     try {
       const response = await adminService.getClient(route.params.id)
@@ -95,6 +148,7 @@ onMounted(async () => {
     }
   }
 })
+onUnmounted(() => observer?.disconnect())
 
 // ── All objects flattened (for staff assignment) ───────────────────────────────
 const allObjects = computed(() =>
@@ -177,25 +231,34 @@ function mapSrc(obj) {
 
 // ── Save ─────────────────────────────────────────────────────────────────────
 async function save() {
+  error.value = null
+
+  // Client-side validation
+  if (!validateForm()) {
+    // Scroll to first error
+    scrollToSection('sec-basic')
+    return
+  }
+
   saving.value = true
   try {
     const payload = {
-      clientId: form.clientId,
-      displayName: form.displayName,
+      client_id: form.clientId,
+      display_name: form.displayName,
       notes: form.notes,
       active: form.active,
       logins: form.logins.map(l => ({
         email: l.email,
         restriction: l.restriction,
-        allowedIcos: l.allowedIcos,
-        tempPass: l.tempPass,
+        allowed_icos: l.allowedIcos,
+        temp_pass: l.tempPass,
       })),
       icos: form.icos.map(i => ({
         ico: i.ico,
-        officialName: i.officialName,
-        freshqrEnabled: i.freshqrEnabled,
-        billingModel: i.billingModel,
-        contractFile: i.contractFile,
+        official_name: i.officialName,
+        freshqr_enabled: i.freshqrEnabled,
+        billing_model: i.billingModel,
+        contract_file: i.contractFile,
         objects: i.objects.map(o => ({
           name: o.name,
           address: o.address,
@@ -206,16 +269,16 @@ async function save() {
       staff: form.staff.map(s => ({
         name: s.name,
         role: s.role,
-        assignedObjects: s.assignedObjects,
+        assigned_objects: s.assignedObjects,
         tenure: s.tenure,
         bio: s.bio,
         hobbies: s.hobbies,
         phone: s.phone,
-        showRole: s.showRole,
-        showTenure: s.showTenure,
-        showBio: s.showBio,
-        showHobbies: s.showHobbies,
-        showPhone: s.showPhone,
+        show_role: s.showRole,
+        show_tenure: s.showTenure,
+        show_bio: s.showBio,
+        show_hobbies: s.showHobbies,
+        show_phone: s.showPhone,
       })),
       contacts: form.contacts.map(c => ({
         name: c.name,
@@ -223,7 +286,7 @@ async function save() {
         phone: c.phone,
         email: c.email,
         scope: c.scope,
-        icoId: c.icoId,
+        ico_id: c.icoId,
       })),
     }
 
@@ -235,13 +298,20 @@ async function save() {
     }
 
     if (response.success) {
+      clearAllErrors()
       saved.value = true
       setTimeout(() => { saved.value = false }, 3000)
       if (isNew.value && response.data?.clientId) {
         router.replace(`/admin/clients/${response.data.clientId}`)
       }
     } else {
-      error.value = response.message || 'Uložení se nezdařilo'
+      // Handle server validation errors
+      if (response.errors) {
+        mapServerErrors(response.errors)
+        scrollToSection('sec-basic')
+      } else {
+        error.value = response.message || 'Uložení se nezdařilo'
+      }
     }
   } catch (err) {
     error.value = err.message || 'Uložení se nezdařilo'
@@ -264,6 +334,52 @@ function toggleIcoRestriction(login, ico) {
   if (idx === -1) login.allowedIcos.push(ico)
   else login.allowedIcos.splice(idx, 1)
 }
+
+// ── Unsaved changes tracking ──────────────────────────────────────────────────
+const initialFormState = ref(null)
+const isDirty = computed(() => {
+  if (!initialFormState.value) return false
+  return JSON.stringify(form) !== initialFormState.value
+})
+
+// Capture initial state after data loads
+watch(loading, (isLoading) => {
+  if (!isLoading && !initialFormState.value) {
+    initialFormState.value = JSON.stringify(form)
+  }
+})
+
+// For new clients, capture state immediately
+if (isNew.value) {
+  initialFormState.value = JSON.stringify(form)
+}
+
+// Update initial state after successful save
+watch(saved, (wasSaved) => {
+  if (wasSaved) {
+    initialFormState.value = JSON.stringify(form)
+  }
+})
+
+// Navigation guard for unsaved changes
+onBeforeRouteLeave((to, from) => {
+  if (isDirty.value) {
+    const answer = window.confirm('Máte neuložené změny. Opravdu chcete odejít?')
+    if (!answer) return false
+  }
+})
+
+// Browser beforeunload event for page refresh/close
+function handleBeforeUnload(e) {
+  if (isDirty.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 </script>
 
 <template>
@@ -354,19 +470,43 @@ function toggleIcoRestriction(login, ico) {
 
           <div class="field-grid-2">
             <div class="form-group">
-              <label class="form-label">Název pro portál *</label>
-              <input v-model="form.displayName" type="text" class="form-input" placeholder="Firma s.r.o." />
-              <p class="field-hint">Zobrazuje se klientovi v záhlaví portálu.</p>
+              <label id="label-displayName" for="input-displayName" class="form-label">Název pro portál *</label>
+              <input
+                id="input-displayName"
+                v-model="form.displayName"
+                type="text"
+                class="form-input"
+                :class="{ 'input-error': validationErrors.displayName }"
+                placeholder="Firma s.r.o."
+                :aria-invalid="!!validationErrors.displayName"
+                :aria-describedby="validationErrors.displayName ? 'error-displayName' : 'hint-displayName'"
+                @input="clearFieldError('displayName')"
+              />
+              <p v-if="validationErrors.displayName" id="error-displayName" class="field-error" role="alert">
+                <AlertTriangle :size="12" /> {{ validationErrors.displayName }}
+              </p>
+              <p v-else id="hint-displayName" class="field-hint">Zobrazuje se klientovi v záhlaví portálu.</p>
             </div>
             <div class="form-group">
-              <label class="form-label form-label-with-help">
-                ID klienta
+              <label id="label-clientId" for="input-clientId" class="form-label form-label-with-help">
+                ID klienta <span v-if="isNew">*</span>
                 <span class="field-help" data-tooltip="Jedinečný kód pro interní identifikaci. Používá se v URL a API. Po vytvoření nelze změnit.">
                   <HelpCircle :size="14" />
                 </span>
               </label>
               <div class="input-with-btn">
-                <input v-model="form.clientId" type="text" class="form-input" placeholder="CLI-XXX" :disabled="!isNew" />
+                <input
+                  id="input-clientId"
+                  v-model="form.clientId"
+                  type="text"
+                  class="form-input"
+                  :class="{ 'input-error': validationErrors.clientId }"
+                  placeholder="CLI-XXX"
+                  :disabled="!isNew"
+                  :aria-invalid="!!validationErrors.clientId"
+                  :aria-describedby="validationErrors.clientId ? 'error-clientId' : 'hint-clientId'"
+                  @input="clearFieldError('clientId')"
+                />
                 <button v-if="isNew" class="btn btn-ghost btn-sm" @click="generateClientId" title="Vygenerovat">
                   <Copy :size="14" />
                 </button>
@@ -374,7 +514,10 @@ function toggleIcoRestriction(login, ico) {
                   <Copy :size="14" />
                 </button>
               </div>
-              <p class="field-hint">Unikátní identifikátor, nelze změnit po vytvoření.</p>
+              <p v-if="validationErrors.clientId" id="error-clientId" class="field-error" role="alert">
+                <AlertTriangle :size="12" /> {{ validationErrors.clientId }}
+              </p>
+              <p v-else id="hint-clientId" class="field-hint">Unikátní identifikátor, nelze změnit po vytvoření.</p>
             </div>
           </div>
 
@@ -389,11 +532,15 @@ function toggleIcoRestriction(login, ico) {
               <p class="field-hint">Neaktivní klient se nemůže přihlásit do portálu.</p>
             </div>
             <button
+              id="client-active-toggle"
               class="toggle-btn"
               :class="{ 'toggle-on': form.active }"
+              role="switch"
+              :aria-checked="form.active"
+              aria-label="Stav účtu"
               @click="form.active = !form.active"
             >
-              <span class="toggle-knob" />
+              <span class="toggle-knob" aria-hidden="true" />
             </button>
             <span :class="form.active ? 'text-success' : 'text-muted'" style="font-weight:500; font-size:14px;">
               {{ form.active ? 'Aktivní' : 'Neaktivní' }}
@@ -581,8 +728,16 @@ function toggleIcoRestriction(login, ico) {
                       <div class="form-label">Docházka FreshQR</div>
                       <p class="field-hint">Zapne modul docházky pro toto IČO.</p>
                     </div>
-                    <button class="toggle-btn" :class="{ 'toggle-on': ico.freshqrEnabled }" @click="ico.freshqrEnabled = !ico.freshqrEnabled">
-                      <span class="toggle-knob" />
+                    <button
+                      :id="`ico-${ico.id}-freshqr-toggle`"
+                      class="toggle-btn"
+                      :class="{ 'toggle-on': ico.freshqrEnabled }"
+                      role="switch"
+                      :aria-checked="ico.freshqrEnabled"
+                      aria-label="Docházka FreshQR"
+                      @click="ico.freshqrEnabled = !ico.freshqrEnabled"
+                    >
+                      <span class="toggle-knob" aria-hidden="true" />
                     </button>
                     <span :class="ico.freshqrEnabled ? 'text-success' : 'text-muted'" style="font-size:13px; font-weight:500;">
                       {{ ico.freshqrEnabled ? 'Zapnuto' : 'Vypnuto' }}
@@ -819,13 +974,21 @@ function toggleIcoRestriction(login, ico) {
                 <div class="gdpr-section">
                   <div class="form-label" style="margin-bottom:10px;">Viditelnost v portálu (GDPR)</div>
                   <div class="gdpr-grid">
-                    <label v-for="(label, key) in { showRole: 'Pozice', showTenure: 'Délka spolupráce', showBio: 'Bio', showHobbies: 'Záliby', showPhone: 'Telefon', showPhoto: 'Fotografie' }"
+                    <div v-for="(label, key) in { showRole: 'Pozice', showTenure: 'Délka spolupráce', showBio: 'Bio', showHobbies: 'Záliby', showPhone: 'Telefon', showPhoto: 'Fotografie' }"
                       :key="key" class="gdpr-toggle-item">
-                      <button class="toggle-btn toggle-sm" :class="{ 'toggle-on': person[key] }" @click="person[key] = !person[key]">
-                        <span class="toggle-knob" />
+                      <button
+                        :id="`staff-${person.id}-toggle-${key}`"
+                        class="toggle-btn toggle-sm"
+                        :class="{ 'toggle-on': person[key] }"
+                        role="switch"
+                        :aria-checked="person[key]"
+                        :aria-label="label"
+                        @click="person[key] = !person[key]"
+                      >
+                        <span class="toggle-knob" aria-hidden="true" />
                       </button>
                       <span>{{ label }}</span>
-                    </label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -911,6 +1074,15 @@ function toggleIcoRestriction(login, ico) {
             </div>
           </div>
         </section>
+
+        <!-- Validation errors summary -->
+        <div v-if="hasErrors" id="validation-errors-summary" class="validation-summary" role="alert">
+          <AlertTriangle :size="18" />
+          <div>
+            <strong>Formulář obsahuje chyby</strong>
+            <p>Opravte prosím označená pole před uložením.</p>
+          </div>
+        </div>
 
         <!-- Bottom save bar -->
         <div class="bottom-save-bar">
@@ -1092,6 +1264,26 @@ function toggleIcoRestriction(login, ico) {
   font-size: 11px;
   color: var(--color-gray-500);
   margin-top: 4px;
+}
+
+/* Validation errors */
+.field-error {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-danger);
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.input-error {
+  border-color: var(--color-danger) !important;
+  background-color: var(--color-danger-light, #fef2f2);
+}
+.input-error:focus {
+  border-color: var(--color-danger) !important;
+  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.15);
 }
 
 .form-textarea { resize: vertical; min-height: 72px; }
@@ -1471,6 +1663,29 @@ function toggleIcoRestriction(login, ico) {
 
 /* Danger hover */
 .danger-hover:hover { color: var(--color-danger) !important; }
+
+/* Validation summary */
+.validation-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--color-danger-light, #fef2f2);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  margin-bottom: 16px;
+}
+.validation-summary strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+.validation-summary p {
+  font-size: 13px;
+  margin: 0;
+  opacity: 0.9;
+}
 
 /* Bottom save bar */
 .bottom-save-bar {
