@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   LayoutDashboard, FileText, Users, FileSignature,
-  Clock, Phone, Settings, LogOut, UserCog,
+  Clock, Phone, Settings, LogOut, UserCog, Palette,
 } from 'lucide-vue-next'
 import { useAuth } from '../../stores/auth'
 
@@ -27,8 +27,9 @@ const clientNavItems = [
 ]
 
 const adminNavItems = [
-  { name: 'Klienti',      route: '/admin/clients',    icon: Users },
-  { name: 'Zamestnanci',  route: '/admin/employees',  icon: UserCog },
+  { name: 'Klienti',      route: '/admin/clients',       icon: Users },
+  { name: 'Zamestnanci',  route: '/admin/employees',     icon: UserCog },
+  { name: 'Design',       route: '/admin/design-tokens', icon: Palette },
 ]
 
 const navItems = computed(() => isAdmin.value ? adminNavItems : clientNavItems)

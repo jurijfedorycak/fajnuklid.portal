@@ -78,6 +78,12 @@ const routes = [
         component: () => import('../views/AdminEmployeesView.vue'),
         meta: { requiresAdmin: true },
       },
+      {
+        path: 'admin/design-tokens',
+        name: 'AdminDesignTokens',
+        component: () => import('../views/AdminDesignTokensView.vue'),
+        meta: { requiresAdmin: true },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
