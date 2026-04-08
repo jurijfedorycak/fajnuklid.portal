@@ -669,6 +669,7 @@ class AdminController extends Controller
                 'last_name' => $emp['last_name'],
                 'email' => $emp['email'],
                 'phone' => $emp['phone'],
+                'personal_id' => $emp['personal_id'],
                 'position' => $emp['position'],
                 'photo_url' => $emp['photo_url'],
                 'tenure_text' => $emp['tenure_text'],
@@ -716,6 +717,7 @@ class AdminController extends Controller
             'last_name' => 'required|string|max:100',
             'email' => 'email|max:255',
             'phone' => 'string|max:20',
+            'personal_id' => 'string|max:50',
             'position' => 'string|max:100',
         ]);
 
@@ -744,7 +746,7 @@ class AdminController extends Controller
 
         // Filter allowed fields
         $allowedFields = [
-            'first_name', 'last_name', 'email', 'phone', 'position', 'photo_url',
+            'first_name', 'last_name', 'email', 'phone', 'personal_id', 'position', 'photo_url',
             'tenure_text', 'bio', 'hobbies', 'contract_file',
             'show_name', 'show_photo', 'show_phone', 'show_email',
             'show_in_portal', 'show_role', 'show_hobbies', 'show_tenure', 'show_bio',
@@ -798,6 +800,7 @@ class AdminController extends Controller
                 'last_name' => $emp['lastName'] ?? $emp['last_name'] ?? '',
                 'email' => $emp['email'] ?? null,
                 'phone' => $emp['phone'] ?? null,
+                'personal_id' => $emp['personalId'] ?? $emp['personal_id'] ?? null,
                 'position' => $emp['role'] ?? $emp['position'] ?? null,
                 'photo_url' => $emp['photoUrl'] ?? $emp['photo_url'] ?? null,
                 'tenure_text' => $emp['tenureText'] ?? $emp['tenure_text'] ?? null,

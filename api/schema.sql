@@ -35,6 +35,7 @@ CREATE TABLE `employees` (
     `last_name` VARCHAR(100) NOT NULL,
     `email` VARCHAR(255) NULL,
     `phone` VARCHAR(20) NULL,
+    `personal_id` VARCHAR(50) NULL COMMENT 'External personal identifier (time-tracking software link)',
     `position` VARCHAR(100) NULL,
     `photo_url` VARCHAR(500) NULL,
     `tenure_text` VARCHAR(100) NULL COMMENT 'Custom tenure display text',
@@ -55,7 +56,8 @@ CREATE TABLE `employees` (
     `deleted_at` DATETIME NULL COMMENT 'Soft delete timestamp',
     PRIMARY KEY (`id`),
     KEY `idx_deleted_at` (`deleted_at`),
-    KEY `idx_name` (`last_name`, `first_name`)
+    KEY `idx_name` (`last_name`, `first_name`),
+    KEY `idx_personal_id` (`personal_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------

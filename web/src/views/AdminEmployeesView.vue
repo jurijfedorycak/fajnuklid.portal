@@ -35,6 +35,7 @@ function mapEmployeeFromApi(e) {
     lastName: e.last_name || '',
     role: e.position || '',
     phone: e.phone || '',
+    personalId: e.personal_id || '',
     tenureText: e.tenure_text || '',
     bio: e.bio || '',
     hobbies: e.hobbies || '',
@@ -127,6 +128,7 @@ function addEmployee() {
     lastName: '',
     role: '',
     phone: '',
+    personalId: '',
     tenureText: '',
     bio: '',
     hobbies: '',
@@ -250,6 +252,7 @@ async function save() {
       lastName: e.lastName,
       role: e.role,
       phone: e.phone,
+      personalId: e.personalId,
       tenureText: e.tenureText,
       bio: e.bio,
       hobbies: e.hobbies,
@@ -308,6 +311,7 @@ const isDirty = computed(() => {
     lastName: e.lastName,
     role: e.role,
     phone: e.phone,
+    personalId: e.personalId,
     tenureText: e.tenureText,
     bio: e.bio,
     hobbies: e.hobbies,
@@ -338,6 +342,7 @@ function captureInitialState() {
     lastName: e.lastName,
     role: e.role,
     phone: e.phone,
+    personalId: e.personalId,
     tenureText: e.tenureText,
     bio: e.bio,
     hobbies: e.hobbies,
@@ -610,6 +615,18 @@ onBeforeUnmount(() => {
                   :aria-describedby="`emp-${emp.id}-phone-hint`"
                 />
                 <p :id="`emp-${emp.id}-phone-hint`" class="field-hint">Zobrazení v portálu nastavte níže v GDPR sekci.</p>
+              </div>
+              <div class="form-group">
+                <label :for="`emp-${emp.id}-personal-id`" class="form-label">Osobní ID</label>
+                <input
+                  :id="`emp-${emp.id}-personal-id`"
+                  v-model="emp.personalId"
+                  type="text"
+                  class="form-input"
+                  placeholder="např. EMP-00123"
+                  :aria-describedby="`emp-${emp.id}-personal-id-hint`"
+                />
+                <p :id="`emp-${emp.id}-personal-id-hint`" class="field-hint">Identifikátor pro propojení s docházkovým systémem.</p>
               </div>
               <div class="form-group">
                 <label :for="`emp-${emp.id}-tenure`" class="form-label">Délka spolupráce</label>
