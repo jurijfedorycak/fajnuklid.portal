@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Config\Config;
 use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
+use App\Repositories\ClientRepository;
 use App\Repositories\CompanyRepository;
 use App\Repositories\UserSettingsRepository;
 use App\Repositories\UserRepository;
@@ -19,12 +21,14 @@ class SettingsController extends Controller
     private CompanyRepository $companyRepo;
     private UserSettingsRepository $userSettingsRepo;
     private UserRepository $userRepo;
+    private ClientRepository $clientRepo;
 
     public function __construct()
     {
         $this->companyRepo = new CompanyRepository();
         $this->userSettingsRepo = new UserSettingsRepository();
         $this->userRepo = new UserRepository();
+        $this->clientRepo = new ClientRepository();
     }
 
     public function index(Request $request): void
@@ -47,12 +51,24 @@ class SettingsController extends Controller
             ];
         }, $companies);
 
+        // Resolve external client code (clients.client_id) via the user's first company
+        $clientCode = null;
+        if (!empty($companies) && !empty($companies[0]['client_id'])) {
+            $client = $this->clientRepo->findById((int) $companies[0]['client_id']);
+            $clientCode = $client['client_id'] ?? null;
+        }
+
+        // Determine admin flag (admins are not clients and must not see ID klienta)
+        $adminEmails = Config::getArray('ADMIN_EMAILS');
+        $isAdmin = in_array($user['email'], $adminEmails, true);
+
         // Build current user info
         $currentUser = [
             'id' => $user['id'],
             'email' => $user['email'],
             'display_name' => !empty($companies) ? $companies[0]['name'] : $user['email'],
-            'client_id' => $user['client_id'] ?? null,
+            'client_id' => $clientCode,
+            'is_admin' => $isAdmin,
             'icos' => $icos,
         ];
 

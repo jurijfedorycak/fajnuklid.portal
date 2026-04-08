@@ -29,13 +29,17 @@ onMounted(async () => {
   }
 })
 
-// Computed for user data
-const currentUser = computed(() => ({
-  email: user.value?.email || '',
-  displayName: user.value?.display_name || '',
-  clientId: user.value?.client_id || user.value?.id || '',
-  icos: settingsData.value.icos || [],
-}))
+// Computed for user data — sourced from the settings API response
+const currentUser = computed(() => {
+  const cu = settingsData.value.current_user || {}
+  return {
+    email: cu.email || user.value?.email || '',
+    displayName: cu.display_name || '',
+    clientId: cu.client_id || '',
+    isAdmin: cu.is_admin || false,
+    icos: cu.icos || [],
+  }
+})
 
 const currentPassword = ref('')
 const newPassword = ref('')
@@ -132,9 +136,10 @@ async function changePassword() {
           <p class="field-note">Název firmy je nastaven správcem portálu.</p>
         </div>
 
-        <div class="form-group">
+        <div v-if="currentUser.clientId" class="form-group">
           <label class="form-label">ID klienta</label>
           <input
+            id="settings-client-id-input"
             type="text"
             class="form-input"
             :value="currentUser.clientId"
