@@ -31,6 +31,9 @@
   --color-light: #e0f2f7;
   --color-light-hover: #cce7ef;
 
+  /* Modal overlay */
+  --color-overlay: rgba(22, 36, 56, 0.55);
+
   /* Semantic colors */
   --color-danger: #ef4444;
   --color-danger-hover: #dc2626;

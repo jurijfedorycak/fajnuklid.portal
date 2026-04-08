@@ -32,6 +32,7 @@ const adminNavItems = [
   { name: 'Klienti',      route: '/admin/clients',        icon: Users },
   { name: 'Zaměstnanci',  route: '/admin/employees',      icon: UserCog },
   { name: 'Tým Fajn',     route: '/admin/staff-contacts', icon: Phone },
+  { name: 'Žádosti',      route: '/admin/zadosti',        icon: ClipboardList },
   { name: 'Design',       route: '/admin/design-tokens',  icon: Palette },
 ]
 

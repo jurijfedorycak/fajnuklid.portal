@@ -100,6 +100,18 @@ const routes = [
         meta: { requiresAdmin: true },
       },
       {
+        path: 'admin/zadosti',
+        name: 'AdminRequests',
+        component: () => import('../views/AdminRequestsView.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'admin/zadosti/:id',
+        name: 'AdminRequestDetail',
+        component: () => import('../views/AdminRequestDetailView.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
         path: 'admin/design-tokens',
         name: 'AdminDesignTokens',
         component: () => import('../views/AdminDesignTokensView.vue'),

@@ -242,12 +242,24 @@ class MaintenanceRequestRepositoryTest extends DatabaseTestCase
     public function testFindActivityReturnsTimeline(): void
     {
         $expected = [
-            ['id' => 1, 'request_id' => 1, 'message' => 'Created', 'author_type' => 'system'],
-            ['id' => 2, 'request_id' => 1, 'message' => 'Working on it', 'author_type' => 'admin'],
+            ['id' => 1, 'request_id' => 1, 'message' => 'Created', 'author_type' => 'system', 'is_internal' => 0],
+            ['id' => 2, 'request_id' => 1, 'message' => 'Working on it', 'author_type' => 'admin', 'is_internal' => 0],
         ];
         $this->setupFetchAllMock($expected);
 
         $result = $this->repository->findActivity(1);
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testFindActivityWithoutInternalFiltersInternalEntries(): void
+    {
+        $expected = [
+            ['id' => 1, 'request_id' => 1, 'message' => 'Public', 'is_internal' => 0],
+        ];
+        $this->setupFetchAllMock($expected);
+
+        $result = $this->repository->findActivity(1, false);
 
         $this->assertEquals($expected, $result);
     }
@@ -283,6 +295,22 @@ class MaintenanceRequestRepositoryTest extends DatabaseTestCase
         ]);
 
         $this->assertEquals(8, $newId);
+    }
+
+    public function testAddActivityWithInternalFlag(): void
+    {
+        $this->setupInsertMock(11);
+
+        $newId = $this->repository->addActivity([
+            'request_id' => 1,
+            'user_id' => 10,
+            'author_type' => 'admin',
+            'author_name' => 'Admin',
+            'message' => 'Internal note',
+            'is_internal' => true,
+        ]);
+
+        $this->assertEquals(11, $newId);
     }
 
     public function testAddActivityWithMinimalFields(): void

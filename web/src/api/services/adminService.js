@@ -117,6 +117,35 @@ export const adminService = {
     const response = await apiClient.post('/admin/staff-contacts/reorder', { ids })
     return response.data
   },
+
+  // Maintenance requests
+  async getMaintenanceRequests(clientId = null, status = null) {
+    const params = {}
+    if (clientId) params.clientId = clientId
+    if (status && status !== 'all') params.status = status
+    const response = await apiClient.get('/admin/maintenance-requests', { params })
+    return response.data
+  },
+
+  async getMaintenanceRequest(id) {
+    const response = await apiClient.get(`/admin/maintenance-requests/${id}`)
+    return response.data
+  },
+
+  async updateMaintenanceRequest(id, data) {
+    const response = await apiClient.put(`/admin/maintenance-requests/${id}`, data)
+    return response.data
+  },
+
+  async addMaintenanceRequestActivity(id, message, internal = false) {
+    const response = await apiClient.post(`/admin/maintenance-requests/${id}/activity`, { message, internal })
+    return response.data
+  },
+
+  async deleteMaintenanceRequest(id) {
+    const response = await apiClient.delete(`/admin/maintenance-requests/${id}`)
+    return response.data
+  },
 }
 
 export default adminService

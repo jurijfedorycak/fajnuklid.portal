@@ -266,10 +266,11 @@ class MaintenanceRequestRepository
 
     /**
      * Find activity timeline for a request, oldest first.
+     * When $includeInternal is false, internal-only entries are excluded.
      */
-    public function findActivity(int $requestId): array
+    public function findActivity(int $requestId, bool $includeInternal = true): array
     {
-        $stmt = $this->db->prepare('
+        $sql = '
             SELECT
                 id,
                 request_id,
@@ -278,11 +279,19 @@ class MaintenanceRequestRepository
                 author_name,
                 message,
                 status_change,
+                is_internal,
                 created_at
             FROM maintenance_request_activity
             WHERE request_id = :request_id
-            ORDER BY created_at ASC, id ASC
-        ');
+        ';
+
+        if (!$includeInternal) {
+            $sql .= ' AND is_internal = 0';
+        }
+
+        $sql .= ' ORDER BY created_at ASC, id ASC';
+
+        $stmt = $this->db->prepare($sql);
         $stmt->execute(['request_id' => $requestId]);
 
         return $stmt->fetchAll();
@@ -298,6 +307,7 @@ class MaintenanceRequestRepository
                 author_name,
                 message,
                 status_change,
+                is_internal,
                 created_at
             ) VALUES (
                 :request_id,
@@ -306,6 +316,7 @@ class MaintenanceRequestRepository
                 :author_name,
                 :message,
                 :status_change,
+                :is_internal,
                 NOW()
             )
         ');
@@ -317,6 +328,7 @@ class MaintenanceRequestRepository
             'author_name' => $data['author_name'] ?? null,
             'message' => $data['message'] ?? null,
             'status_change' => $data['status_change'] ?? null,
+            'is_internal' => !empty($data['is_internal']) ? 1 : 0,
         ]);
 
         return (int) $this->db->lastInsertId();

@@ -53,7 +53,7 @@ class MaintenanceRequestService
         }
 
         $request = $this->formatRow($row);
-        $request['activity'] = $this->formatActivity($this->repo->findActivity($id));
+        $request['activity'] = $this->formatActivity($this->repo->findActivity($id, false));
 
         return $request;
     }
@@ -147,7 +147,7 @@ class MaintenanceRequestService
             throw new NotFoundException('Žádost nebyla nalezena');
         }
         $request = $this->formatRow($row);
-        $request['activity'] = $this->formatActivity($this->repo->findActivity($id));
+        $request['activity'] = $this->formatActivity($this->repo->findActivity($id, true));
         return $request;
     }
 
@@ -207,7 +207,7 @@ class MaintenanceRequestService
         return $this->getForAdmin($id);
     }
 
-    public function adminAddActivity(int $id, int $adminUserId, string $adminName, string $message): array
+    public function adminAddActivity(int $id, int $adminUserId, string $adminName, string $message, bool $isInternal = false): array
     {
         $existing = $this->repo->findById($id);
         if ($existing === null) {
@@ -227,6 +227,7 @@ class MaintenanceRequestService
             'author_type' => 'admin',
             'author_name' => $adminName,
             'message' => $message,
+            'is_internal' => $isInternal,
         ]);
 
         return $this->getForAdmin($id);
@@ -307,6 +308,7 @@ class MaintenanceRequestService
                 'author' => $r['author_name'] ?? ($r['author_type'] === 'admin' ? 'Fajn Úklid' : 'Klient'),
                 'message' => $r['message'],
                 'statusChange' => $r['status_change'],
+                'isInternal' => !empty($r['is_internal']),
                 'createdAt' => $r['created_at'],
             ];
         }, $rows);

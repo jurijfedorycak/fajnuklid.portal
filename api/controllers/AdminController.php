@@ -1109,8 +1109,9 @@ class AdminController extends Controller
         $adminName = $user['email'] ?? 'Fajn Úklid';
 
         $message = (string) $request->input('message', '');
+        $isInternal = (bool) $request->input('internal', false);
 
-        $data = $this->maintenanceRequestService->adminAddActivity($id, $adminUserId, $adminName, $message);
+        $data = $this->maintenanceRequestService->adminAddActivity($id, $adminUserId, $adminName, $message, $isInternal);
         Response::success($data, 'Komentář byl přidán');
     }
 

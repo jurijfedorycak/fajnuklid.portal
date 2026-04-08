@@ -305,10 +305,43 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->repoMock->method('findById')->willReturn($this->makeRow());
         $this->repoMock->expects($this->once())
             ->method('addActivity')
-            ->with($this->callback(fn ($d) => $d['author_type'] === 'admin' && $d['message'] === 'Hello'));
+            ->with($this->callback(fn ($d) => $d['author_type'] === 'admin' && $d['message'] === 'Hello' && $d['is_internal'] === false));
         $this->repoMock->method('findActivity')->willReturn([]);
 
         $this->service->adminAddActivity(1, 1, 'admin@example.com', 'Hello');
+    }
+
+    public function testAdminAddActivityWithInternalFlagPropagates(): void
+    {
+        $this->repoMock->method('findById')->willReturn($this->makeRow());
+        $this->repoMock->expects($this->once())
+            ->method('addActivity')
+            ->with($this->callback(fn ($d) => $d['is_internal'] === true));
+        $this->repoMock->method('findActivity')->willReturn([]);
+
+        $this->service->adminAddActivity(1, 1, 'admin@example.com', 'Internal note', true);
+    }
+
+    public function testGetForClientFiltersInternalActivity(): void
+    {
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow());
+        $this->repoMock->expects($this->once())
+            ->method('findActivity')
+            ->with(1, false)
+            ->willReturn([]);
+
+        $this->service->getForClient(1, 5);
+    }
+
+    public function testGetForAdminIncludesInternalActivity(): void
+    {
+        $this->repoMock->method('findById')->willReturn($this->makeRow());
+        $this->repoMock->expects($this->once())
+            ->method('findActivity')
+            ->with(1, true)
+            ->willReturn([]);
+
+        $this->service->getForAdmin(1);
     }
 
     // adminDelete
