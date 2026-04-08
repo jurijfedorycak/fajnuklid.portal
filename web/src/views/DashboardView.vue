@@ -991,8 +991,9 @@ function selectCompany(ico) {
 }
 
 .cs-ongoing {
-  background: var(--color-warning-light);
-  color: var(--color-warning);
+  background: var(--color-white);
+  color: var(--color-primary);
+  border: 1px solid var(--color-gray-200);
 }
 
 .cs-scheduled {
@@ -1002,7 +1003,7 @@ function selectCompany(ico) {
 
 .day-strip {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -1011,9 +1012,9 @@ function selectCompany(ico) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  width: 44px;
-  height: 52px;
+  gap: 4px;
+  width: 52px;
+  height: 60px;
   border-radius: var(--radius-md);
   flex-shrink: 0;
   transition: transform 0.12s ease;
@@ -1024,25 +1025,35 @@ function selectCompany(ico) {
 }
 
 .ds-num {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1;
+  color: var(--color-primary);
 }
 
 .ds-done {
   background: var(--color-success-light);
+}
+
+.ds-done .ds-icon {
   color: var(--color-success);
 }
 
 .ds-ongoing {
-  background: var(--color-warning-light);
-  color: var(--color-warning);
-  border: 1.5px solid var(--color-warning);
+  background: var(--color-white);
+  border: 1.5px solid var(--color-primary);
+}
+
+.ds-ongoing .ds-icon {
+  color: var(--color-primary);
 }
 
 .ds-scheduled {
   background: var(--color-light);
-  color: var(--color-primary);
+}
+
+.ds-scheduled .ds-icon {
+  color: var(--color-accent);
 }
 
 .cleaning-empty {
