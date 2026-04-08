@@ -1,9 +1,9 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft, Calendar, User, Clock, MessageSquare, Loader2, Trash2,
-  Save, Send, Lock,
+  Calendar, Clock, MessageSquare, Loader2, Trash2,
+  Save, Send, Lock, ChevronRight, Inbox,
 } from 'lucide-vue-next'
 import { adminService, REQUEST_STATUSES, REQUEST_CATEGORIES } from '../api'
 
@@ -12,44 +12,54 @@ const router = useRouter()
 
 const loading = ref(true)
 const error = ref(null)
-const actionError = ref(null)
 const request = ref(null)
-const savingStatus = ref(false)
+
+const savingStatusKey = ref(null)
 const savingDueDate = ref(false)
 const posting = ref(false)
 const deleting = ref(false)
 const showDeleteModal = ref(false)
 
-const editStatus = ref('')
 const editDueDate = ref('')
 
 const newComment = ref('')
-const newCommentInternal = ref(false)
+const composerTab = ref('public')
 
-async function load() {
-  loading.value = true
+const statusError = ref(null)
+const dueDateError = ref(null)
+const commentError = ref(null)
+
+const toast = ref(null)
+let toastTimer = null
+
+function showToast(type, message) {
+  toast.value = { type, message }
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.value = null }, 3000)
+}
+
+async function load({ silent = false } = {}) {
+  if (!silent) loading.value = true
   error.value = null
   try {
     const res = await adminService.getMaintenanceRequest(route.params.id)
     if (res.success) {
-      request.value = res.data
-      editStatus.value = res.data.status
-      editDueDate.value = res.data.dueDate || ''
+      const dueWasDirty = isDueDateDirty.value
+      request.value = { ...res.data, activity: res.data.activity || [] }
+      if (!dueWasDirty) editDueDate.value = res.data.dueDate || ''
     } else {
       error.value = res.message
     }
   } catch (e) {
     error.value = e.message
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
 onMounted(load)
 
-const statusMeta = computed(() => REQUEST_STATUSES.find(s => s.key === request.value?.status) || {})
 const categoryLabel = computed(() => REQUEST_CATEGORIES.find(c => c.key === request.value?.category)?.label || request.value?.category)
-const isStatusDirty = computed(() => editStatus.value && editStatus.value !== request.value?.status)
 const isDueDateDirty = computed(() => (editDueDate.value || '') !== (request.value?.dueDate || ''))
 
 function formatDate(d) {
@@ -61,29 +71,38 @@ function formatDateTime(d) {
   return new Date(d).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-async function saveStatus() {
-  if (!isStatusDirty.value) return
-  actionError.value = null
-  savingStatus.value = true
+function initials(name) {
+  if (!name) return '?'
+  return name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
+}
+
+async function setStatus(key) {
+  if (!request.value || key === request.value.status || savingStatusKey.value) return
+  statusError.value = null
+  savingStatusKey.value = key
+  const previous = request.value.status
+  request.value.status = key // optimistic
   try {
-    await adminService.updateMaintenanceRequest(request.value.id, { status: editStatus.value })
-    await load()
+    await adminService.updateMaintenanceRequest(request.value.id, { status: key })
+    showToast('success', 'Stav byl uložen')
   } catch (e) {
-    actionError.value = e.message || 'Nepodařilo se uložit stav.'
+    request.value.status = previous
+    statusError.value = e.message || 'Nepodařilo se uložit stav.'
   } finally {
-    savingStatus.value = false
+    savingStatusKey.value = null
   }
 }
 
 async function saveDueDate() {
   if (!isDueDateDirty.value) return
-  actionError.value = null
+  dueDateError.value = null
   savingDueDate.value = true
   try {
     await adminService.updateMaintenanceRequest(request.value.id, { dueDate: editDueDate.value || '' })
-    await load()
+    request.value.dueDate = editDueDate.value || null
+    showToast('success', 'Termín byl uložen')
   } catch (e) {
-    actionError.value = e.message || 'Nepodařilo se uložit termín.'
+    dueDateError.value = e.message || 'Nepodařilo se uložit termín.'
   } finally {
     savingDueDate.value = false
   }
@@ -92,29 +111,30 @@ async function saveDueDate() {
 async function postComment() {
   const text = newComment.value.trim()
   if (!text || posting.value) return
-  actionError.value = null
+  commentError.value = null
   posting.value = true
+  const isInternal = composerTab.value === 'internal'
   try {
-    await adminService.addMaintenanceRequestActivity(request.value.id, text, newCommentInternal.value)
+    await adminService.addMaintenanceRequestActivity(request.value.id, text, isInternal)
     newComment.value = ''
-    newCommentInternal.value = false
-    await load()
+    showToast('success', isInternal ? 'Interní poznámka přidána' : 'Odpověď odeslána klientovi')
+    await load({ silent: true })
+    await nextTick()
   } catch (e) {
-    actionError.value = e.message || 'Nepodařilo se odeslat komentář.'
+    commentError.value = e.message || 'Nepodařilo se odeslat komentář.'
   } finally {
     posting.value = false
   }
 }
 
 async function confirmDelete() {
-  actionError.value = null
   deleting.value = true
   try {
     await adminService.deleteMaintenanceRequest(request.value.id)
     showDeleteModal.value = false
     router.push('/admin/zadosti')
   } catch (e) {
-    actionError.value = e.message || 'Nepodařilo se smazat žádost.'
+    showToast('error', e.message || 'Nepodařilo se smazat žádost.')
     showDeleteModal.value = false
   } finally {
     deleting.value = false
@@ -124,75 +144,86 @@ async function confirmDelete() {
 
 <template>
   <div>
-    <div v-if="loading" id="admin-request-loading" class="card" style="padding:40px; text-align:center;">
-      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
+    <!-- Skeleton loading -->
+    <div v-if="loading" id="admin-request-skeleton">
+      <div class="skeleton" style="height:14px; width:240px; margin-bottom:18px;"></div>
+      <div class="skeleton" style="height:32px; width:60%; margin-bottom:10px;"></div>
+      <div class="skeleton" style="height:14px; width:40%; margin-bottom:24px;"></div>
+      <div style="display:flex; gap:8px; margin-bottom:24px;">
+        <div class="skeleton" style="height:32px; width:90px; border-radius:999px;"></div>
+        <div class="skeleton" style="height:32px; width:110px; border-radius:999px;"></div>
+        <div class="skeleton" style="height:32px; width:200px; border-radius:999px;"></div>
+        <div class="skeleton" style="height:32px; width:130px; border-radius:999px;"></div>
+      </div>
+      <div class="skeleton" style="height:120px; width:100%; margin-bottom:14px; border-radius:12px;"></div>
+      <div class="skeleton" style="height:80px; width:100%; margin-bottom:10px; border-radius:12px;"></div>
+      <div class="skeleton" style="height:80px; width:100%; margin-bottom:24px; border-radius:12px;"></div>
+      <div class="skeleton" style="height:140px; width:100%; border-radius:12px;"></div>
     </div>
 
     <div v-else-if="error" id="admin-request-error" class="alert alert-danger">{{ error }}</div>
 
     <template v-else-if="request">
-      <button id="admin-request-back" class="btn btn-ghost" style="margin-bottom:12px;" @click="router.push('/admin/zadosti')">
-        <ArrowLeft :size="16" />
-        <span>Zpět na žádosti</span>
-      </button>
+      <!-- Breadcrumb -->
+      <nav id="admin-request-breadcrumb" class="breadcrumb" aria-label="breadcrumb">
+        <a id="admin-request-bc-admin" href="#" @click.prevent="router.push('/admin')">Admin</a>
+        <ChevronRight :size="13" class="breadcrumb-sep" />
+        <a id="admin-request-bc-list" href="#" @click.prevent="router.push('/admin/zadosti')">Žádosti</a>
+        <ChevronRight :size="13" class="breadcrumb-sep" />
+        <span id="admin-request-bc-current" class="breadcrumb-current">{{ request.title }}</span>
+      </nav>
 
-      <div v-if="actionError" id="admin-request-action-error" class="alert alert-danger" style="margin-bottom:16px;">
-        {{ actionError }}
-      </div>
-
-      <div id="admin-request-header" class="page-header" style="align-items:flex-start;">
-        <div style="max-width:780px;">
-          <h1 id="admin-request-title" class="page-title">{{ request.title }}</h1>
-          <p class="page-subtitle">
-            <span class="badge" :class="statusMeta.badge">{{ statusMeta.label }}</span>
-            · {{ categoryLabel }} · {{ request.locationValue || '—' }}
+      <!-- Header -->
+      <header id="admin-request-header" class="request-header">
+        <div class="header-text">
+          <h1 id="admin-request-title" class="request-title">{{ request.title }}</h1>
+          <p id="admin-request-subtitle" class="request-subtitle">
+            {{ categoryLabel }}
+            <span class="dot">·</span>
+            {{ request.clientDisplayName || '—' }}
+            <span class="dot">·</span>
+            Vytvořeno {{ formatDate(request.createdAt) }}
+            <template v-if="request.locationValue">
+              <span class="dot">·</span>{{ request.locationValue }}
+            </template>
           </p>
         </div>
-        <button id="admin-request-delete-btn" class="btn btn-danger btn-sm" @click="showDeleteModal = true">
+        <button id="admin-request-delete-btn" class="btn btn-ghost btn-sm delete-btn" @click="showDeleteModal = true">
           <Trash2 :size="14" />
           <span>Smazat</span>
         </button>
-      </div>
+      </header>
 
-      <!-- Meta cards (editable) -->
-      <div id="admin-request-meta" class="meta-grid">
-        <div class="meta-card" id="admin-meta-status">
-          <div class="meta-label"><Clock :size="14" /> Status</div>
-          <div class="meta-edit-row">
-            <select id="admin-status-select" v-model="editStatus" class="form-input meta-input">
-              <option v-for="s in REQUEST_STATUSES" :key="s.key" :value="s.key">{{ s.label }}</option>
-            </select>
+      <!-- Status pills + due date -->
+      <div id="admin-request-controls" class="controls-row">
+        <div id="admin-request-status-block" class="control-block">
+          <div class="control-eyebrow"><Clock :size="12" /> Stav</div>
+          <div id="admin-status-pills" class="status-pills">
             <button
-              id="admin-status-save"
-              class="btn btn-primary btn-sm"
-              :disabled="!isStatusDirty || savingStatus"
-              @click="saveStatus"
+              v-for="s in REQUEST_STATUSES"
+              :key="s.key"
+              :id="'admin-status-pill-' + s.key"
+              type="button"
+              class="status-pill"
+              :class="[s.badge, { active: request.status === s.key }]"
+              :disabled="savingStatusKey !== null"
+              @click="setStatus(s.key)"
             >
-              <Loader2 v-if="savingStatus" :size="14" class="spin" />
-              <Save v-else :size="14" />
-              <span>Uložit</span>
+              <Loader2 v-if="savingStatusKey === s.key" :size="12" class="spin" />
+              <span>{{ s.label }}</span>
             </button>
           </div>
+          <div v-if="statusError" id="admin-status-error" class="field-error">{{ statusError }}</div>
         </div>
 
-        <div class="meta-card" id="admin-meta-created">
-          <div class="meta-label"><Calendar :size="14" /> Vytvořeno</div>
-          <div class="meta-value">{{ formatDate(request.createdAt) }}</div>
-        </div>
-
-        <div class="meta-card" id="admin-meta-client">
-          <div class="meta-label"><User :size="14" /> Klient</div>
-          <div class="meta-value">{{ request.clientDisplayName || '—' }}</div>
-        </div>
-
-        <div class="meta-card" id="admin-meta-due">
-          <div class="meta-label"><Calendar :size="14" /> Termín</div>
-          <div class="meta-edit-row">
+        <div id="admin-request-due-block" class="control-block due-block">
+          <div class="control-eyebrow"><Calendar :size="12" /> Termín</div>
+          <div class="due-row">
             <input
               id="admin-due-input"
               v-model="editDueDate"
               type="date"
-              class="form-input meta-input"
+              class="form-input due-input"
             />
             <button
               id="admin-due-save"
@@ -205,89 +236,134 @@ async function confirmDelete() {
               <span>Uložit</span>
             </button>
           </div>
+          <div v-if="dueDateError" id="admin-due-error" class="field-error">{{ dueDateError }}</div>
         </div>
       </div>
 
-      <!-- Description -->
-      <div id="admin-request-description-section" style="margin-top:24px;">
-        <div id="admin-request-description-label" class="section-label">Popis (zadal klient)</div>
-        <div id="admin-request-description" class="card description-card">
-          <p id="admin-request-description-text" style="white-space:pre-wrap;">{{ request.description || '—' }}</p>
-        </div>
-      </div>
+      <!-- Conversation -->
+      <section id="admin-request-conversation" class="conversation">
+        <h2 id="admin-request-conv-title" class="conv-title">
+          <MessageSquare :size="16" />
+          Konverzace ({{ request.activity.length + 1 }})
+        </h2>
 
-      <!-- Activity timeline -->
-      <div id="admin-request-activity" style="margin-top:24px;">
-        <div id="admin-request-activity-label" class="section-label">
-          <MessageSquare :size="14" style="vertical-align:-2px;" />
-          Aktivita ({{ request.activity.length }})
-        </div>
-        <div v-if="request.activity.length === 0" id="admin-request-activity-empty" class="card" style="color:var(--color-gray-500); font-size:13px;">
-          Zatím žádná aktivita.
-        </div>
-        <div v-else id="admin-request-activity-list" class="activity-list">
-          <div
-            v-for="a in request.activity"
-            :key="a.id"
-            :id="'admin-activity-' + a.id"
-            class="activity-item"
-            :class="{ 'activity-internal': a.isInternal }"
-          >
-            <div :id="'admin-activity-avatar-' + a.id" class="avatar avatar-sm" :class="{'admin-avatar': a.authorType === 'admin'}">
-              {{ (a.author || '?').charAt(0) }}
+        <!-- Root: client's original request -->
+        <article id="admin-conv-root" class="conv-item conv-root">
+          <div class="conv-avatar avatar avatar-sm">{{ initials(request.clientDisplayName) }}</div>
+          <div class="conv-body">
+            <div class="conv-head">
+              <span class="conv-author">{{ request.clientDisplayName || 'Klient' }}</span>
+              <span class="conv-role-badge">Žádost od klienta</span>
+              <span class="dot">·</span>
+              <span class="conv-time">{{ formatDateTime(request.createdAt) }}</span>
             </div>
-            <div :id="'admin-activity-body-' + a.id" class="activity-body">
-              <div :id="'admin-activity-head-' + a.id" class="activity-head">
-                <span :id="'admin-activity-author-' + a.id" class="activity-author">{{ a.author }}</span>
-                <span v-if="a.isInternal" :id="'admin-activity-internal-badge-' + a.id" class="badge badge-warning internal-badge">
-                  <Lock :size="11" /> Interní
-                </span>
-                <span :id="'admin-activity-time-' + a.id" class="activity-time">{{ formatDateTime(a.createdAt) }}</span>
-              </div>
-              <div :id="'admin-activity-message-' + a.id" class="activity-message">{{ a.message }}</div>
-            </div>
+            <div id="admin-conv-root-message" class="conv-message conv-message-root">{{ request.description || '—' }}</div>
           </div>
-        </div>
-      </div>
+        </article>
 
-      <!-- Comment composer -->
-      <div id="admin-comment-composer" class="card" style="margin-top:16px;">
-        <div class="section-label" style="margin-bottom:8px;">Přidat komentář</div>
+        <!-- Replies -->
+        <article
+          v-for="a in request.activity"
+          :key="a.id"
+          :id="'admin-activity-' + a.id"
+          class="conv-item"
+          :class="{ 'conv-internal': a.isInternal }"
+        >
+          <div :id="'admin-activity-avatar-' + a.id" class="conv-avatar avatar avatar-sm" :class="{ 'admin-avatar': a.authorType === 'admin' }">
+            {{ initials(a.author) }}
+          </div>
+          <div class="conv-body">
+            <div class="conv-head">
+              <span :id="'admin-activity-author-' + a.id" class="conv-author">{{ a.author }}</span>
+              <span v-if="a.isInternal" :id="'admin-activity-internal-badge-' + a.id" class="badge badge-warning internal-badge">
+                <Lock :size="11" /> Interní
+              </span>
+              <span class="dot">·</span>
+              <span :id="'admin-activity-time-' + a.id" class="conv-time">{{ formatDateTime(a.createdAt) }}</span>
+            </div>
+            <div :id="'admin-activity-message-' + a.id" class="conv-message">{{ a.message }}</div>
+          </div>
+        </article>
+
+        <div v-if="request.activity.length === 0" id="admin-conv-empty" class="conv-empty">
+          <Inbox :size="20" />
+          <span>Buďte první, kdo klientovi odpoví.</span>
+        </div>
+      </section>
+
+      <!-- Composer -->
+      <section
+        id="admin-comment-composer"
+        class="composer"
+        :class="{ 'composer-internal': composerTab === 'internal' }"
+      >
+        <div id="admin-composer-tabs" class="composer-tabs" role="tablist">
+          <button
+            id="admin-composer-tab-public"
+            type="button"
+            role="tab"
+            class="composer-tab"
+            :class="{ active: composerTab === 'public' }"
+            @click="composerTab = 'public'"
+          >
+            <Send :size="13" />
+            Odpověď klientovi
+          </button>
+          <button
+            id="admin-composer-tab-internal"
+            type="button"
+            role="tab"
+            class="composer-tab composer-tab-internal"
+            :class="{ active: composerTab === 'internal' }"
+            @click="composerTab = 'internal'"
+          >
+            <Lock :size="13" />
+            Interní poznámka
+          </button>
+        </div>
+
         <textarea
           id="admin-comment-textarea"
           v-model="newComment"
-          class="form-input"
-          rows="3"
-          placeholder="Napište komentář..."
+          class="form-input composer-textarea"
+          rows="4"
+          :placeholder="composerTab === 'internal' ? 'Poznámka pouze pro tým…' : 'Napište odpověď klientovi…'"
+          @keydown.ctrl.enter="postComment"
+          @keydown.meta.enter="postComment"
         ></textarea>
+
+        <div v-if="commentError" id="admin-comment-error" class="field-error">{{ commentError }}</div>
+
         <div class="composer-actions">
-          <label class="internal-toggle" for="admin-comment-internal">
-            <input
-              id="admin-comment-internal"
-              v-model="newCommentInternal"
-              type="checkbox"
-            />
-            <Lock :size="13" />
-            <span>Pouze interní (klient neuvidí)</span>
-          </label>
+          <span id="admin-composer-hint" class="composer-hint">
+            <template v-if="composerTab === 'internal'">
+              <Lock :size="12" /> Jen tým Fajn Úklid · <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+            </template>
+            <template v-else>
+              <Send :size="12" /> Klient dostane e-mail · <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+            </template>
+          </span>
           <button
             id="admin-comment-submit"
-            class="btn btn-primary btn-sm"
+            class="btn btn-sm"
+            :class="composerTab === 'internal' ? 'btn-warning' : 'btn-primary'"
             :disabled="!newComment.trim() || posting"
             @click="postComment"
           >
             <Loader2 v-if="posting" :size="14" class="spin" />
             <Send v-else :size="14" />
-            <span>Odeslat</span>
+            <span>{{ composerTab === 'internal' ? 'Uložit poznámku' : 'Odeslat klientovi' }}</span>
           </button>
         </div>
-      </div>
+      </section>
 
       <!-- Delete confirmation modal -->
       <div v-if="showDeleteModal" id="admin-delete-modal" class="modal-overlay" @click.self="showDeleteModal = false">
         <div id="admin-delete-modal-card" class="modal-card">
           <h3 id="admin-delete-modal-title" class="modal-title">Smazat žádost?</h3>
-          <p id="admin-delete-modal-text" class="modal-text">Tato akce skryje žádost pro klienta i administrátora. Pokračovat?</p>
+          <p id="admin-delete-modal-text" class="modal-text">
+            Opravdu smazat žádost <strong>„{{ request.title }}“</strong>? Tato akce skryje žádost pro klienta i administrátora.
+          </p>
           <div id="admin-delete-modal-actions" class="modal-actions">
             <button id="admin-delete-cancel" class="btn btn-outline" @click="showDeleteModal = false">Zrušit</button>
             <button id="admin-delete-confirm" class="btn btn-danger" :disabled="deleting" @click="confirmDelete">
@@ -298,54 +374,84 @@ async function confirmDelete() {
           </div>
         </div>
       </div>
+
+      <!-- Toast -->
+      <div v-if="toast" id="admin-request-toast" class="toast" :class="'toast-' + toast.type">
+        {{ toast.message }}
+      </div>
     </template>
   </div>
 </template>
 
 <style scoped>
-.meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.meta-card {
-  background: var(--color-gray-50);
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-lg);
-  padding: 16px 18px;
-}
-
-.meta-label {
+/* Breadcrumb */
+.breadcrumb {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
   color: var(--color-gray-500);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 6px;
+  margin-bottom: 14px;
 }
-
-.meta-value {
-  font-size: 15px;
-  font-weight: 500;
+.breadcrumb a {
+  color: var(--color-gray-500);
+  text-decoration: none;
+  transition: var(--transition);
+}
+.breadcrumb a:hover { color: var(--color-primary); }
+.breadcrumb-sep { color: var(--color-gray-400); flex-shrink: 0; }
+.breadcrumb-current {
   color: var(--color-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 480px;
 }
 
-.meta-edit-row {
+/* Header */
+.request-header {
   display: flex;
-  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.header-text { max-width: 780px; min-width: 0; }
+.request-title {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 0 0 6px;
+  line-height: 1.25;
+}
+.request-subtitle {
+  font-size: 13px;
+  color: var(--color-gray-600);
+  margin: 0;
+  line-height: 1.5;
+}
+.dot { color: var(--color-gray-400); margin: 0 2px; }
+.delete-btn { color: var(--color-danger); flex-shrink: 0; }
+.delete-btn:hover { background: var(--color-danger-light); }
+
+/* Controls row: status + due date */
+.controls-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px 32px;
+  align-items: flex-start;
+  padding: 18px 20px;
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  margin-bottom: 28px;
+}
+.control-block { min-width: 0; }
+.control-eyebrow {
+  display: flex;
   align-items: center;
-}
-
-.meta-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.section-label {
+  gap: 5px;
   font-size: 11px;
   font-weight: 600;
   color: var(--color-gray-500);
@@ -354,59 +460,123 @@ async function confirmDelete() {
   margin-bottom: 8px;
 }
 
-.description-card {
-  font-size: 14px;
-  color: var(--color-gray-800);
-  line-height: 1.6;
+.status-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1.5px solid var(--color-gray-300);
+  background: white;
+  color: var(--color-gray-600);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.status-pill:hover:not(:disabled):not(.active) {
+  border-color: var(--color-mid);
+  color: var(--color-primary);
+}
+.status-pill.active {
+  border-color: currentColor;
+  /* badge-* class supplies background + color */
+}
+.status-pill:disabled { cursor: default; opacity: 0.7; }
+
+.due-block { justify-self: end; }
+.due-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.due-input { width: 170px; }
+
+.field-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-danger);
 }
 
-.activity-list {
+/* Conversation */
+.conversation { margin-bottom: 20px; }
+.conv-title {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 0 0 14px;
 }
 
-.activity-item {
+.conv-item {
   display: flex;
   gap: 12px;
-  padding: 14px 16px;
-  background: var(--color-gray-50);
+  padding: 16px 18px;
+  background: white;
   border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-lg);
+  margin-bottom: 10px;
 }
-
-.activity-item.activity-internal {
+.conv-item.conv-internal {
   background: var(--color-warning-light);
   border-color: var(--color-warning);
   border-left-width: 3px;
 }
-
-.admin-avatar {
-  background: var(--color-primary);
+.conv-item.conv-root {
+  background: var(--color-light);
+  border: 1px solid var(--color-mid);
+  border-left-width: 3px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
 }
 
-.activity-body { flex: 1; min-width: 0; }
-.activity-head {
+.conv-avatar { background: var(--color-mid); }
+.admin-avatar { background: var(--color-primary); }
+
+.conv-body { flex: 1; min-width: 0; }
+.conv-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
+  gap: 8px;
+  margin-bottom: 6px;
   flex-wrap: wrap;
 }
-.activity-author {
+.conv-author {
   font-size: 13px;
   font-weight: 600;
   color: var(--color-primary);
 }
-.activity-time {
+.conv-role-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-mid);
+  background: white;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-mid);
+}
+.conv-time {
   font-size: 11px;
   color: var(--color-gray-500);
-  margin-left: auto;
 }
-.activity-message {
+.conv-message {
   font-size: 14px;
   color: var(--color-gray-700);
+  line-height: 1.6;
   white-space: pre-wrap;
+}
+.conv-message-root {
+  font-size: 15px;
+  color: var(--color-gray-800);
 }
 
 .internal-badge {
@@ -417,6 +587,78 @@ async function confirmDelete() {
   padding: 2px 8px;
 }
 
+.conv-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--color-gray-500);
+  font-size: 13px;
+  border: 1px dashed var(--color-gray-300);
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-50);
+}
+
+/* Composer */
+.composer {
+  background: white;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  transition: var(--transition);
+}
+.composer.composer-internal {
+  background: var(--color-warning-light);
+  border-color: var(--color-warning);
+}
+
+.composer-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--color-gray-200);
+}
+.composer.composer-internal .composer-tabs { border-bottom-color: var(--color-warning); }
+
+.composer-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-gray-500);
+  cursor: pointer;
+  transition: var(--transition);
+  margin-bottom: -1px;
+}
+.composer-tab:hover { color: var(--color-primary); }
+.composer-tab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+.composer-tab-internal.active {
+  color: var(--color-warning);
+  border-bottom-color: var(--color-warning);
+}
+
+.composer-textarea {
+  background: white;
+  resize: vertical;
+  min-height: 90px;
+  width: 100%;
+  display: block;
+  box-sizing: border-box;
+}
+.composer.composer-internal .composer-textarea {
+  background: white;
+  border-color: var(--color-warning);
+}
+
 .composer-actions {
   display: flex;
   align-items: center;
@@ -425,23 +667,24 @@ async function confirmDelete() {
   gap: 12px;
   flex-wrap: wrap;
 }
-
-.internal-toggle {
-  display: flex;
+.composer-hint {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 12px;
+  color: var(--color-gray-600);
+}
+.composer-hint kbd {
+  font-family: inherit;
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--color-gray-100);
+  border: 1px solid var(--color-gray-300);
+  border-radius: 3px;
   color: var(--color-gray-700);
-  cursor: pointer;
-  user-select: none;
 }
 
-.internal-toggle input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-}
-
+/* Modal */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -452,30 +695,27 @@ async function confirmDelete() {
   z-index: 1000;
   padding: 20px;
 }
-
 .modal-card {
   background: var(--color-white);
   border-radius: var(--radius-lg);
   padding: 24px;
-  max-width: 420px;
+  max-width: 460px;
   width: 100%;
   box-shadow: var(--shadow-lg);
 }
-
 .modal-title {
   font-size: 18px;
   font-weight: 600;
   color: var(--color-primary);
   margin-bottom: 8px;
 }
-
 .modal-text {
   font-size: 14px;
   color: var(--color-gray-600);
   margin-bottom: 20px;
   line-height: 1.5;
 }
-
+.modal-text strong { color: var(--color-primary); font-weight: 600; }
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -485,7 +725,11 @@ async function confirmDelete() {
 .spin { animation: spin 1.5s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 700px) {
-  .meta-grid { grid-template-columns: 1fr; }
+@media (max-width: 760px) {
+  .request-header { flex-direction: column; }
+  .controls-row { grid-template-columns: 1fr; }
+  .due-block { justify-self: stretch; }
+  .due-input { flex: 1; width: auto; }
+  .breadcrumb-current { max-width: 220px; }
 }
 </style>
