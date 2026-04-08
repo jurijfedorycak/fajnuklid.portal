@@ -1,11 +1,12 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   LayoutDashboard, FileText, Users, FileSignature,
   Clock, Phone, Settings, LogOut, UserCog, Palette, ArrowRight, ClipboardList,
 } from 'lucide-vue-next'
 import { useAuth } from '../../stores/auth'
+import { adminService } from '../../api/services/adminService'
 import logoDarkSrc from '../../assets/logo-dark.svg'
 
 defineProps({ open: Boolean })
@@ -28,15 +29,46 @@ const clientNavItems = [
   { name: 'Kontakt',      route: '/kontakt',   icon: Phone },
 ]
 
-const adminNavItems = [
+const openRequestsCount = ref(0)
+
+const adminNavItems = computed(() => [
   { name: 'Klienti',      route: '/admin/clients',        icon: Users },
   { name: 'Zaměstnanci',  route: '/admin/employees',      icon: UserCog },
   { name: 'Tým Fajn',     route: '/admin/staff-contacts', icon: Phone },
-  { name: 'Žádosti',      route: '/admin/zadosti',        icon: ClipboardList },
+  { name: 'Žádosti',      route: '/admin/zadosti',        icon: ClipboardList, badgeCount: openRequestsCount.value },
   { name: 'Design',       route: '/admin/design-tokens',  icon: Palette },
-]
+])
 
-const navItems = computed(() => isAdmin.value ? adminNavItems : clientNavItems)
+const navItems = computed(() => isAdmin.value ? adminNavItems.value : clientNavItems)
+
+async function loadOpenRequestsCount() {
+  try {
+    const [prijato, resiSe] = await Promise.all([
+      adminService.getMaintenanceRequests(null, 'prijato'),
+      adminService.getMaintenanceRequests(null, 'resi_se'),
+    ])
+    const prijatoList = Array.isArray(prijato?.data) ? prijato.data : (Array.isArray(prijato) ? prijato : [])
+    const resiSeList = Array.isArray(resiSe?.data) ? resiSe.data : (Array.isArray(resiSe) ? resiSe : [])
+    openRequestsCount.value = prijatoList.length + resiSeList.length
+  } catch (e) {
+    openRequestsCount.value = 0
+  }
+}
+
+onMounted(() => {
+  if (isAdmin.value) loadOpenRequestsCount()
+})
+
+watch(isAdmin, (val) => {
+  if (val) loadOpenRequestsCount()
+  else openRequestsCount.value = 0
+})
+
+watch(() => route.path, (path, prev) => {
+  if (isAdmin.value && prev?.startsWith('/admin/zadosti') && !path.startsWith('/admin/zadosti')) {
+    loadOpenRequestsCount()
+  }
+})
 
 const bottomItems = [
   { name: 'Nastavení',    route: '/nastaveni', icon: Settings },
@@ -91,6 +123,11 @@ function initials(name) {
       >
         <component :is="item.icon" class="nav-icon" :size="18" />
         <span class="nav-label">{{ item.name }}</span>
+        <span
+          v-if="item.badgeCount"
+          :id="`sidebar-nav-${slugify(item.name)}-badge`"
+          class="nav-badge"
+        >{{ item.badgeCount }}</span>
       </button>
     </nav>
 
@@ -227,6 +264,19 @@ function initials(name) {
 
 .nav-label {
   flex: 1;
+}
+
+.nav-badge {
+  flex-shrink: 0;
+  background: var(--color-danger);
+  color: var(--color-white);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  min-width: 18px;
+  text-align: center;
 }
 
 /* Bottom section */
