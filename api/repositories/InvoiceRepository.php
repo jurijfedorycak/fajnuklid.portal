@@ -155,7 +155,7 @@ class InvoiceRepository
         return $stmt->fetchAll();
     }
 
-    public function getTotalsForUser(int $userId, ?string $ico = null): array
+    public function getTotalsForUser(int $userId, ?string $ico = null, ?string $from = null, ?string $to = null): array
     {
         $sql = '
             SELECT
@@ -177,6 +177,16 @@ class InvoiceRepository
             $params['ico'] = $ico;
         }
 
+        if ($from !== null && $from !== '') {
+            $sql .= ' AND i.date_issued >= :date_from';
+            $params['date_from'] = $from;
+        }
+
+        if ($to !== null && $to !== '') {
+            $sql .= ' AND i.date_issued <= :date_to';
+            $params['date_to'] = $to;
+        }
+
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         $result = $stmt->fetch();
@@ -188,6 +198,99 @@ class InvoiceRepository
             'overdue' => (int) ($result['overdue_count'] ?? 0),
             'debt' => (float) ($result['debt_amount'] ?? 0),
         ];
+    }
+
+    /**
+     * Find the most recent invoices for a user, optionally filtered by ICO and date range.
+     */
+    public function findRecentForUser(int $userId, ?string $ico = null, ?string $from = null, ?string $to = null, int $limit = 5): array
+    {
+        $sql = '
+            SELECT
+                i.id,
+                i.company_id,
+                i.document_number,
+                i.variable_symbol,
+                i.date_issued,
+                i.date_due,
+                i.date_paid,
+                i.total_amount,
+                i.currency_code,
+                i.is_paid,
+                i.payment_status,
+                c.name AS company_name,
+                c.registration_number
+            FROM invoices i
+            INNER JOIN companies c ON i.company_id = c.id
+            INNER JOIN company_users cu ON c.id = cu.company_id
+            WHERE cu.user_id = :user_id
+        ';
+
+        $params = ['user_id' => $userId];
+
+        if ($ico !== null && $ico !== '') {
+            $sql .= ' AND c.registration_number = :ico';
+            $params['ico'] = $ico;
+        }
+
+        if ($from !== null && $from !== '') {
+            $sql .= ' AND i.date_issued >= :date_from';
+            $params['date_from'] = $from;
+        }
+
+        if ($to !== null && $to !== '') {
+            $sql .= ' AND i.date_issued <= :date_to';
+            $params['date_to'] = $to;
+        }
+
+        $sql .= ' ORDER BY i.date_issued DESC, i.id DESC LIMIT :row_limit';
+
+        $stmt = $this->db->prepare($sql);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue(':' . $key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->bindValue(':row_limit', max(1, $limit), PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Find the next unpaid invoice with a due date >= today for a user.
+     * Returns null if no upcoming unpaid invoices exist.
+     */
+    public function findNextDueForUser(int $userId, ?string $ico = null): ?array
+    {
+        $sql = '
+            SELECT
+                i.id,
+                i.document_number,
+                i.date_due,
+                i.total_amount,
+                i.currency_code,
+                i.payment_status
+            FROM invoices i
+            INNER JOIN companies c ON i.company_id = c.id
+            INNER JOIN company_users cu ON c.id = cu.company_id
+            WHERE cu.user_id = :user_id
+              AND i.payment_status != \'paid\'
+              AND i.date_due >= CURDATE()
+        ';
+
+        $params = ['user_id' => $userId];
+
+        if ($ico !== null && $ico !== '') {
+            $sql .= ' AND c.registration_number = :ico';
+            $params['ico'] = $ico;
+        }
+
+        $sql .= ' ORDER BY i.date_due ASC LIMIT 1';
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $result = $stmt->fetch();
+
+        return $result ?: null;
     }
 
     public function upsertFromIdoklad(array $data): int

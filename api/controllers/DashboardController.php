@@ -9,107 +9,213 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\CompanyRepository;
 use App\Repositories\LocationRepository;
-use App\Repositories\EmployeeRepository;
-use App\Repositories\EmployeeLocationRepository;
 use App\Repositories\ClientEmployeeRepository;
-use App\Repositories\StaffContactRepository;
+use App\Repositories\InvoiceRepository;
+use DateTime;
 
 class DashboardController extends Controller
 {
     private CompanyRepository $companyRepo;
     private LocationRepository $locationRepo;
-    private EmployeeRepository $employeeRepo;
-    private EmployeeLocationRepository $employeeLocationRepo;
     private ClientEmployeeRepository $clientEmployeeRepo;
-    private StaffContactRepository $staffContactRepo;
+    private InvoiceRepository $invoiceRepo;
 
     public function __construct()
     {
         $this->companyRepo = new CompanyRepository();
         $this->locationRepo = new LocationRepository();
-        $this->employeeRepo = new EmployeeRepository();
-        $this->employeeLocationRepo = new EmployeeLocationRepository();
         $this->clientEmployeeRepo = new ClientEmployeeRepository();
-        $this->staffContactRepo = new StaffContactRepository();
+        $this->invoiceRepo = new InvoiceRepository();
     }
 
     public function index(Request $request): void
     {
         $user = $request->getUser();
-        $userId = $user['id'];
+        $userId = (int) $user['id'];
 
-        // Get user's companies
+        // Get user's companies (drives the IČO switcher)
         $companies = $this->companyRepo->findByUserId($userId);
 
-        // Get all locations for user
-        $locations = $this->locationRepo->findByUserId($userId);
-        $locationIds = array_column($locations, 'id');
-
-        // Count distinct personnel assigned to the user's clients
-        $personnelIds = [];
-        foreach ($companies as $company) {
-            $clientEmployees = $this->clientEmployeeRepo->findByClientId((int) $company['client_id']);
-            foreach ($clientEmployees as $ce) {
-                if (!empty($ce['show_in_portal']) && !empty($ce['show_name'])) {
-                    $personnelIds[(int) $ce['employee_id']] = true;
+        // Resolve active company from ?ico= query (validate against user's companies);
+        // fall back to the first company.
+        $requestedIco = $request->query('ico');
+        $activeCompany = null;
+        if ($requestedIco !== null && $requestedIco !== '') {
+            foreach ($companies as $company) {
+                if ((string) $company['registration_number'] === (string) $requestedIco) {
+                    $activeCompany = $company;
+                    break;
                 }
             }
         }
-        $personnelCount = count($personnelIds);
+        if ($activeCompany === null && !empty($companies)) {
+            $activeCompany = $companies[0];
+        }
+        $activeIco = $activeCompany['registration_number'] ?? null;
+        $activeCompanyId = isset($activeCompany['id']) ? (int) $activeCompany['id'] : null;
+        $activeClientId = isset($activeCompany['client_id']) ? (int) $activeCompany['client_id'] : null;
 
-        // Get contract info for first company
+        // Resolve date range — default to YTD (1.1.{currentYear} → today).
+        $today = new DateTime('today');
+        $defaultFrom = (new DateTime('first day of January ' . $today->format('Y')))->format('Y-m-d');
+        $defaultTo = $today->format('Y-m-d');
+        $from = $this->normalizeDate($request->query('from'), $defaultFrom);
+        $to = $this->normalizeDate($request->query('to'), $defaultTo);
+        // Swap if reversed
+        if ($from > $to) {
+            [$from, $to] = [$to, $from];
+        }
+
+        // Locations for the active company (used for "Vaše místo" subtitle)
+        $allLocations = $this->locationRepo->findByUserId($userId);
+        $activeLocations = array_values(array_filter($allLocations, function ($l) use ($activeCompanyId) {
+            return $activeCompanyId !== null && (int) $l['company_id'] === $activeCompanyId;
+        }));
+        $primaryLocationName = $activeLocations[0]['name'] ?? ($activeLocations[0]['company_name'] ?? '');
+
+        // Personnel preview for the active company (FE paginates).
+        $personnelList = [];
+        if ($activeClientId !== null) {
+            $clientEmployees = $this->clientEmployeeRepo->findByClientId($activeClientId);
+            foreach ($clientEmployees as $ce) {
+                if (empty($ce['show_in_portal'])) {
+                    continue;
+                }
+                $showName = !empty($ce['show_name']);
+                $first = $showName ? trim((string) ($ce['first_name'] ?? '')) : '';
+                $last = $showName ? trim((string) ($ce['last_name'] ?? '')) : '';
+                $fullName = trim($first . ' ' . $last);
+                if ($fullName === '') {
+                    $fullName = 'Pracovník';
+                }
+                $personnelList[] = [
+                    'id' => (int) $ce['employee_id'],
+                    'name' => $fullName,
+                    'role' => !empty($ce['show_role']) ? ($ce['position'] ?? '') : '',
+                    'photoUrl' => !empty($ce['show_photo']) ? ($ce['photo_url'] ?? null) : null,
+                ];
+            }
+        }
+        $personnelCount = count($personnelList);
+
+        // Contract info for the active company
         $contract = [
             'hasPdf' => false,
             'contractsEnabled' => false,
+            'startDate' => null,
+            'endDate' => null,
         ];
-        if (!empty($companies)) {
-            $firstCompany = $companies[0];
+        if ($activeCompany !== null) {
             $contract = [
-                'hasPdf' => !empty($firstCompany['contract_pdf_path']),
+                'hasPdf' => !empty($activeCompany['contract_pdf_path']),
                 'contractsEnabled' => true,
-                'startDate' => $firstCompany['contract_start_date'],
-                'endDate' => $firstCompany['contract_end_date'],
+                'startDate' => $activeCompany['contract_start_date'] ?? null,
+                'endDate' => $activeCompany['contract_end_date'] ?? null,
             ];
         }
 
-        // TODO: Fetch cleaning visits from external API
-        // For now, return empty array - will be populated from external API
-        $cleaningDays = [];
-
-        // Get Fajnuklid staff contacts (limit to 2 for quick contact)
-        $staffContacts = $this->staffContactRepo->findAll();
-        $contacts = array_slice($staffContacts, 0, 2);
-        $contacts = array_map(function ($c) {
+        // Invoice aggregates + recent + next due
+        $invoiceTotals = $this->invoiceRepo->getTotalsForUser($userId, $activeIco, $from, $to);
+        $recentRows = $this->invoiceRepo->findRecentForUser($userId, $activeIco, $from, $to, 5);
+        $recentInvoices = array_map(function ($row) {
             return [
-                'name' => $c['name'],
-                'role' => $c['position'],
-                'phone' => $c['phone'],
-                'email' => $c['email'],
+                'id' => (int) $row['id'],
+                'documentNumber' => $row['document_number'],
+                'dueDate' => $row['date_due'],
+                'amount' => (float) $row['total_amount'],
+                'currency' => $row['currency_code'] ?? 'CZK',
+                'status' => $row['payment_status'],
             ];
-        }, $contacts);
+        }, $recentRows);
+
+        $nextDueRow = $this->invoiceRepo->findNextDueForUser($userId, $activeIco);
+        $nextDue = null;
+        if ($nextDueRow !== null) {
+            $dueDate = new DateTime($nextDueRow['date_due']);
+            $diff = (int) $today->diff($dueDate)->format('%r%a');
+            $nextDue = [
+                'id' => (int) $nextDueRow['id'],
+                'documentNumber' => $nextDueRow['document_number'],
+                'dueDate' => $nextDueRow['date_due'],
+                'daysRelative' => $diff,
+                'amount' => (float) $nextDueRow['total_amount'],
+                'currency' => $nextDueRow['currency_code'] ?? 'CZK',
+            ];
+        }
+
+        // TODO: Fetch cleaning visits from external API. Until then, return empty.
+        // Each cell must include "status" so the FE renders done/ongoing/scheduled correctly.
+        $cleaningDays = [];
 
         // Build current user info
         $currentUser = [
-            'id' => $user['id'],
+            'id' => (int) $user['id'],
             'email' => $user['email'],
-            'displayName' => !empty($companies) ? $companies[0]['name'] : $user['email'],
-            'activeIco' => !empty($companies) ? $companies[0]['registration_number'] : null,
-            'clientId' => !empty($companies) ? ($companies[0]['client_id'] ?? null) : null,
+            'displayName' => $activeCompany['name'] ?? $user['email'],
+            'activeIco' => $activeIco,
+            'clientId' => $activeClientId,
         ];
+
+        // Switcher list — only the fields the FE needs.
+        $companiesPayload = array_map(function ($c) {
+            return [
+                'id' => (int) $c['id'],
+                'name' => $c['name'],
+                'ico' => $c['registration_number'],
+            ];
+        }, $companies);
 
         Response::success([
             'currentUser' => $currentUser,
-            'personnelCount' => $personnelCount,
-            'contract' => $contract,
+            'companies' => $companiesPayload,
+            'activeIco' => $activeIco,
+            'dateRange' => [
+                'from' => $from,
+                'to' => $to,
+            ],
+            'overview' => [
+                'invoices' => [
+                    'total' => $invoiceTotals['all'],
+                    'paidCount' => $invoiceTotals['paid'],
+                    'unpaidCount' => $invoiceTotals['unpaid'],
+                    'overdueCount' => $invoiceTotals['overdue'],
+                    'nextDue' => $nextDue,
+                ],
+                'personnel' => [
+                    'count' => $personnelCount,
+                    'locationName' => $primaryLocationName,
+                ],
+                'contract' => $contract,
+            ],
             'cleaningDays' => $cleaningDays,
-            'contacts' => $contacts,
+            'personnelList' => $personnelList,
+            'recentInvoices' => $recentInvoices,
             'locations' => array_map(function ($l) {
                 return [
-                    'id' => $l['id'],
+                    'id' => (int) $l['id'],
                     'name' => $l['name'],
                     'companyName' => $l['company_name'] ?? null,
                 ];
-            }, $locations),
+            }, $activeLocations),
         ]);
+    }
+
+    /**
+     * Validate a YYYY-MM-DD date string. Returns the fallback if input is invalid.
+     */
+    private function normalizeDate(mixed $value, string $fallback): string
+    {
+        if (!is_string($value) || $value === '') {
+            return $fallback;
+        }
+        $dt = DateTime::createFromFormat('Y-m-d', $value);
+        if ($dt === false) {
+            return $fallback;
+        }
+        // Reject things like "2026-13-40" that pass createFromFormat with overflow.
+        if ($dt->format('Y-m-d') !== $value) {
+            return $fallback;
+        }
+        return $value;
     }
 }

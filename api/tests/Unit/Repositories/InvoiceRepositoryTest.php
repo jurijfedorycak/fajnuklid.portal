@@ -216,6 +216,147 @@ class InvoiceRepositoryTest extends DatabaseTestCase
         $this->assertEquals(0.0, $result['debt']);
     }
 
+    public function testGetTotalsForUserWithDateRangeIncludesDateBindings(): void
+    {
+        $capturedSql = null;
+        $capturedParams = null;
+
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function (string $sql) use (&$capturedSql) {
+                $capturedSql = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function (array $params) use (&$capturedParams) {
+                $capturedParams = $params;
+                return true;
+            });
+        $this->stmtMock->method('fetch')->willReturn([
+            'total_count' => 7,
+            'paid_count' => 4,
+            'unpaid_count' => 2,
+            'overdue_count' => 1,
+            'debt_amount' => 3000.00,
+        ]);
+
+        $result = $this->repository->getTotalsForUser(1, '12345678', '2026-01-01', '2026-04-08');
+
+        $this->assertEquals(7, $result['all']);
+        $this->assertStringContainsString('i.date_issued >= :date_from', (string) $capturedSql);
+        $this->assertStringContainsString('i.date_issued <= :date_to', (string) $capturedSql);
+        $this->assertSame('2026-01-01', $capturedParams['date_from'] ?? null);
+        $this->assertSame('2026-04-08', $capturedParams['date_to'] ?? null);
+        $this->assertSame('12345678', $capturedParams['ico'] ?? null);
+    }
+
+    // findRecentForUser tests
+
+    public function testFindRecentForUserReturnsInvoices(): void
+    {
+        $expected = [
+            ['id' => 2, 'document_number' => 'FV2026-002', 'date_issued' => '2026-03-01'],
+            ['id' => 1, 'document_number' => 'FV2026-001', 'date_issued' => '2026-02-01'],
+        ];
+
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetchAll')->willReturn($expected);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $result = $this->repository->findRecentForUser(1, '12345678', '2026-01-01', '2026-04-08', 5);
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testFindRecentForUserUsesLimit(): void
+    {
+        $capturedSql = null;
+        $boundValues = [];
+
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function (string $sql) use (&$capturedSql) {
+                $capturedSql = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('bindValue')
+            ->willReturnCallback(function ($key, $value) use (&$boundValues) {
+                $boundValues[$key] = $value;
+                return true;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetchAll')->willReturn([]);
+
+        $this->repository->findRecentForUser(1, null, null, null, 3);
+
+        $this->assertStringContainsString('LIMIT :row_limit', (string) $capturedSql);
+        $this->assertSame(3, $boundValues[':row_limit'] ?? null);
+        $this->assertSame(1, $boundValues[':user_id'] ?? null);
+    }
+
+    public function testFindRecentForUserReturnsEmptyArrayWhenNone(): void
+    {
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetchAll')->willReturn([]);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $result = $this->repository->findRecentForUser(1);
+
+        $this->assertSame([], $result);
+    }
+
+    // findNextDueForUser tests
+
+    public function testFindNextDueForUserReturnsInvoice(): void
+    {
+        $expected = [
+            'id' => 42,
+            'document_number' => 'FV2026-055',
+            'date_due' => '2026-04-22',
+            'total_amount' => 8400.00,
+            'currency_code' => 'CZK',
+            'payment_status' => 'unpaid',
+        ];
+
+        $this->setupFetchMock($expected);
+
+        $result = $this->repository->findNextDueForUser(1, '12345678');
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testFindNextDueForUserReturnsNullWhenNoUpcoming(): void
+    {
+        $this->setupFetchMock(false);
+
+        $result = $this->repository->findNextDueForUser(1);
+
+        $this->assertNull($result);
+    }
+
+    public function testFindNextDueForUserAppliesIcoFilter(): void
+    {
+        $capturedSql = null;
+        $capturedParams = null;
+
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function (string $sql) use (&$capturedSql) {
+                $capturedSql = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function (array $params) use (&$capturedParams) {
+                $capturedParams = $params;
+                return true;
+            });
+        $this->stmtMock->method('fetch')->willReturn(false);
+
+        $this->repository->findNextDueForUser(1, '99999999');
+
+        $this->assertStringContainsString('c.registration_number = :ico', (string) $capturedSql);
+        $this->assertStringContainsString("i.payment_status != 'paid'", (string) $capturedSql);
+        $this->assertStringContainsString('i.date_due >= CURDATE()', (string) $capturedSql);
+        $this->assertSame('99999999', $capturedParams['ico'] ?? null);
+    }
+
     // upsertFromIdoklad tests
 
     public function testUpsertFromIdokladInsertsNewInvoice(): void
