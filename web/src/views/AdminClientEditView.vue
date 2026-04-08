@@ -17,7 +17,6 @@ const loading = ref(!isNew.value)
 const error = ref(null)
 const saving = ref(false)
 const saved  = ref(false)
-const otherClients = ref([])
 
 // Employee picker
 const availableEmployees = ref([])
@@ -164,7 +163,6 @@ onMounted(async () => {
         }))
         form.staff = (data.staff || []).map(s => ({ ...s, id: uid(), expanded: false }))
         form.contacts = (data.contacts || []).map(c => ({ ...c, id: uid(), expanded: false }))
-        otherClients.value = data.otherClients || []
       } else {
         error.value = response.message || 'Nepodařilo se načíst klienta'
       }
@@ -790,18 +788,6 @@ onBeforeUnmount(() => {
                     <label class="form-label">Oficiální název firmy</label>
                     <input :id="`ico-name-${icoIndex}`" v-model="ico.officialName" type="text" class="form-input" placeholder="Firma s.r.o." />
                   </div>
-                </div>
-
-                <!-- Reassign IČO to different client_id -->
-                <div class="form-group" style="margin-bottom:20px;">
-                  <label class="form-label">Přeřadit pod jiný klientský účet</label>
-                  <select v-model="ico.reassignTo" class="form-input" style="max-width:320px;">
-                    <option :value="undefined">– ponechat u tohoto klienta –</option>
-                    <option v-for="c in otherClients" :key="c.clientId" :value="c.clientId">
-                      {{ c.displayName }} ({{ c.clientId }})
-                    </option>
-                  </select>
-                  <p class="field-hint">Po uložení bude toto IČO přesunuto pod vybraného klienta.</p>
                 </div>
 
                 <!-- FreshQR + billing model -->
