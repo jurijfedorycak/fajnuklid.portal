@@ -18,6 +18,7 @@ App Language: Czech, but use English URL routing
 2. Dont use HTML alerts
 3. Always use CSS variables from `web/src/style.css` for colors, never hardcode color values.
 4. Create a custom unique ID to each visual HTML element
+5. Dont write dumb comments in code and SQL migration columns. Properties should be self explanatory, comment only special logics and business perspective explanations
 
 # Critical
 

@@ -51,6 +51,21 @@ const routes = [
         component: () => import('../views/AttendanceView.vue'),
       },
       {
+        path: 'zadosti',
+        name: 'Requests',
+        component: () => import('../views/RequestsView.vue'),
+      },
+      {
+        path: 'zadosti/nova',
+        name: 'NewRequest',
+        component: () => import('../views/NewRequestView.vue'),
+      },
+      {
+        path: 'zadosti/:id',
+        name: 'RequestDetail',
+        component: () => import('../views/RequestDetailView.vue'),
+      },
+      {
         path: 'kontakt',
         name: 'Contact',
         component: () => import('../views/ContactView.vue'),
@@ -114,7 +129,7 @@ router.beforeEach((to) => {
   }
 
   // Block admin from client-only routes
-  const clientOnlyRoutes = ['Dashboard', 'Invoices', 'Personnel', 'Contract', 'Attendance', 'Contact']
+  const clientOnlyRoutes = ['Dashboard', 'Invoices', 'Personnel', 'Contract', 'Attendance', 'Contact', 'Requests', 'NewRequest', 'RequestDetail']
   if (isAdmin.value && clientOnlyRoutes.includes(to.name)) {
     return { name: 'Admin' }
   }

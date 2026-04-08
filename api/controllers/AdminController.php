@@ -18,6 +18,7 @@ use App\Repositories\UserRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\ClientContactRepository;
 use App\Repositories\StaffContactRepository;
+use App\Services\MaintenanceRequestService;
 use App\Helpers\PasswordHelper;
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
@@ -35,6 +36,7 @@ class AdminController extends Controller
     private LocationRepository $locationRepo;
     private ClientContactRepository $clientContactRepo;
     private StaffContactRepository $staffContactRepo;
+    private MaintenanceRequestService $maintenanceRequestService;
 
     public function __construct()
     {
@@ -49,6 +51,7 @@ class AdminController extends Controller
         $this->locationRepo = new LocationRepository();
         $this->clientContactRepo = new ClientContactRepository();
         $this->staffContactRepo = new StaffContactRepository();
+        $this->maintenanceRequestService = new MaintenanceRequestService();
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -1058,5 +1061,63 @@ class AdminController extends Controller
         $this->staffContactRepo->delete($id);
 
         Response::success(null, 'Kontakt byl smazán');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // MAINTENANCE REQUESTS
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    public function listMaintenanceRequests(Request $request): void
+    {
+        $clientId = $request->query('clientId');
+        $status = $request->query('status');
+        if ($status === 'all') {
+            $status = null;
+        }
+
+        $data = $this->maintenanceRequestService->listForAdmin(
+            $clientId !== null ? (int) $clientId : null,
+            $status
+        );
+
+        Response::success($data);
+    }
+
+    public function getMaintenanceRequest(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $data = $this->maintenanceRequestService->getForAdmin($id);
+        Response::success($data);
+    }
+
+    public function updateMaintenanceRequest(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $user = $request->getUser();
+        $adminUserId = (int) ($user['id'] ?? 0);
+        $adminName = $user['email'] ?? 'Fajn Úklid';
+
+        $data = $this->maintenanceRequestService->adminUpdate($id, $adminUserId, $adminName, $request->getBody());
+        Response::success($data, 'Žádost byla aktualizována');
+    }
+
+    public function addMaintenanceRequestActivity(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $user = $request->getUser();
+        $adminUserId = (int) ($user['id'] ?? 0);
+        $adminName = $user['email'] ?? 'Fajn Úklid';
+
+        $message = (string) $request->input('message', '');
+
+        $data = $this->maintenanceRequestService->adminAddActivity($id, $adminUserId, $adminName, $message);
+        Response::success($data, 'Komentář byl přidán');
+    }
+
+    public function deleteMaintenanceRequest(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $this->maintenanceRequestService->adminDelete($id);
+        Response::success(null, 'Žádost byla smazána');
     }
 }

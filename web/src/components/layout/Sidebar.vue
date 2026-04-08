@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   LayoutDashboard, FileText, Users, FileSignature,
-  Clock, Phone, Settings, LogOut, UserCog, Palette, ArrowRight,
+  Clock, Phone, Settings, LogOut, UserCog, Palette, ArrowRight, ClipboardList,
 } from 'lucide-vue-next'
 import { useAuth } from '../../stores/auth'
 import logoDarkSrc from '../../assets/logo-dark.svg'
@@ -24,6 +24,7 @@ const clientNavItems = [
   { name: 'Personál',     route: '/personal',  icon: Users },
   { name: 'Smlouva',      route: '/smlouva',   icon: FileSignature },
   { name: 'Docházka',     route: '/dochazka',  icon: Clock },
+  { name: 'Žádosti',      route: '/zadosti',   icon: ClipboardList },
   { name: 'Kontakt',      route: '/kontakt',   icon: Phone },
 ]
 

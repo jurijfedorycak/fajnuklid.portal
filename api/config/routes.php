@@ -47,6 +47,13 @@ $router->group(['middleware' => [AuthMiddleware::class]], function (Router $rout
     $router->get('/settings', 'SettingsController@index');
     $router->put('/settings', 'SettingsController@update');
     $router->post('/settings/password', 'SettingsController@changePassword');
+
+    // Maintenance requests - client tickets (žádosti o údržbu)
+    $router->get('/maintenance-requests', 'MaintenanceRequestController@index');
+    $router->get('/maintenance-requests/form-options', 'MaintenanceRequestController@formOptions');
+    $router->get('/maintenance-requests/{id}', 'MaintenanceRequestController@show');
+    $router->post('/maintenance-requests', 'MaintenanceRequestController@create');
+    $router->post('/maintenance-requests/{id}/confirm', 'MaintenanceRequestController@confirm');
 });
 
 // Admin routes - require authentication + admin privileges
@@ -79,4 +86,11 @@ $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class],
     $router->post('/staff-contacts/reorder', 'AdminController@reorderStaffContacts');
     $router->put('/staff-contacts/{id}', 'AdminController@updateStaffContact');
     $router->delete('/staff-contacts/{id}', 'AdminController@deleteStaffContact');
+
+    // Maintenance requests - admin management
+    $router->get('/maintenance-requests', 'AdminController@listMaintenanceRequests');
+    $router->get('/maintenance-requests/{id}', 'AdminController@getMaintenanceRequest');
+    $router->put('/maintenance-requests/{id}', 'AdminController@updateMaintenanceRequest');
+    $router->post('/maintenance-requests/{id}/activity', 'AdminController@addMaintenanceRequestActivity');
+    $router->delete('/maintenance-requests/{id}', 'AdminController@deleteMaintenanceRequest');
 });

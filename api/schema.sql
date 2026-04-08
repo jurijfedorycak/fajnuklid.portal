@@ -309,4 +309,51 @@ CREATE TABLE `invoices` (
     CONSTRAINT `fk_invoices_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ----------------------------
+-- Table: maintenance_requests
+-- ----------------------------
+DROP TABLE IF EXISTS `maintenance_requests`;
+CREATE TABLE `maintenance_requests` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `client_id` INT UNSIGNED NOT NULL,
+    `company_id` INT UNSIGNED NULL,
+    `created_by_user_id` INT UNSIGNED NOT NULL,
+    `title` VARCHAR(255) NOT NULL,
+    `category` ENUM('elektro','voda','klima','uklid','pristupy','jine') NOT NULL,
+    `location_type` ENUM('office','common','custom') NOT NULL,
+    `location_value` VARCHAR(255) NULL,
+    `description` TEXT NULL,
+    `status` ENUM('prijato','resi_se','ceka_na_potvrzeni','vyreseno','zablokovano') NOT NULL DEFAULT 'prijato',
+    `due_date` DATE NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_client_status` (`client_id`, `status`),
+    KEY `idx_company_id` (`company_id`),
+    KEY `idx_created_at` (`created_at`),
+    CONSTRAINT `fk_maintenance_requests_client` FOREIGN KEY (`client_id`) REFERENCES `clients` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_maintenance_requests_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `fk_maintenance_requests_user` FOREIGN KEY (`created_by_user_id`) REFERENCES `login_accounts` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------
+-- Table: maintenance_request_activity
+-- ----------------------------
+DROP TABLE IF EXISTS `maintenance_request_activity`;
+CREATE TABLE `maintenance_request_activity` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `request_id` INT UNSIGNED NOT NULL,
+    `user_id` INT UNSIGNED NULL,
+    `author_type` ENUM('client','admin','system') NOT NULL,
+    `author_name` VARCHAR(255) NULL,
+    `message` TEXT NULL,
+    `status_change` VARCHAR(40) NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_request_id` (`request_id`),
+    CONSTRAINT `fk_request_activity_request` FOREIGN KEY (`request_id`) REFERENCES `maintenance_requests` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_request_activity_user` FOREIGN KEY (`user_id`) REFERENCES `login_accounts` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
