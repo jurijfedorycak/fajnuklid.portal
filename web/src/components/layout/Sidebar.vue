@@ -154,23 +154,30 @@ function initials(name) {
   }
 }
 
-/* Logo */
+/* Logo — vertical footprint matches .page-header in main content
+   (main-content padding-top 32px + page-header content ~45px + margin-bottom 24px) */
 .sidebar-logo {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  padding: 20px 16px 16px;
+  justify-content: center;
+  padding: 32px 16px 46px;
+  box-sizing: border-box;
 }
 
 .sidebar-logo-img {
   height: 32px;
   width: auto;
+  max-width: 100%;
 }
 
-/* Nav */
+/* Nav — no top padding so first item aligns with page content top */
 .sidebar-nav {
   display: flex;
   flex-direction: column;
+  padding: 0 8px;
+}
+
+.sidebar-bottom-section .sidebar-nav {
   padding: 6px 8px;
 }
 
