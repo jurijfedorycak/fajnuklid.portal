@@ -1,13 +1,20 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { ChevronLeft, ChevronRight, CheckCircle2, Loader2 } from 'lucide-vue-next'
-import { attendanceService } from '../api'
+import { useRouter } from 'vue-router'
+import { ChevronLeft, ChevronRight, CheckCircle2, Loader2, ClipboardList } from 'lucide-vue-next'
+import { attendanceService, maintenanceRequestService } from '../api'
+
+const router = useRouter()
 
 // State
 const loading = ref(true)
 const error = ref(null)
 const cleaningDays = ref([])
 const freshqrActive = ref(false)
+const requestsByDay = ref({})
+const openPopoverDate = ref(null)
+const popoverItems = ref([])
+const popoverLoading = ref(false)
 
 const today = new Date()
 const viewYear  = ref(today.getFullYear())
@@ -38,10 +45,29 @@ async function fetchAttendance() {
   }
 }
 
-onMounted(fetchAttendance)
+async function fetchRequestsForMonth() {
+  try {
+    const res = await maintenanceRequestService.getCalendar(viewYear.value, viewMonth.value + 1)
+    if (res.success) {
+      const map = {}
+      for (const r of res.data) {
+        map[r.date] = r.count
+      }
+      requestsByDay.value = map
+    }
+  } catch (e) {
+    // silent
+  }
+}
+
+async function loadAll() {
+  await Promise.all([fetchAttendance(), fetchRequestsForMonth()])
+}
+
+onMounted(loadAll)
 
 // Refetch when month changes
-watch([viewYear, viewMonth], fetchAttendance)
+watch([viewYear, viewMonth], loadAll)
 
 const dayMap = computed(() => {
   const m = {}
@@ -69,6 +95,7 @@ const calendarDays = computed(() => {
       hasCleaning: !!info,
       ongoing: info?.ongoing || false,
       note: info?.note || '',
+      requestCount: requestsByDay.value[key] || 0,
       isToday, isPast,
     })
   }
@@ -98,6 +125,30 @@ function nextMonth() {
 function goToday() {
   viewYear.value  = today.getFullYear()
   viewMonth.value = today.getMonth()
+}
+
+async function openDayPopover(cell) {
+  if (!cell.requestCount) return
+  if (openPopoverDate.value === cell.key) {
+    openPopoverDate.value = null
+    return
+  }
+  openPopoverDate.value = cell.key
+  popoverLoading.value = true
+  popoverItems.value = []
+  try {
+    const res = await maintenanceRequestService.list({})
+    if (res.success) {
+      popoverItems.value = res.data.filter(r => (r.createdAt || '').startsWith(cell.key))
+    }
+  } finally {
+    popoverLoading.value = false
+  }
+}
+
+function goToRequest(id) {
+  openPopoverDate.value = null
+  router.push(`/zadosti/${id}`)
 }
 </script>
 
@@ -197,8 +248,10 @@ function goToday() {
               'day-ongoing': cell.ongoing,
               'day-past':    cell.isPast && !cell.hasCleaning,
               'day-future':  !cell.isPast && !cell.isToday && !cell.hasCleaning,
+              'day-has-requests': cell.requestCount > 0,
             }"
-            :title="cell.hasCleaning ? (cell.note || 'Úklid proběhl') : ''"
+            :title="cell.requestCount > 0 ? `Požadavky: ${cell.requestCount}` : (cell.hasCleaning ? (cell.note || 'Úklid proběhl') : '')"
+            @click="openDayPopover(cell)"
           >
             <span class="day-num">{{ cell.day }}</span>
             <span v-if="cell.hasCleaning && !cell.ongoing" class="day-icon done-icon">
@@ -208,6 +261,26 @@ function goToday() {
               <Loader2 :size="12" class="spin" />
             </span>
             <span v-if="cell.note" class="day-note-dot" title="Poznámka k úklidu" />
+            <span v-if="cell.requestCount > 0" class="day-request-badge" :id="'req-badge-' + cell.key">
+              <ClipboardList :size="9" />{{ cell.requestCount }}
+            </span>
+
+            <div v-if="openPopoverDate === cell.key" class="day-popover" @click.stop>
+              <div class="day-popover-header">Požadavky · {{ cell.day }}.{{ viewMonth + 1 }}.</div>
+              <div v-if="popoverLoading" style="padding:10px; font-size:12px; color:var(--color-gray-500);">Načítám…</div>
+              <div v-else-if="popoverItems.length === 0" style="padding:10px; font-size:12px; color:var(--color-gray-500);">
+                Žádné požadavky.
+              </div>
+              <button
+                v-for="item in popoverItems"
+                :key="item.id"
+                class="day-popover-item"
+                @click.stop="goToRequest(item.id)"
+              >
+                <span class="dpi-title">{{ item.title }}</span>
+                <span class="dpi-status">{{ item.status }}</span>
+              </button>
+            </div>
           </div>
         </template>
       </div>
@@ -388,6 +461,65 @@ function goToday() {
 }
 .done-icon    { color: var(--color-success); }
 .ongoing-icon { color: var(--color-warning); }
+
+/* Request badge */
+.day-cell { cursor: pointer; }
+.day-request-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 5px;
+  border-radius: 10px;
+  background: var(--color-primary);
+  color: var(--color-white);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+.day-has-requests { box-shadow: inset 0 0 0 1.5px var(--color-primary); }
+
+.day-popover {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  z-index: 20;
+  min-width: 220px;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  text-align: left;
+}
+.day-popover-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-gray-500);
+  text-transform: uppercase;
+  background: var(--color-gray-50);
+  border-bottom: 1px solid var(--color-gray-200);
+}
+.day-popover-item {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--color-white);
+  border: none;
+  border-bottom: 1px solid var(--color-gray-100);
+  cursor: pointer;
+  text-align: left;
+}
+.day-popover-item:last-child { border-bottom: none; }
+.day-popover-item:hover { background: var(--color-gray-50); }
+.dpi-title { font-size: 13px; color: var(--color-primary); font-weight: 500; }
+.dpi-status { font-size: 11px; color: var(--color-gray-500); margin-top: 2px; }
 
 /* Small dot indicating a note exists */
 .day-note-dot {

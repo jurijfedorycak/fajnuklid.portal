@@ -33,19 +33,25 @@ class MaintenanceRequestServiceTest extends TestCase
         return array_merge([
             'id' => 1,
             'client_id' => 5,
-            'company_id' => null,
+            'company_id' => 7,
             'created_by_user_id' => 10,
             'title' => 'Broken AC',
-            'category' => 'klima',
-            'location_type' => 'office',
-            'location_value' => 'Sherlock',
+            'category' => 'reklamace',
             'description' => 'It does not cool',
             'status' => 'prijato',
             'due_date' => null,
             'created_at' => '2026-04-01 09:00:00',
             'updated_at' => '2026-04-01 09:00:00',
             'created_by_email' => 'user@example.com',
+            'company_name' => 'Acme',
+            'company_ico' => '12345678',
         ], $overrides);
+    }
+
+    private function stubAttachmentsAndActivity(): void
+    {
+        $this->repoMock->method('findActivity')->willReturn([]);
+        $this->repoMock->method('findAttachments')->willReturn([]);
     }
 
     // resolveClientIdForUser
@@ -70,6 +76,7 @@ class MaintenanceRequestServiceTest extends TestCase
 
     public function testListForClientFormatsRows(): void
     {
+        $this->stubAttachmentsAndActivity();
         $this->repoMock->method('findByClientId')->willReturn([
             $this->makeRow(['id' => 1]),
             $this->makeRow(['id' => 2, 'status' => 'resi_se']),
@@ -90,6 +97,7 @@ class MaintenanceRequestServiceTest extends TestCase
     public function testGetForClientReturnsRequestWithActivity(): void
     {
         $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow());
+        $this->repoMock->method('findAttachments')->willReturn([]);
         $this->repoMock->method('findActivity')->willReturn([
             ['id' => 1, 'author_type' => 'system', 'author_name' => 'Systém', 'message' => 'Created', 'status_change' => 'prijato', 'created_at' => '2026-04-01 09:00:00'],
         ]);
@@ -115,13 +123,25 @@ class MaintenanceRequestServiceTest extends TestCase
     {
         try {
             $this->service->create(5, 10, [
-                'category' => 'klima',
-                'locationType' => 'office',
-                'locationValue' => 'Sherlock',
-            ]);
+                'description' => 'desc',
+                'companyId' => 7,
+            ], false);
             $this->fail('Expected ValidationException');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('title', $e->getErrors());
+        }
+    }
+
+    public function testCreateThrowsValidationWhenDescriptionMissing(): void
+    {
+        try {
+            $this->service->create(5, 10, [
+                'title' => 'Broken AC',
+                'companyId' => 7,
+            ], false);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('description', $e->getErrors());
         }
     }
 
@@ -130,27 +150,26 @@ class MaintenanceRequestServiceTest extends TestCase
         try {
             $this->service->create(5, 10, [
                 'title' => 'Broken AC',
+                'description' => 'desc',
                 'category' => 'nonexistent',
-                'locationType' => 'office',
-                'locationValue' => 'Sherlock',
-            ]);
+                'companyId' => 7,
+            ], false);
             $this->fail('Expected ValidationException');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('category', $e->getErrors());
         }
     }
 
-    public function testCreateThrowsValidationWhenLocationValueMissing(): void
+    public function testCreateThrowsValidationWhenCompanyIdMissing(): void
     {
         try {
             $this->service->create(5, 10, [
                 'title' => 'Broken AC',
-                'category' => 'klima',
-                'locationType' => 'office',
-            ]);
+                'description' => 'desc',
+            ], false);
             $this->fail('Expected ValidationException');
         } catch (ValidationException $e) {
-            $this->assertArrayHasKey('locationValue', $e->getErrors());
+            $this->assertArrayHasKey('companyId', $e->getErrors());
         }
     }
 
@@ -163,11 +182,10 @@ class MaintenanceRequestServiceTest extends TestCase
         try {
             $this->service->create(5, 10, [
                 'title' => 'Broken AC',
-                'category' => 'klima',
-                'locationType' => 'office',
-                'locationValue' => 'Sherlock',
+                'description' => 'desc',
+                'category' => 'reklamace',
                 'companyId' => 99,
-            ]);
+            ], false);
             $this->fail('Expected ValidationException');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('companyId', $e->getErrors());
@@ -176,6 +194,10 @@ class MaintenanceRequestServiceTest extends TestCase
 
     public function testCreateInsertsAndAddsActivity(): void
     {
+        $this->companyRepoMock->method('findById')->willReturn([
+            'id' => 7, 'client_id' => 5, 'name' => 'Acme', 'registration_number' => '12345678',
+        ]);
+
         $this->repoMock->expects($this->once())
             ->method('create')
             ->willReturn(42);
@@ -185,17 +207,70 @@ class MaintenanceRequestServiceTest extends TestCase
             ->with($this->callback(fn ($d) => $d['request_id'] === 42 && $d['author_type'] === 'system'));
 
         $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['id' => 42]));
-        $this->repoMock->method('findActivity')->willReturn([]);
+        $this->stubAttachmentsAndActivity();
 
         $result = $this->service->create(5, 10, [
             'title' => 'Broken AC',
-            'category' => 'klima',
-            'locationType' => 'office',
-            'locationValue' => 'Sherlock',
+            'category' => 'reklamace',
             'description' => 'It does not cool',
-        ]);
+            'companyId' => 7,
+        ], false);
 
         $this->assertSame(42, $result['id']);
+    }
+
+    // clientReject
+
+    public function testClientRejectThrowsWhenStatusNotAwaiting(): void
+    {
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'resi_se']));
+
+        $this->expectException(ValidationException::class);
+        $this->service->clientReject(1, 5, 10, 'Klient', 'protože');
+    }
+
+    public function testClientRejectRequiresComment(): void
+    {
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'ceka_na_potvrzeni']));
+
+        try {
+            $this->service->clientReject(1, 5, 10, 'Klient', '');
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('comment', $e->getErrors());
+        }
+    }
+
+    public function testClientRejectRevertsToResiSe(): void
+    {
+        $this->repoMock->method('findByIdForClient')->willReturnOnConsecutiveCalls(
+            $this->makeRow(['status' => 'ceka_na_potvrzeni']),
+            $this->makeRow(['status' => 'resi_se'])
+        );
+        $this->repoMock->expects($this->once())->method('updateStatus')->with(1, 'resi_se');
+        $this->repoMock->expects($this->once())->method('addActivity');
+        $this->stubAttachmentsAndActivity();
+
+        $result = $this->service->clientReject(1, 5, 10, 'Klient', 'Stále neteče voda');
+        $this->assertSame('resi_se', $result['status']);
+    }
+
+    // clientCancel
+
+    public function testClientCancelThrowsWhenNotInPrijato(): void
+    {
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'resi_se']));
+        $this->expectException(ValidationException::class);
+        $this->service->clientCancel(1, 5, 10, 'Klient');
+    }
+
+    public function testClientCancelSoftDeletes(): void
+    {
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'prijato']));
+        $this->repoMock->expects($this->once())->method('addActivity');
+        $this->repoMock->expects($this->once())->method('softDelete')->with(1);
+
+        $this->service->clientCancel(1, 5, 10, 'Klient');
     }
 
     // clientConfirm
@@ -228,7 +303,7 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->repoMock->expects($this->once())
             ->method('addActivity')
             ->with($this->callback(fn ($d) => $d['author_type'] === 'client' && $d['status_change'] === 'vyreseno'));
-        $this->repoMock->method('findActivity')->willReturn([]);
+        $this->stubAttachmentsAndActivity();
 
         $result = $this->service->clientConfirm(1, 5, 10, 'user@example.com');
 
@@ -265,7 +340,7 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->repoMock->expects($this->once())
             ->method('addActivity')
             ->with($this->callback(fn ($d) => $d['author_type'] === 'admin' && $d['status_change'] === 'resi_se'));
-        $this->repoMock->method('findActivity')->willReturn([]);
+        $this->stubAttachmentsAndActivity();
 
         $result = $this->service->adminUpdate(1, 1, 'admin@example.com', ['status' => 'resi_se']);
 
@@ -277,7 +352,7 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->repoMock->method('findById')->willReturn($this->makeRow(['status' => 'prijato']));
         $this->repoMock->expects($this->once())->method('update');
         $this->repoMock->expects($this->never())->method('addActivity');
-        $this->repoMock->method('findActivity')->willReturn([]);
+        $this->stubAttachmentsAndActivity();
 
         $this->service->adminUpdate(1, 1, 'admin@example.com', ['status' => 'prijato', 'dueDate' => '2026-05-01']);
     }
@@ -306,7 +381,7 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->repoMock->expects($this->once())
             ->method('addActivity')
             ->with($this->callback(fn ($d) => $d['author_type'] === 'admin' && $d['message'] === 'Hello' && $d['is_internal'] === false));
-        $this->repoMock->method('findActivity')->willReturn([]);
+        $this->stubAttachmentsAndActivity();
 
         $this->service->adminAddActivity(1, 1, 'admin@example.com', 'Hello');
     }
@@ -317,7 +392,7 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->repoMock->expects($this->once())
             ->method('addActivity')
             ->with($this->callback(fn ($d) => $d['is_internal'] === true));
-        $this->repoMock->method('findActivity')->willReturn([]);
+        $this->stubAttachmentsAndActivity();
 
         $this->service->adminAddActivity(1, 1, 'admin@example.com', 'Internal note', true);
     }
@@ -325,6 +400,7 @@ class MaintenanceRequestServiceTest extends TestCase
     public function testGetForClientFiltersInternalActivity(): void
     {
         $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow());
+        $this->repoMock->method('findAttachments')->willReturn([]);
         $this->repoMock->expects($this->once())
             ->method('findActivity')
             ->with(1, false)
@@ -336,6 +412,7 @@ class MaintenanceRequestServiceTest extends TestCase
     public function testGetForAdminIncludesInternalActivity(): void
     {
         $this->repoMock->method('findById')->willReturn($this->makeRow());
+        $this->repoMock->method('findAttachments')->willReturn([]);
         $this->repoMock->expects($this->once())
             ->method('findActivity')
             ->with(1, true)

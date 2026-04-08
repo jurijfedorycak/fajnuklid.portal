@@ -39,7 +39,7 @@ class MaintenanceRequestRepositoryTest extends DatabaseTestCase
         ];
         $this->setupFetchAllMock($expected);
 
-        $result = $this->repository->findByClientId(5, 'resi_se');
+        $result = $this->repository->findByClientId(5, ['resi_se']);
 
         $this->assertEquals($expected, $result);
     }

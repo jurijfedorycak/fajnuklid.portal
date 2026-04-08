@@ -12,36 +12,53 @@ use App\Repositories\MaintenanceRequestRepository;
 class MaintenanceRequestService
 {
     public const STATUSES = ['prijato', 'resi_se', 'ceka_na_potvrzeni', 'vyreseno', 'zablokovano'];
-    public const CATEGORIES = ['elektro', 'voda', 'klima', 'uklid', 'pristupy', 'jine'];
+    public const OPEN_STATUSES = ['prijato', 'resi_se', 'ceka_na_potvrzeni'];
+    public const CATEGORIES = ['reklamace', 'mimoradna_prace', 'jine'];
     public const LOCATION_TYPES = ['office', 'common', 'custom'];
+
+    public const ATTACHMENT_MAX_PER_REQUEST = 5;
+    public const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+    public const ATTACHMENT_ALLOWED_MIMES = [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/heic',
+        'image/heif',
+        'application/pdf',
+    ];
 
     private MaintenanceRequestRepository $repo;
     private CompanyRepository $companyRepo;
+    private ?MailerService $mailer;
 
     public function __construct(
         ?MaintenanceRequestRepository $repo = null,
-        ?CompanyRepository $companyRepo = null
+        ?CompanyRepository $companyRepo = null,
+        ?MailerService $mailer = null
     ) {
         $this->repo = $repo ?? new MaintenanceRequestRepository();
         $this->companyRepo = $companyRepo ?? new CompanyRepository();
+        $this->mailer = $mailer;
     }
 
-    /**
-     * Resolve the client_id for a given user. Returns null if user has no company.
-     */
     public function resolveClientIdForUser(int $userId): ?int
     {
         $companies = $this->companyRepo->findByUserId($userId);
         if (empty($companies)) {
             return null;
         }
-
         return (int) $companies[0]['client_id'];
     }
 
-    public function listForClient(int $clientId, ?string $status = null): array
+    public function listForClient(int $clientId, ?string $status = null, ?int $limit = null): array
     {
-        $rows = $this->repo->findByClientId($clientId, $status);
+        $statuses = null;
+        if ($status === 'open') {
+            $statuses = self::OPEN_STATUSES;
+        } elseif ($status !== null && $status !== '') {
+            $statuses = [$status];
+        }
+        $rows = $this->repo->findByClientId($clientId, $statuses, $limit);
         return array_map([$this, 'formatRow'], $rows);
     }
 
@@ -51,30 +68,23 @@ class MaintenanceRequestService
         if ($row === null) {
             throw new NotFoundException('Žádost nebyla nalezena');
         }
-
-        $request = $this->formatRow($row);
-        $request['activity'] = $this->formatActivity($this->repo->findActivity($id, false));
-
-        return $request;
+        return $this->buildRequestPayload($row, false);
     }
 
-    public function create(int $clientId, int $userId, array $input): array
+    public function create(int $clientId, int $userId, array $input, bool $sendNotifications = true): array
     {
         $errors = $this->validateCreatePayload($input);
         if (!empty($errors)) {
             throw new ValidationException('Validace selhala', $errors);
         }
 
-        // company_id, if provided, must belong to the same client
-        $companyId = null;
-        if (!empty($input['companyId'])) {
-            $company = $this->companyRepo->findById((int) $input['companyId']);
-            if ($company === null || (int) $company['client_id'] !== $clientId) {
-                throw new ValidationException('Validace selhala', [
-                    'companyId' => ['Vybraná pobočka nepatří k vašemu účtu.'],
-                ]);
-            }
-            $companyId = (int) $company['id'];
+        // companyId required and must belong to this client
+        $companyId = (int) $input['companyId'];
+        $company = $this->companyRepo->findById($companyId);
+        if ($company === null || (int) $company['client_id'] !== $clientId) {
+            throw new ValidationException('Validace selhala', [
+                'companyId' => ['Vybraná protistrana nepatří k vašemu účtu.'],
+            ]);
         }
 
         $newId = $this->repo->create([
@@ -82,9 +92,9 @@ class MaintenanceRequestService
             'company_id' => $companyId,
             'created_by_user_id' => $userId,
             'title' => trim((string) $input['title']),
-            'category' => $input['category'],
-            'location_type' => $input['locationType'],
-            'location_value' => isset($input['locationValue']) ? trim((string) $input['locationValue']) : null,
+            'category' => !empty($input['category']) ? $input['category'] : null,
+            'location_type' => null,
+            'location_value' => null,
             'description' => isset($input['description']) ? trim((string) $input['description']) : null,
             'status' => 'prijato',
         ]);
@@ -94,26 +104,28 @@ class MaintenanceRequestService
             'user_id' => $userId,
             'author_type' => 'system',
             'author_name' => 'Systém',
-            'message' => 'Žádost byla vytvořena.',
+            'message' => 'Požadavek byl vytvořen.',
             'status_change' => 'prijato',
         ]);
 
-        return $this->getForClient($newId, $clientId);
+        $payload = $this->getForClient($newId, $clientId);
+
+        if ($sendNotifications) {
+            $this->sendCreateNotifications($payload, $userId, $company);
+        }
+
+        return $payload;
     }
 
-    /**
-     * Client confirms that a request is resolved.
-     * Only allowed when status = ceka_na_potvrzeni.
-     */
     public function clientConfirm(int $id, int $clientId, int $userId, string $userName): array
     {
         $row = $this->repo->findByIdForClient($id, $clientId);
         if ($row === null) {
-            throw new NotFoundException('Žádost nebyla nalezena');
+            throw new NotFoundException('Požadavek nebyl nalezen');
         }
         if ($row['status'] !== 'ceka_na_potvrzeni') {
-            throw new ValidationException('Žádost nelze potvrdit v tomto stavu', [
-                'status' => ['Potvrdit lze pouze žádost ve stavu „Čeká na vaše potvrzení".'],
+            throw new ValidationException('Požadavek nelze potvrdit v tomto stavu', [
+                'status' => ['Potvrdit lze pouze požadavek ve stavu „Vyřešeno – čeká na potvrzení".'],
             ]);
         }
 
@@ -123,16 +135,161 @@ class MaintenanceRequestService
             'user_id' => $userId,
             'author_type' => 'client',
             'author_name' => $userName,
-            'message' => 'Klient potvrdil vyřešení žádosti.',
+            'message' => 'Klient potvrdil vyřešení požadavku.',
             'status_change' => 'vyreseno',
         ]);
 
         return $this->getForClient($id, $clientId);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Admin
-    // ─────────────────────────────────────────────────────────────────────────
+    public function clientReject(int $id, int $clientId, int $userId, string $userName, string $comment): array
+    {
+        $row = $this->repo->findByIdForClient($id, $clientId);
+        if ($row === null) {
+            throw new NotFoundException('Požadavek nebyl nalezen');
+        }
+        if ($row['status'] !== 'ceka_na_potvrzeni') {
+            throw new ValidationException('Požadavek nelze odmítnout v tomto stavu', [
+                'status' => ['Odmítnout lze pouze požadavek čekající na potvrzení.'],
+            ]);
+        }
+        $comment = trim($comment);
+        if (mb_strlen($comment) < 3) {
+            throw new ValidationException('Validace selhala', [
+                'comment' => ['Uveďte prosím důvod (alespoň 3 znaky).'],
+            ]);
+        }
+
+        $this->repo->updateStatus($id, 'resi_se');
+        $this->repo->addActivity([
+            'request_id' => $id,
+            'user_id' => $userId,
+            'author_type' => 'client',
+            'author_name' => $userName,
+            'message' => $comment,
+            'status_change' => 'resi_se',
+        ]);
+
+        return $this->getForClient($id, $clientId);
+    }
+
+    public function clientCancel(int $id, int $clientId, int $userId, string $userName): void
+    {
+        $row = $this->repo->findByIdForClient($id, $clientId);
+        if ($row === null) {
+            throw new NotFoundException('Požadavek nebyl nalezen');
+        }
+        if ($row['status'] !== 'prijato') {
+            throw new ValidationException('Požadavek nelze zrušit v tomto stavu', [
+                'status' => ['Zrušit lze pouze požadavek ve stavu „Nový".'],
+            ]);
+        }
+
+        $this->repo->addActivity([
+            'request_id' => $id,
+            'user_id' => $userId,
+            'author_type' => 'client',
+            'author_name' => $userName,
+            'message' => 'Klient zrušil požadavek.',
+            'status_change' => 'cancelled',
+        ]);
+        $this->repo->softDelete($id);
+    }
+
+    public function calendarForClient(int $clientId, int $year, int $month): array
+    {
+        if ($month < 1 || $month > 12) {
+            throw new ValidationException('Validace selhala', [
+                'month' => ['Měsíc musí být v rozmezí 1–12.'],
+            ]);
+        }
+        return $this->repo->countByDayForClient($clientId, $year, $month);
+    }
+
+    // ─────────── Attachments ───────────
+
+    public function addClientAttachment(int $requestId, int $clientId, int $userId, array $file): array
+    {
+        $row = $this->repo->findByIdForClient($requestId, $clientId);
+        if ($row === null) {
+            throw new NotFoundException('Požadavek nebyl nalezen');
+        }
+        return $this->storeAttachment($requestId, $userId, $file, 'before');
+    }
+
+    public function addAdminAttachment(int $requestId, int $userId, array $file, string $phase = 'after'): array
+    {
+        $row = $this->repo->findById($requestId);
+        if ($row === null) {
+            throw new NotFoundException('Požadavek nebyl nalezen');
+        }
+        return $this->storeAttachment($requestId, $userId, $file, $phase);
+    }
+
+    private function storeAttachment(int $requestId, int $userId, array $file, string $phase): array
+    {
+        if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
+            throw new ValidationException('Soubor se nepodařilo nahrát.');
+        }
+        if ((int) $file['size'] > self::ATTACHMENT_MAX_BYTES) {
+            throw new ValidationException('Soubor je příliš velký. Maximum je 10 MB.');
+        }
+
+        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+        $mime = $finfo->file($file['tmp_name']) ?: '';
+        if (!in_array($mime, self::ATTACHMENT_ALLOWED_MIMES, true)) {
+            throw new ValidationException('Nepodporovaný typ souboru. Povoleno: obrázky a PDF.');
+        }
+
+        $existingCount = $this->repo->countAttachments($requestId, $phase);
+        if ($existingCount >= self::ATTACHMENT_MAX_PER_REQUEST) {
+            throw new ValidationException('Maximální počet příloh (5) byl dosažen.');
+        }
+
+        $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+        $safeBase = preg_replace('/[^a-zA-Z0-9_-]/', '', pathinfo($file['name'], PATHINFO_FILENAME)) ?: 'soubor';
+        $uniqueName = $safeBase . '_' . uniqid() . ($extension ? '.' . $extension : '');
+
+        $folder = 'maintenance-request-attachments';
+        $uploadDir = dirname(__DIR__) . '/uploads/' . $folder;
+        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
+            throw new ValidationException('Nepodařilo se připravit úložiště.');
+        }
+
+        $targetPath = $uploadDir . '/' . $uniqueName;
+        if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
+            throw new ValidationException('Nepodařilo se uložit soubor.');
+        }
+
+        $relativePath = '/uploads/' . $folder . '/' . $uniqueName;
+
+        $id = $this->repo->addAttachment([
+            'request_id' => $requestId,
+            'phase' => $phase,
+            'file_path' => $relativePath,
+            'original_filename' => $file['name'],
+            'mime_type' => $mime,
+            'size_bytes' => (int) $file['size'],
+            'uploaded_by_user_id' => $userId,
+        ]);
+
+        return [
+            'id' => $id,
+            'phase' => $phase,
+            'url' => $this->attachmentUrl($relativePath),
+            'filename' => $file['name'],
+            'mimeType' => $mime,
+            'sizeBytes' => (int) $file['size'],
+        ];
+    }
+
+    private function attachmentUrl(string $relativePath): string
+    {
+        $base = rtrim(getenv('APP_URL') ?: '', '/');
+        return $base . $relativePath;
+    }
+
+    // ─────────── Admin ───────────
 
     public function listForAdmin(?int $clientId = null, ?string $status = null): array
     {
@@ -144,18 +301,16 @@ class MaintenanceRequestService
     {
         $row = $this->repo->findById($id);
         if ($row === null) {
-            throw new NotFoundException('Žádost nebyla nalezena');
+            throw new NotFoundException('Požadavek nebyl nalezen');
         }
-        $request = $this->formatRow($row);
-        $request['activity'] = $this->formatActivity($this->repo->findActivity($id, true));
-        return $request;
+        return $this->buildRequestPayload($row, true);
     }
 
     public function adminUpdate(int $id, int $adminUserId, string $adminName, array $input): array
     {
         $existing = $this->repo->findById($id);
         if ($existing === null) {
-            throw new NotFoundException('Žádost nebyla nalezena');
+            throw new NotFoundException('Požadavek nebyl nalezen');
         }
 
         $update = [];
@@ -211,7 +366,7 @@ class MaintenanceRequestService
     {
         $existing = $this->repo->findById($id);
         if ($existing === null) {
-            throw new NotFoundException('Žádost nebyla nalezena');
+            throw new NotFoundException('Požadavek nebyl nalezen');
         }
 
         $message = trim($message);
@@ -237,14 +392,35 @@ class MaintenanceRequestService
     {
         $existing = $this->repo->findById($id);
         if ($existing === null) {
-            throw new NotFoundException('Žádost nebyla nalezena');
+            throw new NotFoundException('Požadavek nebyl nalezen');
         }
         $this->repo->softDelete($id);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Internal helpers
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────── Helpers ───────────
+
+    private function buildRequestPayload(array $row, bool $includeInternal): array
+    {
+        $request = $this->formatRow($row);
+        $request['activity'] = $this->formatActivity($this->repo->findActivity((int) $row['id'], $includeInternal));
+        $attachments = $this->repo->findAttachments((int) $row['id']);
+        $request['attachments'] = [
+            'before' => [],
+            'after' => [],
+        ];
+        foreach ($attachments as $a) {
+            $entry = [
+                'id' => (int) $a['id'],
+                'url' => $this->attachmentUrl($a['file_path']),
+                'filename' => $a['original_filename'],
+                'mimeType' => $a['mime_type'],
+                'sizeBytes' => (int) $a['size_bytes'],
+                'createdAt' => $a['created_at'],
+            ];
+            $request['attachments'][$a['phase']][] = $entry;
+        }
+        return $request;
+    }
 
     private function validateCreatePayload(array $input): array
     {
@@ -252,28 +428,24 @@ class MaintenanceRequestService
 
         $title = isset($input['title']) ? trim((string) $input['title']) : '';
         if ($title === '') {
-            $errors['title'] = ['Název problému je povinný.'];
+            $errors['title'] = ['Název je povinný.'];
         } elseif (mb_strlen($title) > 255) {
-            $errors['title'] = ['Název problému nesmí být delší než 255 znaků.'];
+            $errors['title'] = ['Název nesmí být delší než 255 znaků.'];
         }
 
-        if (empty($input['category']) || !in_array($input['category'], self::CATEGORIES, true)) {
+        $description = isset($input['description']) ? trim((string) $input['description']) : '';
+        if ($description === '') {
+            $errors['description'] = ['Podrobný popis je povinný.'];
+        } elseif (mb_strlen($description) > 5000) {
+            $errors['description'] = ['Popis nesmí být delší než 5000 znaků.'];
+        }
+
+        if (!empty($input['category']) && !in_array($input['category'], self::CATEGORIES, true)) {
             $errors['category'] = ['Vyberte platnou kategorii.'];
         }
 
-        if (empty($input['locationType']) || !in_array($input['locationType'], self::LOCATION_TYPES, true)) {
-            $errors['locationType'] = ['Vyberte platný typ místa.'];
-        }
-
-        $locationValue = isset($input['locationValue']) ? trim((string) $input['locationValue']) : '';
-        if ($locationValue === '') {
-            $errors['locationValue'] = ['Místo je povinné.'];
-        } elseif (mb_strlen($locationValue) > 255) {
-            $errors['locationValue'] = ['Místo nesmí být delší než 255 znaků.'];
-        }
-
-        if (isset($input['description']) && mb_strlen((string) $input['description']) > 5000) {
-            $errors['description'] = ['Popis nesmí být delší než 5000 znaků.'];
+        if (empty($input['companyId']) || !is_numeric($input['companyId'])) {
+            $errors['companyId'] = ['Vyberte protistranu.'];
         }
 
         return $errors;
@@ -285,10 +457,10 @@ class MaintenanceRequestService
             'id' => (int) $row['id'],
             'clientId' => (int) $row['client_id'],
             'companyId' => isset($row['company_id']) ? (int) $row['company_id'] : null,
+            'companyName' => $row['company_name'] ?? null,
+            'companyIco' => $row['company_ico'] ?? null,
             'title' => $row['title'],
             'category' => $row['category'],
-            'locationType' => $row['location_type'] ?? null,
-            'locationValue' => $row['location_value'] ?? null,
             'description' => $row['description'] ?? null,
             'status' => $row['status'],
             'dueDate' => $row['due_date'] ?? null,
@@ -312,5 +484,54 @@ class MaintenanceRequestService
                 'createdAt' => $r['created_at'],
             ];
         }, $rows);
+    }
+
+    private function sendCreateNotifications(array $payload, int $userId, array $company): void
+    {
+        try {
+            $mailer = $this->mailer ?? new MailerService();
+        } catch (\Throwable $e) {
+            error_log('MailerService init failed: ' . $e->getMessage());
+            return;
+        }
+
+        $categoryLabels = [
+            'reklamace' => 'Reklamace',
+            'mimoradna_prace' => 'Mimořádná práce',
+            'jine' => 'Jiné',
+        ];
+        $categoryLabel = $payload['category'] ? ($categoryLabels[$payload['category']] ?? $payload['category']) : '—';
+        $createdAt = (new \DateTime($payload['createdAt']))->format('d.m.Y H:i');
+
+        $clientEmail = $payload['createdBy'] ?? null;
+        $title = htmlspecialchars($payload['title'], ENT_QUOTES, 'UTF-8');
+        $description = nl2br(htmlspecialchars($payload['description'] ?? '', ENT_QUOTES, 'UTF-8'));
+        $companyName = htmlspecialchars((string) ($company['name'] ?? ''), ENT_QUOTES, 'UTF-8');
+        $companyIco = htmlspecialchars((string) ($company['registration_number'] ?? ''), ENT_QUOTES, 'UTF-8');
+
+        $clientHtml = "<p>Děkujeme, Váš požadavek jsme přijali. Co nejdříve se Vám ozveme.</p>"
+            . "<h3>{$title}</h3>"
+            . "<p><strong>Kategorie:</strong> {$categoryLabel}<br>"
+            . "<strong>Vytvořeno:</strong> {$createdAt}<br>"
+            . "<strong>Protistrana:</strong> {$companyName} ({$companyIco})</p>"
+            . "<p>{$description}</p>";
+
+        $internalHtml = "<p>Nový požadavek od klienta.</p>"
+            . "<h3>{$title}</h3>"
+            . "<p><strong>Kategorie:</strong> {$categoryLabel}<br>"
+            . "<strong>Vytvořeno:</strong> {$createdAt}<br>"
+            . "<strong>Protistrana:</strong> {$companyName} ({$companyIco})<br>"
+            . "<strong>Autor:</strong> " . htmlspecialchars((string) $clientEmail, ENT_QUOTES, 'UTF-8') . "</p>"
+            . "<p>{$description}</p>";
+
+        try {
+            if ($clientEmail) {
+                $mailer->send($clientEmail, 'Přijali jsme Váš požadavek', $clientHtml);
+            }
+            $mailer->send('jurij.fedorycak@fajnuklid.cz', 'Nový požadavek: ' . $payload['title'], $internalHtml);
+            $mailer->send('vaseuklidovka@fajnuklid.cz', 'Nový požadavek: ' . $payload['title'], $internalHtml);
+        } catch (\Throwable $e) {
+            error_log('Maintenance request notification failed: ' . $e->getMessage());
+        }
     }
 }

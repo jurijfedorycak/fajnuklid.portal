@@ -8,43 +8,42 @@ use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
 use App\Exceptions\AuthException;
-use App\Repositories\LocationRepository;
+use App\Repositories\CompanyRepository;
 use App\Services\MaintenanceRequestService;
 
 class MaintenanceRequestController extends Controller
 {
     private MaintenanceRequestService $service;
-    private LocationRepository $locationRepo;
+    private CompanyRepository $companyRepo;
 
     public function __construct()
     {
         $this->service = new MaintenanceRequestService();
-        $this->locationRepo = new LocationRepository();
+        $this->companyRepo = new CompanyRepository();
     }
 
     /**
      * GET /maintenance-requests/form-options
-     * Returns options needed to render the new-request form: user's offices.
+     * Returns the user's protistrany (companies/IČO) used to bind a new request.
      */
     public function formOptions(Request $request): void
     {
         $userId = (int) $request->getUserId();
-        $locations = $this->locationRepo->findByUserId($userId);
+        $companies = $this->companyRepo->findByUserId($userId);
 
-        $offices = array_map(function ($l) {
+        $list = array_map(function ($c) {
             return [
-                'id' => (int) $l['id'],
-                'companyId' => (int) $l['company_id'],
-                'name' => $l['name'],
-                'companyName' => $l['company_name'] ?? null,
+                'id' => (int) $c['id'],
+                'ico' => $c['registration_number'] ?? null,
+                'name' => $c['name'] ?? null,
             ];
-        }, $locations);
+        }, $companies);
 
-        Response::success(['offices' => $offices]);
+        Response::success(['companies' => $list]);
     }
 
     /**
-     * GET /maintenance-requests?status=
+     * GET /maintenance-requests?status=&limit=
      */
     public function index(Request $request): void
     {
@@ -53,10 +52,25 @@ class MaintenanceRequestController extends Controller
         if ($status === 'all') {
             $status = null;
         }
+        $limit = $request->query('limit');
+        $limitInt = ($limit !== null && $limit !== '') ? (int) $limit : null;
 
-        $requests = $this->service->listForClient($clientId, $status);
+        $requests = $this->service->listForClient($clientId, $status, $limitInt);
 
         Response::success($requests);
+    }
+
+    /**
+     * GET /maintenance-requests/calendar?year=&month=
+     */
+    public function calendar(Request $request): void
+    {
+        $clientId = $this->resolveClientId($request);
+        $year = (int) ($request->query('year') ?: date('Y'));
+        $month = (int) ($request->query('month') ?: date('n'));
+
+        $data = $this->service->calendarForClient($clientId, $year, $month);
+        Response::success($data);
     }
 
     /**
@@ -81,7 +95,7 @@ class MaintenanceRequestController extends Controller
 
         $data = $this->service->create($clientId, $userId, $request->getBody());
 
-        Response::created($data, 'Žádost byla vytvořena');
+        Response::created($data, 'Požadavek byl vytvořen');
     }
 
     /**
@@ -91,11 +105,59 @@ class MaintenanceRequestController extends Controller
     {
         $clientId = $this->resolveClientId($request);
         $userId = (int) $request->getUserId();
-        $userName = 'Klient';
+        $userName = $this->resolveUserDisplayName($userId);
         $id = (int) $request->param('id');
 
         $data = $this->service->clientConfirm($id, $clientId, $userId, $userName);
-        Response::success($data, 'Žádost byla potvrzena');
+        Response::success($data, 'Požadavek byl potvrzen');
+    }
+
+    /**
+     * POST /maintenance-requests/{id}/reject
+     */
+    public function reject(Request $request): void
+    {
+        $clientId = $this->resolveClientId($request);
+        $userId = (int) $request->getUserId();
+        $userName = $this->resolveUserDisplayName($userId);
+        $id = (int) $request->param('id');
+        $body = $request->getBody();
+        $comment = (string) ($body['comment'] ?? '');
+
+        $data = $this->service->clientReject($id, $clientId, $userId, $userName, $comment);
+        Response::success($data, 'Požadavek byl vrácen k řešení');
+    }
+
+    /**
+     * POST /maintenance-requests/{id}/cancel
+     */
+    public function cancel(Request $request): void
+    {
+        $clientId = $this->resolveClientId($request);
+        $userId = (int) $request->getUserId();
+        $userName = $this->resolveUserDisplayName($userId);
+        $id = (int) $request->param('id');
+
+        $this->service->clientCancel($id, $clientId, $userId, $userName);
+        Response::success(['id' => $id], 'Požadavek byl zrušen');
+    }
+
+    /**
+     * POST /maintenance-requests/{id}/attachments
+     */
+    public function uploadAttachment(Request $request): void
+    {
+        $clientId = $this->resolveClientId($request);
+        $userId = (int) $request->getUserId();
+        $id = (int) $request->param('id');
+
+        if (!isset($_FILES['file'])) {
+            Response::error('Soubor nebyl nahrán', 422);
+            return;
+        }
+
+        $data = $this->service->addClientAttachment($id, $clientId, $userId, $_FILES['file']);
+        Response::created($data, 'Příloha byla nahrána');
     }
 
     private function resolveClientId(Request $request): int
@@ -108,5 +170,19 @@ class MaintenanceRequestController extends Controller
         }
 
         return $clientId;
+    }
+
+    private function resolveUserDisplayName(int $userId): string
+    {
+        try {
+            $repo = new \App\Repositories\UserRepository();
+            $user = $repo->findById($userId);
+            if ($user) {
+                return $user['display_name'] ?? $user['email'] ?? 'Klient';
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+        return 'Klient';
     }
 }

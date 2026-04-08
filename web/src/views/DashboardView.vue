@@ -7,10 +7,42 @@ import {
 } from 'chart.js'
 import {
   Calendar, ChevronLeft, ChevronRight, ArrowRight,
-  CheckCircle2, Loader2, Clock, Check,
+  CheckCircle2, Loader2, Clock, Check, ClipboardList, Plus,
 } from 'lucide-vue-next'
-import { dashboardService } from '../api'
+import { useRouter } from 'vue-router'
+import { dashboardService, maintenanceRequestService, REQUEST_STATUSES } from '../api'
 import { useAuth } from '../stores/auth'
+
+const dashRouter = useRouter()
+
+// ── Maintenance request widget ──────────────────────────────────────────────
+const requestsWidgetLoading = ref(true)
+const latestOpenRequest = ref(null)
+
+async function fetchLatestOpenRequest() {
+  requestsWidgetLoading.value = true
+  try {
+    const res = await maintenanceRequestService.list({ status: 'open', limit: 1 })
+    if (res.success && Array.isArray(res.data) && res.data.length) {
+      latestOpenRequest.value = res.data[0]
+    } else {
+      latestOpenRequest.value = null
+    }
+  } catch (e) {
+    latestOpenRequest.value = null
+  } finally {
+    requestsWidgetLoading.value = false
+  }
+}
+
+function requestStatusMeta(key) {
+  return REQUEST_STATUSES.find(s => s.key === key) || { label: key, badge: 'badge-gray' }
+}
+
+function formatRequestDate(d) {
+  if (!d) return ''
+  return new Date(d).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' })
+}
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
@@ -95,6 +127,7 @@ async function fetchDashboard(initial = false) {
 let suppressWatch = false
 
 onMounted(() => fetchDashboard(true))
+onMounted(fetchLatestOpenRequest)
 
 watch([activeIco, () => range.value.from, () => range.value.to], () => {
   if (suppressWatch) {
@@ -325,6 +358,8 @@ function selectCompany(ico) {
   if (ico === activeIco.value) return
   activeIco.value = ico
 }
+
+onMounted(fetchLatestOpenRequest)
 </script>
 
 <template>
@@ -488,6 +523,49 @@ function selectCompany(ico) {
               <span v-else class="metric-link metric-link-missing">Smlouva zatím nenahrána</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- Požadavky a reklamace widget -->
+      <section id="dashboard-requests-card" class="card requests-widget" style="margin-bottom:24px;">
+        <div class="card-header-row">
+          <h3 id="dashboard-requests-title" class="card-title">
+            <ClipboardList :size="18" style="vertical-align:-3px; margin-right:6px; color:var(--color-mid);" />
+            Požadavky a reklamace
+          </h3>
+          <RouterLink v-if="latestOpenRequest" id="dashboard-requests-all-link" to="/zadosti" class="card-link">
+            Zobrazit všechny <ArrowRight :size="14" />
+          </RouterLink>
+        </div>
+
+        <div v-if="requestsWidgetLoading" class="requests-widget-loading">
+          <Loader2 :size="18" class="spin" />
+        </div>
+
+        <RouterLink
+          v-else-if="latestOpenRequest"
+          id="dashboard-requests-latest"
+          :to="`/zadosti/${latestOpenRequest.id}`"
+          class="requests-widget-row"
+        >
+          <div class="rwr-main">
+            <div class="rwr-title">{{ latestOpenRequest.title }}</div>
+            <div class="rwr-meta">{{ formatRequestDate(latestOpenRequest.createdAt) }}</div>
+          </div>
+          <span class="badge" :class="requestStatusMeta(latestOpenRequest.status).badge">
+            {{ requestStatusMeta(latestOpenRequest.status).label }}
+          </span>
+        </RouterLink>
+
+        <div v-else id="dashboard-requests-empty" class="requests-widget-empty">
+          Máte problém, dotaz nebo mimořádnou žádost? Vytvořte požadavek a my se vám co nejdříve ozveme s řešením.
+        </div>
+
+        <div class="requests-widget-actions">
+          <RouterLink id="dashboard-requests-create-btn" to="/zadosti/nova" class="btn btn-primary btn-sm">
+            <Plus :size="14" />
+            <span>Vytvořit požadavek</span>
+          </RouterLink>
         </div>
       </section>
 

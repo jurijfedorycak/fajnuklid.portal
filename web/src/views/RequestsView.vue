@@ -15,7 +15,7 @@ const filters = [{ key: 'all', label: 'Vše' }, ...REQUEST_STATUSES.map(s => ({ 
 async function load() {
   loading.value = true
   try {
-    const res = await maintenanceRequestService.list('all')
+    const res = await maintenanceRequestService.list({ status: 'all' })
     if (res.success) requests.value = res.data
     else error.value = res.message
   } catch (e) {
@@ -60,15 +60,15 @@ function openDetail(id) {
         <div id="requests-header-text">
           <h1 id="requests-title" class="page-title">
             <ClipboardList :size="22" style="vertical-align:-4px; margin-right:8px; color:var(--color-mid);" />
-            Žádosti o údržbu
+            Požadavky a reklamace
           </h1>
           <p id="requests-subtitle" class="page-subtitle">
-            Sledujte, co se děje, a mějte přehled o každé žádosti.
+            Sledujte, co se děje, a mějte přehled o každém požadavku.
           </p>
         </div>
         <button id="requests-new-btn" class="btn btn-primary" @click="router.push('/zadosti/nova')">
           <Plus :size="16" />
-          <span>Nová žádost</span>
+          <span>Vytvořit požadavek</span>
         </button>
       </div>
 

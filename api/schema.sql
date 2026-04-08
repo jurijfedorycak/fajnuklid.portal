@@ -319,8 +319,8 @@ CREATE TABLE `maintenance_requests` (
     `company_id` INT UNSIGNED NULL,
     `created_by_user_id` INT UNSIGNED NOT NULL,
     `title` VARCHAR(255) NOT NULL,
-    `category` ENUM('elektro','voda','klima','uklid','pristupy','jine') NOT NULL,
-    `location_type` ENUM('office','common','custom') NOT NULL,
+    `category` ENUM('reklamace','mimoradna_prace','jine') NULL,
+    `location_type` ENUM('office','common','custom') NULL,
     `location_value` VARCHAR(255) NULL,
     `description` TEXT NULL,
     `status` ENUM('prijato','resi_se','ceka_na_potvrzeni','vyreseno','zablokovano') NOT NULL DEFAULT 'prijato',
@@ -355,6 +355,26 @@ CREATE TABLE `maintenance_request_activity` (
     KEY `idx_request_id` (`request_id`),
     CONSTRAINT `fk_request_activity_request` FOREIGN KEY (`request_id`) REFERENCES `maintenance_requests` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_request_activity_user` FOREIGN KEY (`user_id`) REFERENCES `login_accounts` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------
+-- Table: maintenance_request_attachments
+-- ----------------------------
+DROP TABLE IF EXISTS `maintenance_request_attachments`;
+CREATE TABLE `maintenance_request_attachments` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `request_id` INT UNSIGNED NOT NULL,
+    `phase` ENUM('before','after') NOT NULL DEFAULT 'before',
+    `file_path` VARCHAR(500) NOT NULL,
+    `original_filename` VARCHAR(255) NOT NULL,
+    `mime_type` VARCHAR(100) NOT NULL,
+    `size_bytes` INT UNSIGNED NOT NULL,
+    `uploaded_by_user_id` INT UNSIGNED NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_request_id` (`request_id`),
+    CONSTRAINT `fk_request_attachment_request` FOREIGN KEY (`request_id`) REFERENCES `maintenance_requests` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_request_attachment_user` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `login_accounts` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

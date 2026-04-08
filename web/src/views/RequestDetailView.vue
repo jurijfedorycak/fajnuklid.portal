@@ -1,8 +1,11 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Calendar, User, Clock, MessageSquare, CheckCircle2, Loader2 } from 'lucide-vue-next'
-import { maintenanceRequestService, REQUEST_STATUSES } from '../api'
+import {
+  ArrowLeft, Calendar, User, Clock, MessageSquare,
+  CheckCircle2, XCircle, Loader2, Trash2, Building2, Paperclip, FileText, Image as ImageIcon
+} from 'lucide-vue-next'
+import { maintenanceRequestService, REQUEST_STATUSES, REQUEST_CATEGORIES } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -11,7 +14,12 @@ const loading = ref(true)
 const error = ref(null)
 const request = ref(null)
 const confirming = ref(false)
-const showFullDescription = ref(false)
+const rejecting = ref(false)
+const cancelling = ref(false)
+const showRejectForm = ref(false)
+const rejectComment = ref('')
+const rejectError = ref('')
+const showCancelConfirm = ref(false)
 
 async function load() {
   loading.value = true
@@ -28,8 +36,25 @@ async function load() {
 
 onMounted(load)
 
-const statusMeta = computed(() => REQUEST_STATUSES.find(s => s.key === request.value?.status) || {})
+const statusMeta = computed(() => REQUEST_STATUSES.find(s => s.key === request.value?.status) || { label: request.value?.status, badge: 'badge-gray' })
+const categoryLabel = computed(() => {
+  const c = REQUEST_CATEGORIES.find(x => x.key === request.value?.category)
+  return c ? c.label : '—'
+})
 const canConfirm = computed(() => request.value?.status === 'ceka_na_potvrzeni')
+const canCancel = computed(() => request.value?.status === 'prijato')
+
+const beforeAttachments = computed(() => request.value?.attachments?.before || [])
+const afterAttachments = computed(() => request.value?.attachments?.after || [])
+const showAfterGallery = computed(() =>
+  afterAttachments.value.length > 0 &&
+  ['ceka_na_potvrzeni', 'vyreseno'].includes(request.value?.status)
+)
+
+const latestAdminMessage = computed(() => {
+  const list = (request.value?.activity || []).filter(a => a.authorType === 'admin' && !a.isInternal && a.message)
+  return list.length ? list[list.length - 1] : null
+})
 
 function formatDate(d) {
   if (!d) return '—'
@@ -50,12 +75,53 @@ async function confirmResolution() {
   }
 }
 
-const descriptionPreview = computed(() => {
-  if (!request.value?.description) return ''
-  const d = request.value.description
-  if (showFullDescription.value || d.length <= 220) return d
-  return d.slice(0, 220) + '…'
-})
+function openRejectForm() {
+  showRejectForm.value = true
+  rejectError.value = ''
+  rejectComment.value = ''
+}
+function closeRejectForm() {
+  showRejectForm.value = false
+}
+
+async function submitReject() {
+  if (rejectComment.value.trim().length < 3) {
+    rejectError.value = 'Uveďte prosím důvod (alespoň 3 znaky).'
+    return
+  }
+  rejecting.value = true
+  rejectError.value = ''
+  try {
+    const res = await maintenanceRequestService.reject(request.value.id, rejectComment.value.trim())
+    if (!res.success) {
+      rejectError.value = res.message || 'Nepodařilo se odeslat.'
+      return
+    }
+    showRejectForm.value = false
+    await load()
+  } catch (e) {
+    rejectError.value = e.response?.data?.message || e.message || 'Nepodařilo se odeslat.'
+  } finally {
+    rejecting.value = false
+  }
+}
+
+async function cancelRequest() {
+  cancelling.value = true
+  try {
+    await maintenanceRequestService.cancel(request.value.id)
+    router.push('/zadosti')
+  } catch (e) {
+    error.value = e.response?.data?.message || e.message || 'Nepodařilo se zrušit.'
+  } finally {
+    cancelling.value = false
+    showCancelConfirm.value = false
+  }
+}
+
+function isImage(att) {
+  return (att.mimeType || '').startsWith('image/')
+}
 </script>
 
 <template>
@@ -69,7 +135,7 @@ const descriptionPreview = computed(() => {
     <template v-else-if="request">
       <button id="request-detail-back" class="btn btn-ghost" style="margin-bottom:12px;" @click="router.push('/zadosti')">
         <ArrowLeft :size="16" />
-        <span>Zpět na žádosti</span>
+        <span>Zpět na požadavky</span>
       </button>
 
       <div id="request-detail-header" class="page-header" style="align-items:flex-start;">
@@ -88,41 +154,132 @@ const descriptionPreview = computed(() => {
         </div>
         <div class="meta-card" id="meta-author">
           <div class="meta-label"><User :size="14" /> Zadal</div>
-          <div class="meta-value">{{ request.createdBy }}</div>
+          <div class="meta-value">{{ request.createdBy || '—' }}</div>
         </div>
-        <div class="meta-card" id="meta-due">
-          <div class="meta-label"><Calendar :size="14" /> Termín</div>
-          <div class="meta-value">{{ formatDate(request.dueDate) }}</div>
+        <div class="meta-card" id="meta-company">
+          <div class="meta-label"><Building2 :size="14" /> Protistrana</div>
+          <div class="meta-value">
+            {{ request.companyName || '—' }}
+            <span v-if="request.companyIco" style="color:var(--color-gray-500); font-weight:400;"> · IČO {{ request.companyIco }}</span>
+          </div>
+        </div>
+        <div class="meta-card" id="meta-category">
+          <div class="meta-label">Kategorie</div>
+          <div class="meta-value">{{ categoryLabel }}</div>
         </div>
       </div>
 
       <div id="request-detail-description-section" style="margin-top:24px;">
         <div class="section-label">Popis</div>
         <div id="request-detail-description" class="card description-card">
-          <p style="white-space:pre-wrap;">{{ descriptionPreview || '—' }}</p>
-          <button
-            v-if="request.description && request.description.length > 220"
-            id="request-detail-description-toggle"
-            class="btn btn-ghost btn-sm"
-            @click="showFullDescription = !showFullDescription"
-          >
-            {{ showFullDescription ? 'Skrýt' : 'Zobrazit celý popis' }}
-          </button>
+          <p style="white-space:pre-wrap;">{{ request.description || '—' }}</p>
         </div>
       </div>
 
-      <div v-if="canConfirm" id="request-detail-confirm-section" class="alert alert-info" style="margin-top:20px; align-items:center; justify-content:space-between;">
-        <span>Práce je hotová — potvrďte prosím vyřešení žádosti.</span>
-        <button id="request-detail-confirm-btn" class="btn btn-primary btn-sm" :disabled="confirming" @click="confirmResolution">
-          <CheckCircle2 :size="16" />
-          <span>{{ confirming ? 'Potvrzuji...' : 'Potvrdit vyřešení' }}</span>
+      <!-- Attachments: before -->
+      <div v-if="beforeAttachments.length" id="request-detail-attachments" style="margin-top:24px;">
+        <div class="section-label"><Paperclip :size="14" style="vertical-align:-2px;" /> Přílohy</div>
+        <div class="attach-gallery">
+          <a
+            v-for="att in beforeAttachments"
+            :key="att.id"
+            :id="'att-before-' + att.id"
+            :href="att.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="attach-tile"
+          >
+            <img v-if="isImage(att)" :src="att.url" :alt="att.filename" />
+            <div v-else class="attach-tile-pdf">
+              <FileText :size="28" />
+              <span>{{ att.filename }}</span>
+            </div>
+          </a>
+        </div>
+      </div>
+
+      <!-- Attachments: after (po vyřešení) -->
+      <div v-if="showAfterGallery" id="request-detail-attachments-after" style="margin-top:24px;">
+        <div class="section-label"><ImageIcon :size="14" style="vertical-align:-2px;" /> Přílohy – po vyřešení</div>
+        <div class="attach-gallery">
+          <a
+            v-for="att in afterAttachments"
+            :key="att.id"
+            :id="'att-after-' + att.id"
+            :href="att.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="attach-tile"
+          >
+            <img v-if="isImage(att)" :src="att.url" :alt="att.filename" />
+            <div v-else class="attach-tile-pdf">
+              <FileText :size="28" />
+              <span>{{ att.filename }}</span>
+            </div>
+          </a>
+        </div>
+      </div>
+
+      <!-- Cancel in Nový -->
+      <div v-if="canCancel" id="request-detail-cancel-section" style="margin-top:20px;">
+        <button v-if="!showCancelConfirm" id="request-detail-cancel-btn" class="btn btn-ghost btn-sm" @click="showCancelConfirm = true">
+          <Trash2 :size="14" />
+          <span>Zrušit požadavek</span>
         </button>
+        <div v-else class="card" style="padding:16px; border:1px solid var(--color-danger-light);">
+          <p style="margin:0 0 12px; font-size:14px;">Opravdu chcete tento požadavek zrušit?</p>
+          <div style="display:flex; gap:8px;">
+            <button id="request-detail-cancel-confirm" class="btn btn-danger btn-sm" :disabled="cancelling" @click="cancelRequest">
+              <span>{{ cancelling ? 'Ruším...' : 'Ano, zrušit' }}</span>
+            </button>
+            <button class="btn btn-ghost btn-sm" @click="showCancelConfirm = false">Zpět</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Confirm / Reject -->
+      <div v-if="canConfirm" id="request-detail-confirm-section" class="card confirm-card">
+        <div v-if="latestAdminMessage" id="request-detail-admin-comment" class="admin-comment">
+          <div class="admin-comment-label">Vzkaz od Fajn Úklid</div>
+          <p>{{ latestAdminMessage.message }}</p>
+        </div>
+
+        <p class="confirm-prompt">Práce je hotová — potvrďte prosím vyřešení požadavku.</p>
+
+        <div v-if="!showRejectForm" class="confirm-actions">
+          <button id="request-detail-confirm-btn" class="btn btn-primary" :disabled="confirming" @click="confirmResolution">
+            <CheckCircle2 :size="16" />
+            <span>{{ confirming ? 'Potvrzuji...' : 'Potvrdit vyřešení' }}</span>
+          </button>
+          <button id="request-detail-reject-btn" class="btn btn-outline" @click="openRejectForm">
+            <XCircle :size="16" />
+            <span>Není vyřešeno</span>
+          </button>
+        </div>
+
+        <div v-else id="request-detail-reject-form" class="reject-form">
+          <label class="form-label" for="reject-comment">Důvod (povinné)</label>
+          <textarea
+            id="reject-comment"
+            v-model="rejectComment"
+            class="form-input"
+            rows="4"
+            placeholder="Popište prosím, co stále není v pořádku..."
+          ></textarea>
+          <div v-if="rejectError" class="field-error">{{ rejectError }}</div>
+          <div style="display:flex; gap:8px; margin-top:12px;">
+            <button id="request-detail-reject-submit" class="btn btn-primary" :disabled="rejecting" @click="submitReject">
+              <span>{{ rejecting ? 'Odesílám...' : 'Odeslat' }}</span>
+            </button>
+            <button class="btn btn-ghost" @click="closeRejectForm">Zpět</button>
+          </div>
+        </div>
       </div>
 
       <div id="request-detail-activity" style="margin-top:24px;">
         <div class="section-label">
           <MessageSquare :size="14" style="vertical-align:-2px;" />
-          Aktivita ({{ request.activity.length }})
+          Historie ({{ request.activity.length }})
         </div>
         <div v-if="request.activity.length === 0" class="card" style="color:var(--color-gray-500); font-size:13px;">
           Zatím žádná aktivita.
@@ -130,14 +287,17 @@ const descriptionPreview = computed(() => {
         <div v-else class="activity-list">
           <div v-for="a in request.activity" :key="a.id" :id="'activity-' + a.id" class="activity-item">
             <div class="avatar avatar-sm" :class="{'admin-avatar': a.authorType === 'admin'}">
-              {{ a.author.charAt(0) }}
+              {{ (a.author || '?').charAt(0) }}
             </div>
             <div class="activity-body">
               <div class="activity-head">
                 <span class="activity-author">{{ a.author }}</span>
+                <span v-if="a.authorType === 'admin'" class="role-badge">Fajn Úklid</span>
+                <span v-else-if="a.authorType === 'client'" class="role-badge role-client">Klient</span>
                 <span class="activity-time">{{ formatDateTime(a.createdAt) }}</span>
               </div>
-              <div class="activity-message">{{ a.message }}</div>
+              <div v-if="a.message" class="activity-message">{{ a.message }}</div>
+              <div v-if="a.statusChange" class="activity-status">→ {{ a.statusChange }}</div>
             </div>
           </div>
         </div>
@@ -152,14 +312,12 @@ const descriptionPreview = computed(() => {
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
 }
-
 .meta-card {
   background: var(--color-gray-50);
   border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-lg);
   padding: 16px 18px;
 }
-
 .meta-label {
   display: flex;
   align-items: center;
@@ -171,13 +329,11 @@ const descriptionPreview = computed(() => {
   letter-spacing: 0.04em;
   margin-bottom: 6px;
 }
-
 .meta-value {
   font-size: 15px;
   font-weight: 500;
   color: var(--color-primary);
 }
-
 .section-label {
   font-size: 11px;
   font-weight: 600;
@@ -186,11 +342,96 @@ const descriptionPreview = computed(() => {
   letter-spacing: 0.04em;
   margin-bottom: 8px;
 }
-
 .description-card {
   font-size: 14px;
   color: var(--color-gray-800);
   line-height: 1.6;
+}
+
+.attach-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.attach-tile {
+  display: block;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-gray-50);
+  aspect-ratio: 1;
+  text-decoration: none;
+  color: inherit;
+}
+.attach-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.attach-tile-pdf {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  color: var(--color-gray-700);
+  font-size: 11px;
+  text-align: center;
+  word-break: break-word;
+}
+
+.confirm-card {
+  margin-top: 20px;
+  padding: 20px;
+  background: var(--color-light);
+  border: 1px solid var(--color-mid);
+}
+.admin-comment {
+  background: var(--color-white);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--color-gray-200);
+}
+.admin-comment-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-gray-500);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.admin-comment p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-gray-800);
+  white-space: pre-wrap;
+}
+.confirm-prompt {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: var(--color-primary);
+  font-weight: 500;
+}
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.reject-form .form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-gray-700);
+  display: block;
+  margin-bottom: 6px;
+}
+.field-error {
+  font-size: 12px;
+  color: var(--color-danger);
+  margin-top: 4px;
 }
 
 .activity-list {
@@ -198,7 +439,6 @@ const descriptionPreview = computed(() => {
   flex-direction: column;
   gap: 12px;
 }
-
 .activity-item {
   display: flex;
   gap: 12px;
@@ -207,22 +447,33 @@ const descriptionPreview = computed(() => {
   border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-lg);
 }
-
 .admin-avatar {
   background: var(--color-primary);
 }
-
 .activity-body { flex: 1; min-width: 0; }
 .activity-head {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: 4px;
+  flex-wrap: wrap;
 }
 .activity-author {
   font-size: 13px;
   font-weight: 600;
   color: var(--color-primary);
+}
+.role-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--color-primary);
+  color: var(--color-white);
+}
+.role-badge.role-client {
+  background: var(--color-mid);
 }
 .activity-time {
   font-size: 11px;
@@ -231,6 +482,12 @@ const descriptionPreview = computed(() => {
 .activity-message {
   font-size: 14px;
   color: var(--color-gray-700);
+  white-space: pre-wrap;
+}
+.activity-status {
+  font-size: 11px;
+  color: var(--color-gray-500);
+  margin-top: 4px;
 }
 
 .spin { animation: spin 1.5s linear infinite; }

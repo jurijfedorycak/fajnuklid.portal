@@ -24,7 +24,7 @@ const clientNavItems = [
   { name: 'Personál',     route: '/personal',  icon: Users },
   { name: 'Smlouva',      route: '/smlouva',   icon: FileSignature },
   { name: 'Docházka',     route: '/dochazka',  icon: Clock },
-  { name: 'Žádosti',      route: '/zadosti',   icon: ClipboardList },
+  { name: 'Požadavky a reklamace', route: '/zadosti', icon: ClipboardList },
   { name: 'Kontakt',      route: '/kontakt',   icon: Phone },
 ]
 
