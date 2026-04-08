@@ -263,30 +263,73 @@ function handleContractUpload(ico, event) {
 }
 
 // ── Map helpers ───────────────────────────────────────────────────────────────
-// Pre-set coords for known addresses in mockup
-const coordLookup = {
-  'Budějovická 12, Praha 4':   { lat: 50.0523, lng: 14.4629 },
-  'Průmyslová 5, Praha 4':     { lat: 50.0400, lng: 14.4700 },
-  'Nádražní 5, Praha 5':       { lat: 50.0714, lng: 14.4027 },
-}
-
-function geocodeAddress(obj) {
-  const found = Object.entries(coordLookup).find(([addr]) =>
-    obj.address.toLowerCase().includes(addr.toLowerCase().split(',')[0])
-  )
-  if (found) {
-    obj.lat = found[1].lat
-    obj.lng = found[1].lng
-  } else {
+async function geocodeAddress(obj) {
+  const q = (obj.address || '').trim()
+  if (!q) return
+  obj.geocoding = true
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
+    const data = await res.json()
+    if (data && data.length > 0) {
+      obj.lat = +parseFloat(data[0].lat).toFixed(6)
+      obj.lng = +parseFloat(data[0].lon).toFixed(6)
+    } else {
+      // Fallback to Prague center if nothing found
+      obj.lat = 50.0755
+      obj.lng = 14.4378
+    }
+  } catch (e) {
+    console.error('Geocode failed', e)
     obj.lat = 50.0755
     obj.lng = 14.4378
+  } finally {
+    obj.geocoding = false
   }
 }
 
-function mapSrc(obj) {
-  if (!obj.lat || !obj.lng) return ''
-  const lat = obj.lat, lng = obj.lng, d = 0.008
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${lng-d},${lat-d/2},${lng+d},${lat+d/2}&layer=mapnik&marker=${lat},${lng}`
+// ── Leaflet interactive map (custom directive) ───────────────────────────────
+function initLeafletMap(el, obj) {
+  if (!window.L || !obj || obj.lat == null || obj.lng == null) return
+  if (!el._lmap) {
+    const map = window.L.map(el, {
+      attributionControl: false,
+      zoomControl: true,
+    }).setView([obj.lat, obj.lng], 16)
+    window.L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      subdomains: 'abcd',
+    }).addTo(map)
+    const marker = window.L.marker([obj.lat, obj.lng], { draggable: true }).addTo(map)
+    marker.on('dragend', () => {
+      const ll = marker.getLatLng()
+      obj.lat = +ll.lat.toFixed(6)
+      obj.lng = +ll.lng.toFixed(6)
+    })
+    map.on('click', (e) => {
+      marker.setLatLng(e.latlng)
+      obj.lat = +e.latlng.lat.toFixed(6)
+      obj.lng = +e.latlng.lng.toFixed(6)
+    })
+    el._lmap = map
+    el._lmarker = marker
+    setTimeout(() => map.invalidateSize(), 120)
+  } else {
+    const cur = el._lmarker.getLatLng()
+    if (cur.lat !== obj.lat || cur.lng !== obj.lng) {
+      el._lmarker.setLatLng([obj.lat, obj.lng])
+      el._lmap.setView([obj.lat, obj.lng])
+    }
+    setTimeout(() => el._lmap.invalidateSize(), 60)
+  }
+}
+
+const vMap = {
+  mounted(el, binding) { initLeafletMap(el, binding.value) },
+  updated(el, binding) { initLeafletMap(el, binding.value) },
+  unmounted(el) {
+    if (el._lmap) { el._lmap.remove(); el._lmap = null; el._lmarker = null }
+  },
 }
 
 // ── Save ─────────────────────────────────────────────────────────────────────
@@ -904,16 +947,13 @@ onBeforeUnmount(() => {
                         <!-- Map -->
                         <div class="map-section">
                           <div v-if="obj.lat && obj.lng" class="map-wrap">
-                            <iframe
-                              :src="mapSrc(obj)"
-                              class="map-iframe"
-                              frameborder="0"
-                              scrolling="no"
-                              loading="lazy"
-                              title="Poloha provozovny"
-                            />
+                            <div
+                              :id="`map-${obj.id}`"
+                              v-map="obj"
+                              class="map-iframe leaflet-map"
+                            ></div>
                             <div class="map-coords">
-                              <span>{{ obj.lat.toFixed(5) }}, {{ obj.lng.toFixed(5) }}</span>
+                              <span><strong>GPS:</strong> {{ obj.lat.toFixed(6) }}, {{ obj.lng.toFixed(6) }} <span style="opacity:.7;">— klikněte do mapy nebo přetáhněte špendlík</span></span>
                               <button class="btn btn-ghost btn-sm" @click="obj.lat = null; obj.lng = null">
                                 <Trash2 :size="12" /> Zrušit polohu
                               </button>
@@ -925,16 +965,6 @@ onBeforeUnmount(() => {
                             <button class="btn btn-outline btn-sm" @click="geocodeAddress(obj)">
                               <MapPin :size="14" /> Vyhledat adresu na mapě
                             </button>
-                          </div>
-                          <div class="field-grid-2" style="margin-top:10px;">
-                            <div class="form-group">
-                              <label class="form-label">Zeměpisná šířka</label>
-                              <input v-model.number="obj.lat" type="number" class="form-input" placeholder="50.0523" step="0.0001" />
-                            </div>
-                            <div class="form-group">
-                              <label class="form-label">Zeměpisná délka</label>
-                              <input v-model.number="obj.lng" type="number" class="form-input" placeholder="14.4629" step="0.0001" />
-                            </div>
                           </div>
                         </div>
                       </div>
@@ -1673,10 +1703,13 @@ onBeforeUnmount(() => {
 .map-wrap {}
 .map-iframe {
   width: 100%;
-  height: 220px;
+  height: 260px;
   border-radius: var(--radius-md);
   border: 1.5px solid var(--color-gray-200);
+  overflow: hidden;
 }
+.leaflet-map { cursor: crosshair; }
+:deep(.leaflet-control-attribution) { display: none !important; }
 .map-coords {
   display: flex;
   align-items: center;
