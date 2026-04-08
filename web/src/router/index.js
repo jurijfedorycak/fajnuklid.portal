@@ -79,6 +79,12 @@ const routes = [
         meta: { requiresAdmin: true },
       },
       {
+        path: 'admin/staff-contacts',
+        name: 'AdminStaffContacts',
+        component: () => import('../views/AdminStaffContactsView.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
         path: 'admin/design-tokens',
         name: 'AdminDesignTokens',
         component: () => import('../views/AdminDesignTokensView.vue'),

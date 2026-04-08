@@ -71,4 +71,12 @@ $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class],
     $router->put('/employees', 'AdminController@saveEmployees');
     $router->put('/employees/{id}', 'AdminController@updateEmployee');
     $router->delete('/employees/{id}', 'AdminController@deleteEmployee');
+
+    // Staff contacts (Fajnuklid team shown on client portal Kontakt page)
+    $router->get('/staff-contacts', 'AdminController@listStaffContacts');
+    $router->get('/staff-contacts/{id}', 'AdminController@getStaffContact');
+    $router->post('/staff-contacts', 'AdminController@createStaffContact');
+    $router->post('/staff-contacts/reorder', 'AdminController@reorderStaffContacts');
+    $router->put('/staff-contacts/{id}', 'AdminController@updateStaffContact');
+    $router->delete('/staff-contacts/{id}', 'AdminController@deleteStaffContact');
 });

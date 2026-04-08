@@ -28,9 +28,10 @@ const clientNavItems = [
 ]
 
 const adminNavItems = [
-  { name: 'Klienti',      route: '/admin/clients',       icon: Users },
-  { name: 'Zaměstnanci',  route: '/admin/employees',     icon: UserCog },
-  { name: 'Design',       route: '/admin/design-tokens', icon: Palette },
+  { name: 'Klienti',      route: '/admin/clients',        icon: Users },
+  { name: 'Zaměstnanci',  route: '/admin/employees',      icon: UserCog },
+  { name: 'Tým Fajn',     route: '/admin/staff-contacts', icon: Phone },
+  { name: 'Design',       route: '/admin/design-tokens',  icon: Palette },
 ]
 
 const navItems = computed(() => isAdmin.value ? adminNavItems : clientNavItems)
@@ -54,6 +55,15 @@ async function handleLogout() {
   router.push('/login')
 }
 
+function slugify(name) {
+  return (name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+}
+
 function initials(name) {
   if (!name) return '?'
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
@@ -72,7 +82,7 @@ function initials(name) {
       <button
         v-for="item in navItems"
         :key="item.route"
-        :id="`sidebar-nav-${item.name.toLowerCase()}`"
+        :id="`sidebar-nav-${slugify(item.name)}`"
         class="nav-item"
         :class="{ active: isActive(item.route) }"
         @click="navigate(item.route)"
@@ -89,7 +99,7 @@ function initials(name) {
         <button
           v-for="item in bottomItems"
           :key="item.route"
-          :id="`sidebar-nav-${item.name.toLowerCase()}`"
+          :id="`sidebar-nav-${slugify(item.name)}`"
           class="nav-item"
           :class="{ active: isActive(item.route) }"
           @click="navigate(item.route)"

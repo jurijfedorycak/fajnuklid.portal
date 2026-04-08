@@ -83,6 +83,40 @@ export const adminService = {
     const response = await apiClient.put('/admin/employees', employees)
     return response.data
   },
+
+  // Staff contacts (Fajnuklid team)
+  async getStaffContacts(page = 1, perPage = 50, search = null) {
+    const params = { page, per_page: perPage }
+    if (search) params.search = search
+
+    const response = await apiClient.get('/admin/staff-contacts', { params })
+    return response.data
+  },
+
+  async getStaffContact(id) {
+    const response = await apiClient.get(`/admin/staff-contacts/${id}`)
+    return response.data
+  },
+
+  async createStaffContact(data) {
+    const response = await apiClient.post('/admin/staff-contacts', data)
+    return response.data
+  },
+
+  async updateStaffContact(id, data) {
+    const response = await apiClient.put(`/admin/staff-contacts/${id}`, data)
+    return response.data
+  },
+
+  async deleteStaffContact(id) {
+    const response = await apiClient.delete(`/admin/staff-contacts/${id}`)
+    return response.data
+  },
+
+  async reorderStaffContacts(ids) {
+    const response = await apiClient.post('/admin/staff-contacts/reorder', { ids })
+    return response.data
+  },
 }
 
 export default adminService

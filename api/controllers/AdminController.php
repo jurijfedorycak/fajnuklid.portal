@@ -17,6 +17,7 @@ use App\Repositories\ClientEmployeeRepository;
 use App\Repositories\UserRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\ClientContactRepository;
+use App\Repositories\StaffContactRepository;
 use App\Helpers\PasswordHelper;
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
@@ -33,6 +34,7 @@ class AdminController extends Controller
     private UserRepository $userRepo;
     private LocationRepository $locationRepo;
     private ClientContactRepository $clientContactRepo;
+    private StaffContactRepository $staffContactRepo;
 
     public function __construct()
     {
@@ -46,6 +48,7 @@ class AdminController extends Controller
         $this->userRepo = new UserRepository();
         $this->locationRepo = new LocationRepository();
         $this->clientContactRepo = new ClientContactRepository();
+        $this->staffContactRepo = new StaffContactRepository();
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -851,7 +854,7 @@ class AdminController extends Controller
         $folder = $request->input('folder', 'uploads');
 
         // Validate folder
-        $allowedFolders = ['employee-photos', 'employee-contracts'];
+        $allowedFolders = ['employee-photos', 'employee-contracts', 'staff-contacts'];
         if (!in_array($folder, $allowedFolders, true)) {
             throw new ValidationException('Neplatná složka pro nahrání');
         }
@@ -860,7 +863,7 @@ class AdminController extends Controller
         $allowedMimes = [];
         $maxSize = 5 * 1024 * 1024; // 5MB default
 
-        if ($folder === 'employee-photos') {
+        if ($folder === 'employee-photos' || $folder === 'staff-contacts') {
             $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
             $maxSize = 2 * 1024 * 1024; // 2MB for photos
         } elseif ($folder === 'employee-contracts') {
@@ -945,5 +948,112 @@ class AdminController extends Controller
                 'total' => $totalEmployees,
             ],
         ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // STAFF CONTACTS (Fajnuklid team displayed on client portal Kontakt page)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    public function listStaffContacts(Request $request): void
+    {
+        $pagination = $this->getPagination($request);
+        $search = $request->query('search');
+
+        $items = $this->staffContactRepo->findPaginated(
+            $pagination['per_page'],
+            $pagination['offset'],
+            $search
+        );
+        $total = $this->staffContactRepo->countAll($search);
+
+        Response::paginated($items, $total, $pagination['page'], $pagination['per_page']);
+    }
+
+    public function getStaffContact(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $contact = $this->staffContactRepo->findById($id);
+
+        if (!$contact) {
+            throw new NotFoundException('Kontakt nebyl nalezen');
+        }
+
+        Response::success($contact);
+    }
+
+    public function createStaffContact(Request $request): void
+    {
+        $data = $this->validate($request->all(), [
+            'name'       => 'required|string|max:255',
+            'position'   => 'string|max:100',
+            'phone'      => 'string|max:20',
+            'email'      => 'email|max:255',
+            'photo_url'  => 'string|max:500',
+            'sort_order' => 'integer',
+        ]);
+
+        if (!array_key_exists('sort_order', $data) || $data['sort_order'] === null) {
+            $data['sort_order'] = $this->staffContactRepo->getMaxSortOrder() + 1;
+        }
+
+        $id = $this->staffContactRepo->create($data);
+        $created = $this->staffContactRepo->findById($id);
+
+        Response::created($created, 'Kontakt byl vytvořen');
+    }
+
+    public function updateStaffContact(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $existing = $this->staffContactRepo->findById($id);
+
+        if (!$existing) {
+            throw new NotFoundException('Kontakt nebyl nalezen');
+        }
+
+        $data = $this->validate($request->all(), [
+            'name'       => 'string|max:255',
+            'position'   => 'string|max:100',
+            'phone'      => 'string|max:20',
+            'email'      => 'email|max:255',
+            'photo_url'  => 'string|max:500',
+            'sort_order' => 'integer',
+        ]);
+
+        $allowed = ['name', 'position', 'phone', 'email', 'photo_url', 'sort_order'];
+        $updateData = array_intersect_key($data, array_flip($allowed));
+
+        if (!empty($updateData)) {
+            $this->staffContactRepo->update($id, $updateData);
+        }
+
+        $updated = $this->staffContactRepo->findById($id);
+
+        Response::success($updated, 'Kontakt byl aktualizován');
+    }
+
+    public function reorderStaffContacts(Request $request): void
+    {
+        $ids = $request->input('ids', []);
+        if (!is_array($ids) || empty($ids)) {
+            throw new ValidationException('Seznam ID je prázdný');
+        }
+        $ids = array_map('intval', $ids);
+        $this->staffContactRepo->reorder($ids);
+        Response::success(null, 'Pořadí bylo uloženo');
+    }
+
+    public function deleteStaffContact(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $existing = $this->staffContactRepo->findById($id);
+
+        if (!$existing) {
+            throw new NotFoundException('Kontakt nebyl nalezen');
+        }
+
+        $this->staffContactRepo->delete($id);
+
+        Response::success(null, 'Kontakt byl smazán');
     }
 }
