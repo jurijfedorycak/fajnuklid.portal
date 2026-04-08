@@ -30,34 +30,35 @@ class ContractController extends Controller
         // Get user's companies
         $companies = $this->companyRepo->findByUserId($userId);
 
-        // Build contract data for each company
-        $contracts = [];
-        foreach ($companies as $company) {
-            $contracts[] = [
-                'company_id' => $company['id'],
-                'company_name' => $company['name'],
-                'registration_number' => $company['registration_number'],
-                'has_pdf' => !empty($company['contract_pdf_path']),
-                'contracts_enabled' => true,
-                'filename' => $company['contract_pdf_path'] ? basename($company['contract_pdf_path']) : null,
-                'uploaded_at' => $company['updated_at'],
-                'start_date' => $company['contract_start_date'],
-                'end_date' => $company['contract_end_date'],
+        // Use the first company as the primary contract source.
+        // Multi-company support can iterate via separate calls when added.
+        $primary = $companies[0] ?? null;
+
+        $contract = [
+            'contractsEnabled' => $primary !== null,
+            'hasPdf' => $primary !== null && !empty($primary['contract_pdf_path']),
+            'companyId' => $primary['id'] ?? null,
+            'companyName' => $primary['name'] ?? null,
+            'registrationNumber' => $primary['registration_number'] ?? null,
+            'filename' => $primary && !empty($primary['contract_pdf_path'])
+                ? basename($primary['contract_pdf_path'])
+                : null,
+            'uploadedAt' => $primary['updated_at'] ?? null,
+            'startDate' => $primary['contract_start_date'] ?? null,
+            'endDate' => $primary['contract_end_date'] ?? null,
+        ];
+
+        // Get Fajnuklid contact for missing-contract situation
+        $staffContacts = $this->staffContactRepo->findAll();
+        if (!empty($staffContacts)) {
+            $contract['contact'] = [
+                'name' => $staffContacts[0]['name'],
+                'phone' => $staffContacts[0]['phone'],
+                'email' => $staffContacts[0]['email'],
             ];
         }
 
-        // Get Fajnuklid contact for missing contract situation
-        $staffContacts = $this->staffContactRepo->findAll();
-        $primaryContact = !empty($staffContacts) ? [
-            'name' => $staffContacts[0]['name'],
-            'phone' => $staffContacts[0]['phone'],
-            'email' => $staffContacts[0]['email'],
-        ] : null;
-
-        Response::success([
-            'contracts' => $contracts,
-            'contact' => $primaryContact,
-        ]);
+        Response::success($contract);
     }
 
     public function download(Request $request): void

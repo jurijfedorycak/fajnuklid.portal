@@ -11,6 +11,7 @@ use App\Repositories\CompanyRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\EmployeeRepository;
 use App\Repositories\EmployeeLocationRepository;
+use App\Repositories\ClientEmployeeRepository;
 use App\Repositories\StaffContactRepository;
 
 class DashboardController extends Controller
@@ -19,6 +20,7 @@ class DashboardController extends Controller
     private LocationRepository $locationRepo;
     private EmployeeRepository $employeeRepo;
     private EmployeeLocationRepository $employeeLocationRepo;
+    private ClientEmployeeRepository $clientEmployeeRepo;
     private StaffContactRepository $staffContactRepo;
 
     public function __construct()
@@ -27,6 +29,7 @@ class DashboardController extends Controller
         $this->locationRepo = new LocationRepository();
         $this->employeeRepo = new EmployeeRepository();
         $this->employeeLocationRepo = new EmployeeLocationRepository();
+        $this->clientEmployeeRepo = new ClientEmployeeRepository();
         $this->staffContactRepo = new StaffContactRepository();
     }
 
@@ -42,12 +45,17 @@ class DashboardController extends Controller
         $locations = $this->locationRepo->findByUserId($userId);
         $locationIds = array_column($locations, 'id');
 
-        // Count personnel assigned to user's locations
-        $personnelCount = 0;
-        foreach ($locationIds as $locationId) {
-            $employees = $this->employeeLocationRepo->findByLocationId((int) $locationId);
-            $personnelCount += count($employees);
+        // Count distinct personnel assigned to the user's clients
+        $personnelIds = [];
+        foreach ($companies as $company) {
+            $clientEmployees = $this->clientEmployeeRepo->findByClientId((int) $company['client_id']);
+            foreach ($clientEmployees as $ce) {
+                if (!empty($ce['show_in_portal']) && !empty($ce['show_name'])) {
+                    $personnelIds[(int) $ce['employee_id']] = true;
+                }
+            }
         }
+        $personnelCount = count($personnelIds);
 
         // Get contract info for first company
         $contract = [
@@ -86,7 +94,7 @@ class DashboardController extends Controller
             'email' => $user['email'],
             'displayName' => !empty($companies) ? $companies[0]['name'] : $user['email'],
             'activeIco' => !empty($companies) ? $companies[0]['registration_number'] : null,
-            'clientId' => $user['client_id'] ?? null,
+            'clientId' => !empty($companies) ? ($companies[0]['client_id'] ?? null) : null,
         ];
 
         Response::success([
