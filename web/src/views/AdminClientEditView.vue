@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { adminService } from '../api'
 import { extractFilename, downloadFile } from '../utils/fileUtils'
@@ -8,7 +8,7 @@ import {
   ArrowLeft, Save, Plus, Trash2, Building2, MapPin, User, Users, Download,
   Lock, Phone, Mail, FileSignature, Clock, ChevronDown, ChevronUp,
   Eye, EyeOff, Upload, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight,
-  Globe, Shield, Copy, Loader2, HelpCircle, Lightbulb, Search, X,
+  Globe, Shield, Copy, Loader2, HelpCircle, Lightbulb, Search, X, KeyRound,
 } from 'lucide-vue-next'
 
 const route  = useRoute()
@@ -24,6 +24,63 @@ const saved  = ref(false)
 const availableEmployees = ref([])
 const showEmployeePicker = ref(false)
 const employeeSearch = ref('')
+
+// Password reset modal
+const passwordResetLogin = ref(null)
+const passwordResetValue = ref('')
+const passwordResetShowPass = ref(false)
+let passwordResetTrigger = null
+
+function openPasswordReset(login, event) {
+  passwordResetTrigger = event?.currentTarget || null
+  passwordResetLogin.value = login
+  passwordResetValue.value = login.tempPass || ''
+  passwordResetShowPass.value = false
+  nextTick(() => {
+    document.getElementById('password-reset-input')?.focus()
+  })
+}
+
+function closePasswordReset() {
+  passwordResetLogin.value = null
+  passwordResetValue.value = ''
+  passwordResetShowPass.value = false
+  if (passwordResetTrigger) {
+    passwordResetTrigger.focus?.()
+    passwordResetTrigger = null
+  }
+}
+
+function confirmPasswordReset() {
+  const trimmed = passwordResetValue.value.trim()
+  if (!trimmed) return
+  if (passwordResetLogin.value) {
+    passwordResetLogin.value.tempPass = trimmed
+  }
+  closePasswordReset()
+}
+
+function clearQueuedPassword(login) {
+  login.tempPass = ''
+}
+
+function handlePasswordResetKeydown(e) {
+  if (e.key === 'Escape' && passwordResetLogin.value) {
+    closePasswordReset()
+  }
+}
+
+watch(passwordResetLogin, (val) => {
+  if (val) {
+    document.addEventListener('keydown', handlePasswordResetKeydown)
+  } else {
+    document.removeEventListener('keydown', handlePasswordResetKeydown)
+  }
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handlePasswordResetKeydown)
+})
 
 // Toast
 const toast = ref(null)
@@ -518,6 +575,7 @@ function serializeForm() {
       email: l.email,
       restriction: l.restriction,
       allowedIcos: [...(l.allowedIcos || [])],
+      hasTempPass: !!l.tempPass,
     })),
     icos: form.icos.map(i => ({
       ico: i.ico,
@@ -825,25 +883,68 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <!-- Temp password -->
-                <div class="form-group" style="margin-top:12px;">
-                  <label class="form-label">
-                    {{ isNew ? 'Počáteční heslo' : 'Nové heslo (reset)' }}
-                  </label>
+                <!-- Initial password (new client only) -->
+                <div v-if="isNew" class="form-group" style="margin-top:12px;">
+                  <label class="form-label" :for="`login-password-${index}`">Počáteční heslo</label>
                   <div class="input-with-btn">
                     <input
                       :id="`login-password-${index}`"
                       v-model="login.tempPass"
                       :type="login.showPass ? 'text' : 'password'"
                       class="form-input"
-                      placeholder="Zadejte nové heslo..."
+                      placeholder="Zadejte počáteční heslo..."
                     />
-                    <button class="btn btn-ghost btn-sm" @click="login.showPass = !login.showPass" tabindex="-1">
+                    <button type="button" class="btn btn-ghost btn-sm" @click="login.showPass = !login.showPass" tabindex="-1">
                       <EyeOff v-if="login.showPass" :size="14" />
                       <Eye    v-else                  :size="14" />
                     </button>
                   </div>
-                  <p v-if="!isNew" class="field-hint">Po uložení bude heslo zahashováno. Prázdné pole = heslo se nemění.</p>
+                  <p class="field-hint">Po uložení bude heslo zahashováno.</p>
+                </div>
+
+                <!-- Password reset button (edit mode) -->
+                <div
+                  v-else
+                  class="form-group"
+                  style="margin-top:12px;"
+                  role="group"
+                  :aria-labelledby="`login-password-label-${index}`"
+                >
+                  <span :id="`login-password-label-${index}`" class="form-label">Heslo</span>
+                  <div v-if="login.tempPass" class="password-reset-queued">
+                    <span class="password-reset-queued-text">
+                      <CheckCircle2 :size="14" />
+                      Nové heslo připraveno — uloží se s formulářem
+                    </span>
+                    <div class="password-reset-queued-actions">
+                      <button
+                        type="button"
+                        :id="`login-password-edit-${index}`"
+                        class="btn btn-ghost btn-sm"
+                        @click="openPasswordReset(login, $event)"
+                      >
+                        Upravit
+                      </button>
+                      <button
+                        type="button"
+                        :id="`login-password-clear-${index}`"
+                        class="btn btn-ghost btn-sm danger-hover"
+                        @click="clearQueuedPassword(login)"
+                      >
+                        Zrušit
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    v-else
+                    type="button"
+                    :id="`login-password-reset-${index}`"
+                    class="btn btn-ghost btn-sm password-reset-btn"
+                    @click="openPasswordReset(login, $event)"
+                  >
+                    <KeyRound :size="14" />
+                    Resetovat heslo
+                  </button>
                 </div>
 
                 <!-- IČO restriction -->
@@ -1372,6 +1473,75 @@ onBeforeUnmount(() => {
                 <span class="picker-item-role">{{ emp.role || 'Bez pozice' }}</span>
               </div>
               <Plus :size="16" class="picker-item-add" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Password reset modal -->
+    <Teleport to="body">
+      <div
+        v-if="passwordResetLogin"
+        id="password-reset-modal"
+        class="modal-overlay"
+        @click.self="closePasswordReset"
+      >
+        <div class="modal-content password-reset-modal" role="dialog" aria-modal="true" aria-labelledby="password-reset-title">
+          <div class="modal-header">
+            <div class="password-reset-header-title">
+              <KeyRound :size="16" class="text-mid" />
+              <h3 id="password-reset-title" class="modal-title">Resetovat heslo</h3>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" aria-label="Zavřít" @click="closePasswordReset">
+              <X :size="18" />
+            </button>
+          </div>
+
+          <div class="password-reset-body">
+            <p class="password-reset-email">
+              <Mail :size="14" class="text-muted" />
+              <span>{{ passwordResetLogin.email || '(bez e-mailu)' }}</span>
+            </p>
+
+            <div class="form-group">
+              <label class="form-label" for="password-reset-input">Nové heslo</label>
+              <div class="input-with-btn">
+                <input
+                  id="password-reset-input"
+                  v-model="passwordResetValue"
+                  :type="passwordResetShowPass ? 'text' : 'password'"
+                  class="form-input"
+                  placeholder="Zadejte nové heslo..."
+                  autocomplete="new-password"
+                  @keydown.enter.prevent="confirmPasswordReset"
+                />
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  aria-label="Zobrazit / skrýt heslo"
+                  tabindex="-1"
+                  @click="passwordResetShowPass = !passwordResetShowPass"
+                >
+                  <EyeOff v-if="passwordResetShowPass" :size="14" />
+                  <Eye    v-else                     :size="14" />
+                </button>
+              </div>
+              <p class="field-hint">Po uložení formuláře bude heslo zahashováno a aplikováno.</p>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" @click="closePasswordReset">
+              Zrušit
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="!passwordResetValue.trim()"
+              @click="confirmPasswordReset"
+            >
+              Potvrdit
             </button>
           </div>
         </div>
@@ -2194,6 +2364,81 @@ onBeforeUnmount(() => {
   color: var(--color-mid);
   opacity: 0;
   transition: opacity 0.15s;
+}
+
+/* Password reset */
+.password-reset-btn {
+  align-self: flex-start;
+  color: var(--color-mid);
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px dashed var(--color-gray-300);
+  border-radius: var(--radius-md);
+  background: transparent;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+.password-reset-btn:hover {
+  color: var(--color-primary);
+  border-color: var(--color-mid);
+  background: var(--color-gray-50);
+}
+.password-reset-queued {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-light);
+  border: 1px solid var(--color-mid);
+}
+.password-reset-queued-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+.password-reset-queued-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Password reset modal */
+.password-reset-modal {
+  width: 420px;
+  max-width: 95vw;
+}
+.password-reset-header-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.password-reset-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.password-reset-email {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-gray-600);
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-gray-200);
+  background: var(--color-gray-50);
+  border-bottom-left-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
 }
 
 /* Responsive */
