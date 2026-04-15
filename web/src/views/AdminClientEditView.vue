@@ -505,34 +505,77 @@ function toggleIcoRestriction(login, ico) {
 }
 
 // ── Unsaved changes tracking ──────────────────────────────────────────────────
+// Serializes only persisted data fields, excluding UI-only transient state
+// (expanded, uploadingContract, showPass, geocoding, etc.) so dirty detection
+// reflects real user edits rather than UI interactions.
+function serializeForm() {
+  return JSON.stringify({
+    clientId: form.clientId,
+    displayName: form.displayName,
+    notes: form.notes,
+    active: form.active,
+    logins: form.logins.map(l => ({
+      email: l.email,
+      restriction: l.restriction,
+      allowedIcos: [...(l.allowedIcos || [])],
+    })),
+    icos: form.icos.map(i => ({
+      ico: i.ico,
+      officialName: i.officialName,
+      freshqrEnabled: i.freshqrEnabled,
+      billingModel: i.billingModel,
+      contractFile: i.contractFile,
+      contractUploaded: i.contractUploaded,
+      objects: i.objects.map(o => ({
+        name: o.name,
+        address: o.address,
+        lat: o.lat,
+        lng: o.lng,
+      })),
+    })),
+    staff: form.staff.map(s => ({
+      employeeId: s.employeeId,
+      assignedObjects: [...(s.assignedObjects || [])],
+    })),
+    contacts: form.contacts.map(c => ({
+      name: c.name,
+      role: c.role,
+      phone: c.phone,
+      email: c.email,
+      scope: c.scope,
+      icoId: c.icoId,
+    })),
+  })
+}
+
 const initialFormState = ref(null)
 const isDirty = computed(() => {
   if (!initialFormState.value) return false
-  return JSON.stringify(form) !== initialFormState.value
+  return serializeForm() !== initialFormState.value
 })
 
 // Capture initial state after data loads
 watch(loading, (isLoading) => {
   if (!isLoading && !initialFormState.value) {
-    initialFormState.value = JSON.stringify(form)
+    initialFormState.value = serializeForm()
   }
 })
 
 // For new clients, capture state immediately
 if (isNew.value) {
-  initialFormState.value = JSON.stringify(form)
+  initialFormState.value = serializeForm()
 }
 
 // Update initial state after successful save
 watch(saved, (wasSaved) => {
   if (wasSaved) {
-    initialFormState.value = JSON.stringify(form)
+    initialFormState.value = serializeForm()
   }
 })
 
 // Mark current form state as clean (used after file uploads that persist to DB)
 function markClean() {
-  initialFormState.value = JSON.stringify(form)
+  initialFormState.value = serializeForm()
 }
 
 // Navigation guard for unsaved changes
