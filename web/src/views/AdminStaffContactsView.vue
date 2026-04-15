@@ -4,6 +4,7 @@ import {
   Phone, Mail, Plus, Pencil, Trash2, Loader2, Upload, X, Save, Users, GripVertical,
 } from 'lucide-vue-next'
 import { adminService } from '../api'
+import FilePreviewModal from '../components/FilePreviewModal.vue'
 
 const loading = ref(true)
 const loadError = ref(null)
@@ -22,6 +23,24 @@ const modal = ref({
 
 // Delete confirmation
 const deleteConfirm = ref({ show: false, id: null, name: '' })
+
+// Toast
+const toast = ref(null)
+let toastTimer = null
+function showToast(type, message) {
+  toast.value = { type, message }
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.value = null }, 3000)
+}
+
+// File preview
+const previewModal = ref({ show: false, url: '', filename: '' })
+function openPreview(url, filename) {
+  previewModal.value = { show: true, url, filename: filename || '' }
+}
+function closePreview() {
+  previewModal.value.show = false
+}
 
 // Drag-and-drop reorder state
 const dragIndex = ref(null)
@@ -146,9 +165,13 @@ async function uploadPhoto(event) {
   modal.value.uploading = true
   modal.value.error = null
   try {
-    const url = await adminService.uploadFile(file, 'staff-contacts')
+    const entity = modal.value.mode === 'edit' && modal.value.form.id
+      ? { type: 'staff_contact', id: modal.value.form.id, field: 'photo_url' }
+      : null
+    const url = await adminService.uploadFile(file, 'staff-contacts', entity)
     if (url) {
       modal.value.form.photo_url = url
+      showToast('success', 'Fotografie nahrána')
     } else {
       modal.value.error = 'Nahrání fotografie selhalo'
     }
@@ -308,7 +331,7 @@ async function persistOrder() {
         <div :id="`staff-contact-handle-${c.id}`" class="staff-drag-handle" title="Přetáhnout pro změnu pořadí">
           <GripVertical :size="18" />
         </div>
-        <div class="staff-avatar avatar avatar-lg">
+        <div class="staff-avatar avatar avatar-lg" :class="{ 'clickable': c.photo_url }" @click.stop="c.photo_url && openPreview(c.photo_url, c.name)">
           <img v-if="c.photo_url" :src="c.photo_url" :alt="c.name" />
           <span v-else>{{ initials(c.name) }}</span>
         </div>
@@ -414,7 +437,7 @@ async function persistOrder() {
           <div class="form-group">
             <label>Fotografie</label>
             <div class="photo-upload-row">
-              <div class="photo-preview avatar avatar-lg">
+              <div class="photo-preview avatar avatar-lg" :class="{ 'clickable': modal.form.photo_url }" @click="modal.form.photo_url && openPreview(modal.form.photo_url, modal.form.name)">
                 <img v-if="modal.form.photo_url" :src="modal.form.photo_url" alt="Náhled" />
                 <span v-else>{{ initials(modal.form.name) }}</span>
               </div>
@@ -501,6 +524,17 @@ async function persistOrder() {
           </button>
         </div>
       </div>
+    </div>
+
+    <FilePreviewModal
+      :show="previewModal.show"
+      :url="previewModal.url"
+      :filename="previewModal.filename"
+      @close="closePreview"
+    />
+
+    <div v-if="toast" id="staff-contacts-toast" class="toast" :class="'toast-' + toast.type">
+      {{ toast.message }}
     </div>
   </div>
 </template>

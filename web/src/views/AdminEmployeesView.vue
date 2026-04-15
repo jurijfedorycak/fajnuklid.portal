@@ -2,10 +2,12 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import {
-  Users, Plus, Search, Trash2, Upload, FileText,
+  Users, Plus, Search, Trash2, Upload, FileText, Download,
   ChevronDown, ChevronUp, Eye, EyeOff, User, Save, CheckCircle2, Loader2, Lightbulb, X,
 } from 'lucide-vue-next'
 import { adminService } from '../api'
+import FilePreviewModal from '../components/FilePreviewModal.vue'
+import { extractFilename, downloadFile } from '../utils/fileUtils'
 
 // ── State ────────────────────────────────────────────────────────────────────
 function uid() { return crypto.randomUUID() }
@@ -24,8 +26,23 @@ const validationErrors = ref(new Map())
 // Delete confirmation modal
 const deleteConfirm = ref({ show: false, empId: null, empName: '' })
 
-// Pending file uploads
-const pendingUploads = ref(new Map())
+// Toast
+const toast = ref(null)
+let toastTimer = null
+function showToast(type, message) {
+  toast.value = { type, message }
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.value = null }, 3000)
+}
+
+// File preview modal
+const previewModal = ref({ show: false, url: '', filename: '', mimeType: '' })
+function openPreview(url, filename) {
+  previewModal.value = { show: true, url, filename, mimeType: '' }
+}
+function closePreview() {
+  previewModal.value.show = false
+}
 
 // Map API response (snake_case) to frontend (camelCase)
 function mapEmployeeFromApi(e) {
@@ -39,9 +56,12 @@ function mapEmployeeFromApi(e) {
     tenureText: e.tenure_text || '',
     bio: e.bio || '',
     hobbies: e.hobbies || '',
-    photo: e.photo_url || null,
+    photo: e.photo_url ? extractFilename(e.photo_url) : null,
     photoUrl: e.photo_url || null,
     contractFile: e.contract_file || null,
+    contractOriginalName: e.contract_file ? extractFilename(e.contract_file) : null,
+    uploadingPhoto: false,
+    uploadingContract: false,
     showInPortal: !!e.show_in_portal,
     showPhoto: !!e.show_photo,
     showPhone: !!e.show_phone,
@@ -135,6 +155,9 @@ function addEmployee() {
     photo: null,
     photoUrl: null,
     contractFile: null,
+    contractOriginalName: null,
+    uploadingPhoto: false,
+    uploadingContract: false,
     showInPortal: false,
     showPhoto: false,
     showPhone: false,
@@ -156,7 +179,6 @@ function confirmDelete(emp) {
 
 function executeDelete() {
   employees.value = employees.value.filter(e => e.id !== deleteConfirm.value.empId)
-  pendingUploads.value.delete(deleteConfirm.value.empId)
   validationErrors.value.delete(deleteConfirm.value.empId)
   deleteConfirm.value = { show: false, empId: null, empName: '' }
 }
@@ -180,42 +202,97 @@ function handleModalKeydown(event) {
   }
 }
 
-function handlePhotoUpload(emp, event) {
+async function handlePhotoUpload(emp, event) {
   const file = event.target.files?.[0]
-  if (file) {
-    emp.photo = file.name
-    if (!pendingUploads.value.has(emp.id)) {
-      pendingUploads.value.set(emp.id, {})
+  if (!file || emp.uploadingPhoto) return
+  event.target.value = ''
+  emp.uploadingPhoto = true
+  const prevPhoto = emp.photo
+  const prevUrl = emp.photoUrl
+  emp.photo = file.name
+  try {
+    const entity = emp.id > 0 ? { type: 'employee', id: emp.id, field: 'photo_url' } : null
+    const url = await adminService.uploadFile(file, 'employee-photos', entity)
+    if (url) {
+      emp.photoUrl = url
+      if (entity) captureInitialState()
+      showToast('success', 'Fotografie nahrána')
+    } else {
+      emp.photo = prevPhoto
+      emp.photoUrl = prevUrl
+      saveError.value = 'Nahrání fotografie selhalo'
     }
-    pendingUploads.value.get(emp.id).photo = file
+  } catch (err) {
+    emp.photo = prevPhoto
+    emp.photoUrl = prevUrl
+    saveError.value = err.response?.data?.message || err.message || 'Nahrání fotografie selhalo'
+  } finally {
+    emp.uploadingPhoto = false
   }
 }
 
-function handleContractUpload(emp, event) {
+async function handleContractUpload(emp, event) {
   const file = event.target.files?.[0]
-  if (file) {
-    emp.contractFile = file.name
-    if (!pendingUploads.value.has(emp.id)) {
-      pendingUploads.value.set(emp.id, {})
+  if (!file || emp.uploadingContract) return
+  event.target.value = ''
+  emp.uploadingContract = true
+  const prevFile = emp.contractFile
+  const prevName = emp.contractOriginalName
+  emp.contractOriginalName = file.name
+  try {
+    const entity = emp.id > 0 ? { type: 'employee', id: emp.id, field: 'contract_file' } : null
+    const url = await adminService.uploadFile(file, 'employee-contracts', entity)
+    if (url) {
+      emp.contractFile = url
+      if (entity) captureInitialState()
+      showToast('success', 'Smlouva nahrána')
+    } else {
+      emp.contractFile = prevFile
+      emp.contractOriginalName = prevName
+      saveError.value = 'Nahrání smlouvy selhalo'
     }
-    pendingUploads.value.get(emp.id).contract = file
+  } catch (err) {
+    emp.contractFile = prevFile
+    emp.contractOriginalName = prevName
+    saveError.value = err.response?.data?.message || err.message || 'Nahrání smlouvy selhalo'
+  } finally {
+    emp.uploadingContract = false
   }
 }
 
-function removePhoto(emp) {
+async function removePhoto(emp) {
+  const prevPhoto = emp.photo
+  const prevUrl = emp.photoUrl
   emp.photo = null
   emp.photoUrl = null
-  const pending = pendingUploads.value.get(emp.id)
-  if (pending) {
-    delete pending.photo
+  if (emp.id > 0) {
+    try {
+      await adminService.removeFile('employee', emp.id, 'photo_url')
+      captureInitialState()
+      showToast('success', 'Fotografie odebrána')
+    } catch {
+      emp.photo = prevPhoto
+      emp.photoUrl = prevUrl
+      saveError.value = 'Odebrání fotografie selhalo'
+    }
   }
 }
 
-function removeContract(emp) {
+async function removeContract(emp) {
+  const prevFile = emp.contractFile
+  const prevName = emp.contractOriginalName
   emp.contractFile = null
-  const pending = pendingUploads.value.get(emp.id)
-  if (pending) {
-    delete pending.contract
+  emp.contractOriginalName = null
+  if (emp.id > 0) {
+    try {
+      await adminService.removeFile('employee', emp.id, 'contract_file')
+      captureInitialState()
+      showToast('success', 'Smlouva odebrána')
+    } catch {
+      emp.contractFile = prevFile
+      emp.contractOriginalName = prevName
+      saveError.value = 'Odebrání smlouvy selhalo'
+    }
   }
 }
 
@@ -230,22 +307,6 @@ async function save() {
 
   saving.value = true
   try {
-    // Upload pending files first
-    for (const [empId, files] of pendingUploads.value) {
-      const emp = employees.value.find(e => e.id === empId)
-      if (!emp) continue
-
-      if (files.photo) {
-        const url = await adminService.uploadFile(files.photo, 'employee-photos')
-        emp.photoUrl = url
-      }
-      if (files.contract) {
-        const url = await adminService.uploadFile(files.contract, 'employee-contracts')
-        emp.contractFile = url
-      }
-    }
-    pendingUploads.value.clear()
-
     const response = await adminService.saveEmployees(employees.value.map(e => ({
       id: e.id,
       firstName: e.firstName,
@@ -512,7 +573,8 @@ onBeforeUnmount(() => {
             @keydown.space.prevent="emp.expanded = !emp.expanded"
           >
             <div :id="`emp-avatar-${emp.id}`" class="emp-avatar" aria-hidden="true">
-              {{ initials(emp) }}
+              <img v-if="emp.photoUrl" :src="emp.photoUrl" :alt="emp.photo" class="emp-avatar-img" />
+              <template v-else>{{ initials(emp) }}</template>
             </div>
             <div class="emp-header-info">
               <span :id="`emp-name-${emp.id}`" class="emp-name">
@@ -658,22 +720,41 @@ onBeforeUnmount(() => {
               <div :id="`emp-${emp.id}-photo-label`" class="form-label upload-label">
                 <User :size="14" aria-hidden="true" /> Fotografie
               </div>
-              <div v-if="emp.photo" class="file-uploaded">
-                <div class="file-row">
-                  <User :size="16" class="text-success" aria-hidden="true" />
-                  <span class="fw-500">{{ emp.photo }}</span>
-                  <button
-                    :id="`emp-${emp.id}-photo-remove`"
-                    type="button"
-                    class="btn btn-ghost btn-sm"
-                    aria-label="Odebrat fotografii"
-                    @click="removePhoto(emp)"
-                  >
-                    <Trash2 :size="13" aria-hidden="true" />
-                  </button>
+              <div v-if="emp.photoUrl" class="file-uploaded">
+                <div :id="`emp-${emp.id}-photo-tile`" class="file-media-tile" :title="emp.photo">
+                  <img
+                    :id="`emp-${emp.id}-photo-thumb`"
+                    :src="emp.photoUrl"
+                    :alt="emp.photo"
+                    class="file-media-img clickable"
+                    @click="openPreview(emp.photoUrl, emp.photo)"
+                  />
+                  <div v-if="emp.uploadingPhoto" class="file-media-overlay file-media-overlay-loading">
+                    <Loader2 :size="24" class="spin" style="color:var(--color-white);" />
+                  </div>
+                  <div v-else class="file-media-overlay">
+                    <button
+                      :id="`emp-${emp.id}-photo-download`"
+                      type="button"
+                      class="file-media-btn"
+                      aria-label="Stáhnout fotografii"
+                      @click.stop="downloadFile(emp.photoUrl, emp.photo)"
+                    >
+                      <Download :size="14" aria-hidden="true" />
+                    </button>
+                    <button
+                      :id="`emp-${emp.id}-photo-remove`"
+                      type="button"
+                      class="file-media-btn file-media-btn-danger"
+                      aria-label="Odebrat fotografii"
+                      @click.stop="removePhoto(emp)"
+                    >
+                      <Trash2 :size="14" aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
                 <label :for="`emp-${emp.id}-photo-input`" class="btn btn-outline btn-sm upload-btn">
-                  <Upload :size="13" aria-hidden="true" /> Nahrát novou fotku
+                  <Upload :size="13" aria-hidden="true" /> Změnit fotku
                   <input
                     :id="`emp-${emp.id}-photo-input`"
                     type="file"
@@ -682,6 +763,12 @@ onBeforeUnmount(() => {
                     @change="e => handlePhotoUpload(emp, e)"
                   />
                 </label>
+              </div>
+              <div v-else-if="emp.uploadingPhoto" class="file-uploading">
+                <div class="file-media-tile file-media-tile-loading">
+                  <Loader2 :size="24" class="spin" style="color:var(--color-gray-400);" />
+                </div>
+                <span class="field-hint">Nahrávám...</span>
               </div>
               <div v-else class="file-empty">
                 <p :id="`emp-${emp.id}-photo-hint`" class="field-hint upload-hint">Pokud fotka chybí, zobrazí se výchozí avatar s iniciálami.</p>
@@ -707,16 +794,32 @@ onBeforeUnmount(() => {
               <div v-if="emp.contractFile" class="file-uploaded">
                 <div class="file-row file-row-success">
                   <FileText :size="16" class="text-success" aria-hidden="true" />
-                  <span class="fw-500">{{ emp.contractFile }}</span>
                   <button
-                    :id="`emp-${emp.id}-contract-remove`"
+                    :id="`emp-${emp.id}-contract-name`"
                     type="button"
-                    class="btn btn-ghost btn-sm"
-                    aria-label="Odebrat smlouvu"
-                    @click="removeContract(emp)"
-                  >
-                    <Trash2 :size="13" aria-hidden="true" />
-                  </button>
+                    class="file-name-btn fw-500"
+                    @click="openPreview(emp.contractFile, emp.contractOriginalName || extractFilename(emp.contractFile))"
+                  >{{ emp.contractOriginalName || extractFilename(emp.contractFile) }}</button>
+                  <div class="file-actions">
+                    <button
+                      :id="`emp-${emp.id}-contract-download`"
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      aria-label="Stáhnout smlouvu"
+                      @click="downloadFile(emp.contractFile, emp.contractOriginalName || extractFilename(emp.contractFile))"
+                    >
+                      <Download :size="13" aria-hidden="true" />
+                    </button>
+                    <button
+                      :id="`emp-${emp.id}-contract-remove`"
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      aria-label="Odebrat smlouvu"
+                      @click="removeContract(emp)"
+                    >
+                      <Trash2 :size="13" aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
                 <label :for="`emp-${emp.id}-contract-input`" class="btn btn-outline btn-sm upload-btn">
                   <Upload :size="13" aria-hidden="true" /> Nahrát novou verzi
@@ -728,6 +831,12 @@ onBeforeUnmount(() => {
                     @change="e => handleContractUpload(emp, e)"
                   />
                 </label>
+              </div>
+              <div v-else-if="emp.uploadingContract" class="file-uploading">
+                <div class="file-row">
+                  <Loader2 :size="16" class="spin" style="color:var(--color-gray-400);" />
+                  <span class="fw-500">{{ emp.contractOriginalName }}</span>
+                </div>
               </div>
               <div v-else class="file-empty">
                 <label :for="`emp-${emp.id}-contract-input-empty`" class="btn btn-primary btn-sm upload-btn">
@@ -881,6 +990,14 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
+    <FilePreviewModal
+      :show="previewModal.show"
+      :url="previewModal.url"
+      :filename="previewModal.filename"
+      :mime-type="previewModal.mimeType"
+      @close="closePreview"
+    />
+
     <!-- Delete confirmation modal -->
     <Teleport to="body">
       <div v-if="deleteConfirm.show" id="emp-delete-modal" class="modal-overlay" @click.self="cancelDelete">
@@ -907,6 +1024,10 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </Teleport>
+
+    <div v-if="toast" id="emp-toast" class="toast" :class="'toast-' + toast.type">
+      {{ toast.message }}
+    </div>
   </div>
 </template>
 
@@ -1090,13 +1211,19 @@ onBeforeUnmount(() => {
   height: 40px;
   border-radius: 50%;
   background: var(--color-mid);
-  color: white;
+  color: var(--color-white);
   font-size: 14px;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+}
+.emp-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .emp-header-info {
@@ -1179,6 +1306,69 @@ onBeforeUnmount(() => {
 }
 
 .file-uploaded { display: flex; flex-direction: column; }
+.file-uploading { display: flex; flex-direction: column; gap: 6px; }
+
+.file-media-tile {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-gray-200);
+  overflow: hidden;
+  cursor: pointer;
+}
+.file-media-tile-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-gray-50);
+  cursor: default;
+}
+.file-media-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.file-media-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+.file-media-overlay-loading {
+  opacity: 1;
+}
+.file-media-tile:hover .file-media-overlay:not(.file-media-overlay-loading),
+.file-media-tile:focus-within .file-media-overlay:not(.file-media-overlay-loading) {
+  opacity: 1;
+}
+.file-media-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--color-gray-700);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.file-media-btn:hover {
+  background: var(--color-white);
+  color: var(--color-gray-900);
+}
+.file-media-btn-danger:hover {
+  background: var(--color-danger-light);
+  color: var(--color-danger);
+}
 .file-row {
   display: flex;
   align-items: center;
@@ -1189,6 +1379,26 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .file-row-success { background: var(--color-success-light); }
+.file-name-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-accent);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color var(--transition);
+}
+.file-name-btn:hover {
+  text-decoration-color: var(--color-accent);
+}
+.file-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
 
 /* GDPR section */
 .gdpr-section {

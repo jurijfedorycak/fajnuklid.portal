@@ -2,8 +2,10 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { adminService } from '../api'
+import { extractFilename, downloadFile } from '../utils/fileUtils'
+import FilePreviewModal from '../components/FilePreviewModal.vue'
 import {
-  ArrowLeft, Save, Plus, Trash2, Building2, MapPin, User, Users,
+  ArrowLeft, Save, Plus, Trash2, Building2, MapPin, User, Users, Download,
   Lock, Phone, Mail, FileSignature, Clock, ChevronDown, ChevronUp,
   Eye, EyeOff, Upload, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight,
   Globe, Shield, Copy, Loader2, HelpCircle, Lightbulb, Search, X,
@@ -22,6 +24,24 @@ const saved  = ref(false)
 const availableEmployees = ref([])
 const showEmployeePicker = ref(false)
 const employeeSearch = ref('')
+
+// Toast
+const toast = ref(null)
+let toastTimer = null
+function showToast(type, message) {
+  toast.value = { type, message }
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.value = null }, 3000)
+}
+
+// File preview
+const previewModal = ref({ show: false, url: '', filename: '' })
+function openPreview(url, filename) {
+  previewModal.value = { show: true, url, filename: filename || '' }
+}
+function closePreview() {
+  previewModal.value.show = false
+}
 
 // ── Validation ────────────────────────────────────────────────────────────────
 const validationErrors = reactive({})
@@ -157,8 +177,11 @@ onMounted(async () => {
         form.logins = (data.logins || []).map(l => ({ ...l, id: uid(), showPass: false, tempPass: '', expanded: false }))
         form.icos = (data.icos || []).map(i => ({
           ...i,
+          companyId: i.id || null,
           id: uid(),
           expanded: false,
+          contractOriginalName: i.contractFile ? extractFilename(i.contractFile) : null,
+          uploadingContract: false,
           objects: (i.objects || []).map(o => ({ ...o, id: uid(), expanded: false })),
         }))
         form.staff = (data.staff || []).map(s => ({ ...s, id: uid(), expanded: false }))
@@ -202,7 +225,7 @@ function addLogin() {
 function removeLogin(id) { form.logins = form.logins.filter(l => l.id !== id) }
 
 function addIco() {
-  form.icos.push({ id: uid(), ico: '', officialName: '', freshqrEnabled: false, billingModel: 'hourly', contractUploaded: false, contractFile: null, objects: [], expanded: true })
+  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrEnabled: false, billingModel: 'hourly', contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], expanded: true })
 }
 function removeIco(id) { form.icos = form.icos.filter(i => i.id !== id) }
 
@@ -229,6 +252,7 @@ function selectEmployee(emp) {
     phone: emp.phone,
     tenure: emp.tenure,
     bio: emp.bio,
+    photoUrl: emp.photoUrl || null,
     assignedObjects: [],
     expanded: false,
   })
@@ -256,10 +280,58 @@ function addContact() {
 }
 function removeContact(id) { form.contacts = form.contacts.filter(c => c.id !== id) }
 
-// ── Contract upload mockup ────────────────────────────────────────────────────
-function handleContractUpload(ico, event) {
+// ── Contract upload ──────────────────────────────────────────────────────────
+async function handleContractUpload(ico, event) {
   const file = event.target.files?.[0]
-  if (file) { ico.contractFile = file.name; ico.contractUploaded = true }
+  if (!file || ico.uploadingContract) return
+  event.target.value = ''
+  ico.uploadingContract = true
+  ico.contractOriginalName = file.name
+  const prevFile = ico.contractFile
+  const prevUploaded = ico.contractUploaded
+  try {
+    const entity = ico.companyId ? { type: 'company', id: ico.companyId, field: 'contract_pdf_path' } : null
+    const url = await adminService.uploadFile(file, 'employee-contracts', entity)
+    if (url) {
+      ico.contractFile = url
+      ico.contractUploaded = true
+      if (ico.companyId) markClean()
+      showToast('success', 'Smlouva nahrána')
+    } else {
+      ico.contractFile = prevFile
+      ico.contractUploaded = prevUploaded
+      ico.contractOriginalName = null
+      error.value = 'Nahrání smlouvy selhalo'
+    }
+  } catch (err) {
+    ico.contractFile = prevFile
+    ico.contractUploaded = prevUploaded
+    ico.contractOriginalName = null
+    error.value = err.response?.data?.message || err.message || 'Nahrání smlouvy selhalo'
+  } finally {
+    ico.uploadingContract = false
+  }
+}
+
+async function removeContract(ico) {
+  const prevFile = ico.contractFile
+  const prevUploaded = ico.contractUploaded
+  const prevName = ico.contractOriginalName
+  ico.contractUploaded = false
+  ico.contractFile = null
+  ico.contractOriginalName = null
+  if (ico.companyId) {
+    try {
+      await adminService.removeFile('company', ico.companyId, 'contract_pdf_path')
+      markClean()
+      showToast('success', 'Smlouva odebrána')
+    } catch {
+      ico.contractFile = prevFile
+      ico.contractUploaded = prevUploaded
+      ico.contractOriginalName = prevName
+      error.value = 'Odebrání smlouvy selhalo'
+    }
+  }
 }
 
 // ── Map helpers ───────────────────────────────────────────────────────────────
@@ -457,6 +529,11 @@ watch(saved, (wasSaved) => {
     initialFormState.value = JSON.stringify(form)
   }
 })
+
+// Mark current form state as clean (used after file uploads that persist to DB)
+function markClean() {
+  initialFormState.value = JSON.stringify(form)
+}
 
 // Navigation guard for unsaved changes
 onBeforeRouteLeave((to, from) => {
@@ -876,15 +953,26 @@ onBeforeUnmount(() => {
                   <div v-if="ico.contractUploaded" class="contract-uploaded">
                     <div class="contract-file-row">
                       <FileSignature :size="16" class="text-success" />
-                      <span class="fw-500">{{ ico.contractFile }}</span>
-                      <button class="btn btn-ghost btn-sm" @click="ico.contractUploaded = false; ico.contractFile = null">
-                        <Trash2 :size="13" />
-                      </button>
+                      <span class="fw-500 file-link" @click="openPreview(ico.contractFile, ico.contractOriginalName || extractFilename(ico.contractFile))">{{ ico.contractOriginalName || extractFilename(ico.contractFile) }}</span>
+                      <div class="file-actions">
+                        <button class="btn btn-ghost btn-sm" aria-label="Stáhnout smlouvu" @click="downloadFile(ico.contractFile, ico.contractOriginalName || extractFilename(ico.contractFile))">
+                          <Download :size="13" />
+                        </button>
+                        <button class="btn btn-ghost btn-sm" aria-label="Odebrat smlouvu" @click="removeContract(ico)">
+                          <Trash2 :size="13" />
+                        </button>
+                      </div>
                     </div>
                     <label class="btn btn-outline btn-sm" style="cursor:pointer; margin-top:8px;">
                       <Upload :size="13" /> Nahrát novou verzi
                       <input type="file" accept=".pdf" style="display:none;" @change="e => handleContractUpload(ico, e)" />
                     </label>
+                  </div>
+                  <div v-else-if="ico.uploadingContract" class="contract-uploading">
+                    <div class="contract-file-row">
+                      <Loader2 :size="16" class="spin" style="color:var(--color-gray-400);" />
+                      <span class="fw-500">{{ ico.contractOriginalName }}</span>
+                    </div>
                   </div>
                   <div v-else class="contract-empty">
                     <div class="alert alert-warning" style="margin-bottom:12px;">
@@ -1012,7 +1100,10 @@ onBeforeUnmount(() => {
             <div v-for="person in form.staff" :key="person.id" class="card staff-card">
 
               <div class="staff-card-header" @click="person.expanded = !person.expanded">
-                <div class="staff-avatar">{{ person.name ? person.name.split(' ').map(w=>w[0]).join('').slice(0,2) : '?' }}</div>
+                <div class="staff-avatar" :class="{ 'clickable': person.photoUrl }" @click.stop="person.photoUrl && openPreview(person.photoUrl, person.name)">
+                  <img v-if="person.photoUrl" :src="person.photoUrl" :alt="person.name" class="avatar-img" />
+                  <template v-else>{{ person.name ? person.name.split(' ').map(w=>w[0]).join('').slice(0,2) : '?' }}</template>
+                </div>
                 <div class="staff-header-info">
                   <span class="staff-name">{{ person.name || '(Nový pracovník)' }}</span>
                   <span class="staff-role text-muted">{{ person.role }}</span>
@@ -1230,7 +1321,8 @@ onBeforeUnmount(() => {
               @click="selectEmployee(emp)"
             >
               <div class="picker-item-avatar">
-                {{ emp.name.split(' ').map(w => w[0]).join('').slice(0, 2) || '?' }}
+                <img v-if="emp.photoUrl" :src="emp.photoUrl" :alt="emp.name" class="avatar-img" />
+                <template v-else>{{ emp.name.split(' ').map(w => w[0]).join('').slice(0, 2) || '?' }}</template>
               </div>
               <div class="picker-item-info">
                 <span class="picker-item-name">{{ emp.name }}</span>
@@ -1242,6 +1334,17 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </Teleport>
+
+    <FilePreviewModal
+      :show="previewModal.show"
+      :url="previewModal.url"
+      :filename="previewModal.filename"
+      @close="closePreview"
+    />
+
+    <div v-if="toast" id="client-edit-toast" class="toast" :class="'toast-' + toast.type">
+      {{ toast.message }}
+    </div>
   </div>
 </template>
 
@@ -1665,6 +1768,11 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-md);
   font-size: 13px;
 }
+.contract-file-row .file-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
 .contract-empty {}
 
 /* Objects */
@@ -1752,10 +1860,11 @@ onBeforeUnmount(() => {
   height: 36px;
   border-radius: 50%;
   background: var(--color-mid);
-  color: white;
+  color: var(--color-white);
   font-size: 13px;
   font-weight: 700;
   display: flex;
+  overflow: hidden;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
@@ -2013,12 +2122,13 @@ onBeforeUnmount(() => {
   height: 36px;
   border-radius: 50%;
   background: var(--color-mid);
-  color: white;
+  color: var(--color-white);
   font-size: 12px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   flex-shrink: 0;
 }
 .picker-item-info {

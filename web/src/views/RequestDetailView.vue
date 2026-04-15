@@ -2,10 +2,12 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft, Calendar, User, Clock, MessageSquare,
+  ArrowLeft, Calendar, User, Clock, MessageSquare, Download,
   CheckCircle2, XCircle, Loader2, Trash2, Building2, Paperclip, FileText, Image as ImageIcon
 } from 'lucide-vue-next'
 import { maintenanceRequestService, REQUEST_STATUSES, REQUEST_CATEGORIES } from '../api'
+import FilePreviewModal from '../components/FilePreviewModal.vue'
+import { downloadFile } from '../utils/fileUtils'
 
 const route = useRoute()
 const router = useRouter()
@@ -122,6 +124,14 @@ async function cancelRequest() {
 function isImage(att) {
   return (att.mimeType || '').startsWith('image/')
 }
+
+const previewModal = ref({ show: false, url: '', filename: '', mimeType: '' })
+function openPreview(att) {
+  previewModal.value = { show: true, url: att.url, filename: att.filename, mimeType: att.mimeType || '' }
+}
+function closePreview() {
+  previewModal.value.show = false
+}
 </script>
 
 <template>
@@ -180,21 +190,43 @@ function isImage(att) {
       <div v-if="beforeAttachments.length" id="request-detail-attachments" style="margin-top:24px;">
         <div class="section-label"><Paperclip :size="14" style="vertical-align:-2px;" /> Přílohy</div>
         <div class="attach-gallery">
-          <a
+          <div
             v-for="att in beforeAttachments"
             :key="att.id"
             :id="'att-before-' + att.id"
-            :href="att.url"
-            target="_blank"
-            rel="noopener noreferrer"
             class="attach-tile"
           >
-            <img v-if="isImage(att)" :src="att.url" :alt="att.filename" />
-            <div v-else class="attach-tile-pdf">
+            <template v-if="isImage(att)">
+              <img
+                :src="att.url" :alt="att.filename"
+                class="attach-tile-clickable"
+                role="button" tabindex="0"
+                @click="openPreview(att)" @keydown.enter="openPreview(att)"
+              />
+              <span
+                class="attach-tile-name"
+                role="button" tabindex="0"
+                @click="openPreview(att)" @keydown.enter="openPreview(att)"
+              >{{ att.filename }}</span>
+            </template>
+            <div
+              v-else class="attach-tile-pdf"
+              role="button" tabindex="0"
+              @click="openPreview(att)" @keydown.enter="openPreview(att)"
+            >
               <FileText :size="28" />
               <span>{{ att.filename }}</span>
             </div>
-          </a>
+            <button
+              :id="'att-before-download-' + att.id"
+              class="attach-tile-download"
+              title="Stáhnout"
+              aria-label="Stáhnout"
+              @click.stop="downloadFile(att.url, att.filename)"
+            >
+              <Download :size="14" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -202,23 +234,53 @@ function isImage(att) {
       <div v-if="showAfterGallery" id="request-detail-attachments-after" style="margin-top:24px;">
         <div class="section-label"><ImageIcon :size="14" style="vertical-align:-2px;" /> Přílohy – po vyřešení</div>
         <div class="attach-gallery">
-          <a
+          <div
             v-for="att in afterAttachments"
             :key="att.id"
             :id="'att-after-' + att.id"
-            :href="att.url"
-            target="_blank"
-            rel="noopener noreferrer"
             class="attach-tile"
           >
-            <img v-if="isImage(att)" :src="att.url" :alt="att.filename" />
-            <div v-else class="attach-tile-pdf">
+            <template v-if="isImage(att)">
+              <img
+                :src="att.url" :alt="att.filename"
+                class="attach-tile-clickable"
+                role="button" tabindex="0"
+                @click="openPreview(att)" @keydown.enter="openPreview(att)"
+              />
+              <span
+                class="attach-tile-name"
+                role="button" tabindex="0"
+                @click="openPreview(att)" @keydown.enter="openPreview(att)"
+              >{{ att.filename }}</span>
+            </template>
+            <div
+              v-else class="attach-tile-pdf"
+              role="button" tabindex="0"
+              @click="openPreview(att)" @keydown.enter="openPreview(att)"
+            >
               <FileText :size="28" />
               <span>{{ att.filename }}</span>
             </div>
-          </a>
+            <button
+              :id="'att-after-download-' + att.id"
+              class="attach-tile-download"
+              title="Stáhnout"
+              aria-label="Stáhnout"
+              @click.stop="downloadFile(att.url, att.filename)"
+            >
+              <Download :size="14" />
+            </button>
+          </div>
         </div>
       </div>
+
+      <FilePreviewModal
+        :show="previewModal.show"
+        :url="previewModal.url"
+        :filename="previewModal.filename"
+        :mime-type="previewModal.mimeType"
+        @close="closePreview"
+      />
 
       <!-- Cancel in Nový -->
       <div v-if="canCancel" id="request-detail-cancel-section" style="margin-top:20px;">
@@ -354,24 +416,44 @@ function isImage(att) {
   gap: 10px;
 }
 .attach-tile {
-  display: block;
+  position: relative;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--color-gray-50);
-  aspect-ratio: 1;
-  text-decoration: none;
   color: inherit;
 }
 .attach-tile img {
   width: 100%;
-  height: 100%;
+  aspect-ratio: 1;
   object-fit: cover;
   display: block;
 }
+.attach-tile-clickable {
+  cursor: pointer;
+  transition: opacity var(--transition);
+}
+.attach-tile-clickable:hover {
+  opacity: 0.85;
+}
+.attach-tile-name {
+  display: block;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--color-accent);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-tile-name:hover {
+  text-decoration: underline;
+}
 .attach-tile-pdf {
   width: 100%;
-  height: 100%;
+  aspect-ratio: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -382,6 +464,36 @@ function isImage(att) {
   font-size: 11px;
   text-align: center;
   word-break: break-word;
+  cursor: pointer;
+}
+.attach-tile-pdf:hover {
+  background: var(--color-gray-100);
+}
+.attach-tile-download {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--color-gray-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition);
+}
+.attach-tile:hover .attach-tile-download,
+.attach-tile:focus-within .attach-tile-download,
+.attach-tile-download:focus {
+  opacity: 1;
+}
+.attach-tile-download:hover {
+  background: var(--color-white);
+  color: var(--color-gray-900);
 }
 
 .confirm-card {

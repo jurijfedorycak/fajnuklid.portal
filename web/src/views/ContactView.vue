@@ -2,6 +2,7 @@
 import { Phone, Mail, MapPin, ChevronDown, ChevronUp, Clock, Loader2, Users } from 'lucide-vue-next'
 import { ref, onMounted } from 'vue'
 import { contactService } from '../api'
+import FilePreviewModal from '../components/FilePreviewModal.vue'
 
 // State
 const loading = ref(true)
@@ -29,6 +30,15 @@ onMounted(async () => {
 
 function toggleCompany(idx) {
   expandedCompany.value = expandedCompany.value === idx ? null : idx
+}
+
+// File preview
+const previewModal = ref({ show: false, url: '', filename: '' })
+function openPreview(url, filename) {
+  previewModal.value = { show: true, url, filename: filename || '' }
+}
+function closePreview() {
+  previewModal.value.show = false
 }
 
 function initials(name) {
@@ -90,9 +100,12 @@ function whatsappUrl(phone) {
       >
         <div
           class="contact-avatar avatar avatar-xl"
-          :style="{ background: avatarColors[idx % avatarColors.length] }"
+          :class="{ 'clickable': c.photo_url }"
+          :style="c.photo_url ? {} : { background: avatarColors[idx % avatarColors.length] }"
+          @click="c.photo_url && openPreview(c.photo_url, c.name)"
         >
-          {{ initials(c.name) }}
+          <img v-if="c.photo_url" :src="c.photo_url" :alt="c.name" class="avatar-img" />
+          <template v-else>{{ initials(c.name) }}</template>
         </div>
         <h2 class="contact-name">{{ c.name }}</h2>
         <p class="contact-role">{{ c.role }}</p>
@@ -161,6 +174,13 @@ function whatsappUrl(phone) {
       </div>
     </div>
     </template>
+
+    <FilePreviewModal
+      :show="previewModal.show"
+      :url="previewModal.url"
+      :filename="previewModal.filename"
+      @close="closePreview"
+    />
   </div>
 </template>
 

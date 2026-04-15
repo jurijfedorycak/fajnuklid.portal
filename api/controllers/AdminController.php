@@ -19,6 +19,7 @@ use App\Repositories\LocationRepository;
 use App\Repositories\ClientContactRepository;
 use App\Repositories\StaffContactRepository;
 use App\Services\MaintenanceRequestService;
+use App\Services\R2StorageService;
 use App\Helpers\PasswordHelper;
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
@@ -164,14 +165,15 @@ class AdminController extends Controller
                 ];
             }, $locations);
 
+            $contractPath = $company['contract_pdf_path'] ?? null;
             return [
                 'id' => (int) $company['id'],
                 'ico' => $company['registration_number'] ?? '',
                 'officialName' => $company['name'] ?? '',
                 'freshqrEnabled' => false,
                 'billingModel' => 'hourly',
-                'contractUploaded' => false,
-                'contractFile' => null,
+                'contractUploaded' => !empty($contractPath),
+                'contractFile' => $contractPath,
                 'objects' => $objects,
             ];
         }, $companies);
@@ -201,6 +203,7 @@ class AdminController extends Controller
                 'phone' => $emp['phone'] ?? '',
                 'tenure' => $emp['tenure_text'] ?? '',
                 'bio' => $emp['bio'] ?? '',
+                'photoUrl' => $emp['photo_url'] ?? null,
                 'assignedObjects' => $locationMappings[$employeeId] ?? [],
             ];
         }, $clientEmployees);
@@ -848,12 +851,110 @@ class AdminController extends Controller
     // ─────────────────────────────────────────────────────────────────────────────
 
     /**
-     * Upload a file (photo or contract).
+     * Upload a file and optionally persist the URL to the database immediately.
+     * Accepts optional form fields: entity_type, entity_id, field.
      */
     public function uploadFile(Request $request): void
     {
         $storageController = new StorageController();
-        $storageController->upload($request);
+        $result = $storageController->processUpload($request);
+
+        $entityType = $request->input('entity_type');
+        $entityId = $request->input('entity_id');
+        $field = $request->input('field');
+
+        if ($entityType && $entityId && $field) {
+            $this->persistFileUrl((string) $entityType, (int) $entityId, (string) $field, $result['url']);
+        }
+
+        Response::success($result, 'Soubor byl nahrán');
+    }
+
+    /**
+     * Persist an uploaded file URL directly to the relevant DB record.
+     */
+    private function persistFileUrl(string $entityType, int $entityId, string $field, ?string $url): void
+    {
+        $allowed = [
+            'employee' => ['photo_url', 'contract_file'],
+            'company' => ['contract_pdf_path'],
+            'staff_contact' => ['photo_url'],
+        ];
+
+        if (!isset($allowed[$entityType]) || !in_array($field, $allowed[$entityType], true)) {
+            throw new ValidationException('Neplatný typ entity nebo pole pro uložení souboru');
+        }
+
+        switch ($entityType) {
+            case 'employee':
+                $this->employeeRepo->update($entityId, [$field => $url]);
+                break;
+            case 'company':
+                $this->companyRepo->update($entityId, [$field => $url]);
+                break;
+            case 'staff_contact':
+                $this->staffContactRepo->update($entityId, [$field => $url]);
+                break;
+        }
+    }
+
+    /**
+     * Clear a file field on a DB record and delete the file from R2.
+     * Expects JSON body: { entity_type, entity_id, field }
+     */
+    public function removeFile(Request $request): void
+    {
+        $entityType = $request->input('entity_type');
+        $entityId = $request->input('entity_id');
+        $field = $request->input('field');
+
+        if (!$entityType || !$entityId || !$field) {
+            throw new ValidationException('Chybí parametry entity_type, entity_id nebo field');
+        }
+
+        $currentUrl = $this->getEntityFileUrl((string) $entityType, (int) $entityId, (string) $field);
+
+        $this->persistFileUrl((string) $entityType, (int) $entityId, (string) $field, null);
+
+        if ($currentUrl) {
+            try {
+                $storage = new R2StorageService();
+                // Extract storage key from full URL (path after domain)
+                $key = ltrim(parse_url($currentUrl, PHP_URL_PATH) ?: '', '/');
+                if ($key) {
+                    $storage->delete($key);
+                }
+            } catch (\Throwable $e) {
+                // R2 deletion is best-effort; DB record is already cleared
+            }
+        }
+
+        Response::success(null, 'Soubor byl odebrán');
+    }
+
+    /**
+     * Look up the current file URL stored on an entity record.
+     */
+    private function getEntityFileUrl(string $entityType, int $entityId, string $field): ?string
+    {
+        $allowed = [
+            'employee' => ['photo_url', 'contract_file'],
+            'company' => ['contract_pdf_path'],
+            'staff_contact' => ['photo_url'],
+        ];
+
+        if (!isset($allowed[$entityType]) || !in_array($field, $allowed[$entityType], true)) {
+            return null;
+        }
+
+        $record = match ($entityType) {
+            'employee' => $this->employeeRepo->findById($entityId),
+            'company' => $this->companyRepo->findById($entityId),
+            'staff_contact' => $this->staffContactRepo->findById($entityId),
+            default => null,
+        };
+
+        return $record[$field] ?? null;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, AlertTriangle, Wrench, HelpCircle, Loader2, Paperclip, X, FileText, ClipboardList } from 'lucide-vue-next'
 import { maintenanceRequestService, REQUEST_CATEGORIES, REQUEST_STATUSES, ATTACHMENT_LIMITS } from '../api'
+import FilePreviewModal from '../components/FilePreviewModal.vue'
 
 const router = useRouter()
 const iconMap = { AlertTriangle, Wrench, HelpCircle }
@@ -87,9 +88,41 @@ function onFilesChosen(e) {
   e.target.value = ''
 }
 
+const objectUrls = new Map()
+function getObjectUrl(file) {
+  if (!objectUrls.has(file)) {
+    objectUrls.set(file, URL.createObjectURL(file))
+  }
+  return objectUrls.get(file)
+}
+
+// File preview
+const previewModal = ref({ show: false, url: '', filename: '', mimeType: '' })
+function openFilePreview(file) {
+  previewModal.value = {
+    show: true,
+    url: getObjectUrl(file),
+    filename: file.name,
+    mimeType: file.type || '',
+  }
+}
+function closePreview() {
+  previewModal.value.show = false
+}
+
 function removeFile(index) {
+  const file = files.value[index]
+  if (objectUrls.has(file)) {
+    URL.revokeObjectURL(objectUrls.get(file))
+    objectUrls.delete(file)
+  }
   files.value.splice(index, 1)
 }
+
+onBeforeUnmount(() => {
+  objectUrls.forEach(url => URL.revokeObjectURL(url))
+  objectUrls.clear()
+})
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`
@@ -244,9 +277,19 @@ async function submit() {
         />
         <div v-if="fileError" class="field-error">{{ fileError }}</div>
         <ul v-if="files.length" id="new-request-attach-list" class="attach-list">
-          <li v-for="(f, i) in files" :key="i" class="attach-item">
-            <FileText :size="16" />
-            <span class="attach-name">{{ f.name }}</span>
+          <li v-for="(f, i) in files" :key="f.name + f.size + f.lastModified" class="attach-item" :id="'attach-item-' + i">
+            <img
+              v-if="f.type.startsWith('image/')"
+              :id="'attach-thumb-' + i"
+              :src="getObjectUrl(f)"
+              :alt="f.name"
+              class="attach-thumb clickable"
+              @click="openFilePreview(f)"
+            />
+            <template v-else>
+              <FileText :size="16" />
+            </template>
+            <span class="attach-name file-link" @click="openFilePreview(f)">{{ f.name }}</span>
             <span class="attach-size">{{ formatSize(f.size) }}</span>
             <button type="button" class="attach-remove" @click="removeFile(i)" :id="'attach-remove-' + i">
               <X :size="14" />
@@ -296,6 +339,14 @@ async function submit() {
       </ul>
     </aside>
     </div>
+
+    <FilePreviewModal
+      :show="previewModal.show"
+      :url="previewModal.url"
+      :filename="previewModal.filename"
+      :mime-type="previewModal.mimeType"
+      @close="closePreview"
+    />
   </div>
 </template>
 
@@ -471,6 +522,14 @@ async function submit() {
   border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--color-gray-700);
+}
+.attach-thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--color-gray-200);
+  flex-shrink: 0;
 }
 .attach-name {
   flex: 1;

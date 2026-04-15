@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Users, Clock, Star, BookOpen, MapPin, Loader2 } from 'lucide-vue-next'
 import { personnelService } from '../api'
+import FilePreviewModal from '../components/FilePreviewModal.vue'
 
 // State
 const loading = ref(true)
@@ -42,6 +43,15 @@ const totalStaff = computed(() => {
 })
 
 const colors = ['#667ea1', '#198754', '#0d6efd', '#e67e00', '#6f42c1', '#d63384']
+// File preview
+const previewModal = ref({ show: false, url: '', filename: '' })
+function openPreview(url, filename) {
+  previewModal.value = { show: true, url, filename: filename || '' }
+}
+function closePreview() {
+  previewModal.value.show = false
+}
+
 function avatarColor(id) {
   return colors[((id || 1) - 1) % colors.length]
 }
@@ -141,9 +151,12 @@ function initials(name) {
             <div class="person-header">
               <div
                 class="avatar avatar-lg person-avatar"
-                :style="{ background: avatarColor(person.id) }"
+                :class="{ 'clickable': person.photoUrl }"
+                :style="person.photoUrl ? {} : { background: avatarColor(person.id) }"
+                @click="person.photoUrl && openPreview(person.photoUrl, person.name)"
               >
-                <span>{{ initials(person.name) }}</span>
+                <img v-if="person.photoUrl" :src="person.photoUrl" :alt="person.name" class="avatar-img" />
+                <span v-else>{{ initials(person.name) }}</span>
               </div>
               <div class="person-meta">
                 <h3 class="person-name">{{ person.name }}</h3>
@@ -181,6 +194,13 @@ function initials(name) {
       Zobrazené informace jsou sdíleny se souhlasem pracovníků v souladu se zásadami ochrany osobních údajů.
     </p>
     </template>
+
+    <FilePreviewModal
+      :show="previewModal.show"
+      :url="previewModal.url"
+      :filename="previewModal.filename"
+      @close="closePreview"
+    />
   </div>
 </template>
 

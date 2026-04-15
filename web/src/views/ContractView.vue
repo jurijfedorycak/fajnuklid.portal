@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { FileSignature, Download, AlertTriangle, Phone, Mail, Loader2 } from 'lucide-vue-next'
 import { contractService } from '../api'
+import FilePreviewModal from '../components/FilePreviewModal.vue'
 
 // State
 const loading = ref(true)
@@ -12,6 +13,8 @@ const contract = ref({
   filename: null,
   uploadedAt: null,
 })
+const pdfPreviewUrl = ref(null)
+const pdfPreviewFailed = ref(false)
 
 // Fetch data
 onMounted(async () => {
@@ -19,6 +22,9 @@ onMounted(async () => {
     const response = await contractService.getContract()
     if (response.success) {
       contract.value = response.data
+      if (response.data.hasPdf && response.data.companyId) {
+        loadPdfPreview(response.data.companyId)
+      }
     } else {
       error.value = response.message || 'Nepodařilo se načíst data'
     }
@@ -29,15 +35,40 @@ onMounted(async () => {
   }
 })
 
+async function loadPdfPreview(companyId) {
+  try {
+    const blob = await contractService.downloadContract(companyId)
+    pdfPreviewUrl.value = window.URL.createObjectURL(blob)
+  } catch {
+    pdfPreviewFailed.value = true
+  }
+}
+
+onBeforeUnmount(() => {
+  if (pdfPreviewUrl.value) {
+    window.URL.revokeObjectURL(pdfPreviewUrl.value)
+  }
+})
+
 function formatDate(d) {
   if (!d) return ''
   const [y, m, day] = d.split('-')
   return `${day}.${m}.${y}`
 }
 
+const previewModal = ref({ show: false })
+function openPreview() {
+  if (pdfPreviewUrl.value) {
+    previewModal.value.show = true
+  }
+}
+function closePreview() {
+  previewModal.value.show = false
+}
+
 async function downloadContract() {
   try {
-    const blob = await contractService.downloadContract()
+    const blob = await contractService.downloadContract(contract.value.companyId)
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -85,7 +116,7 @@ async function downloadContract() {
 
         <div class="contract-file-info">
           <FileSignature :size="18" />
-          <span>{{ contract.filename }}</span>
+          <span class="file-link" @click="openPreview">{{ contract.filename }}</span>
         </div>
 
         <button class="btn btn-primary btn-lg" style="margin-top:8px;" @click="downloadContract">
@@ -94,16 +125,25 @@ async function downloadContract() {
         </button>
       </div>
 
-      <!-- PDF preview placeholder -->
-      <div class="card pdf-preview">
-        <div class="pdf-placeholder">
-          <FileSignature :size="64" style="color:var(--color-gray-300);" />
-          <p class="text-muted" style="font-size:13px; margin-top:12px;">Náhled dokumentu</p>
-          <p class="text-muted" style="font-size:12px;">(Ve finální aplikaci bude zobrazen náhled PDF)</p>
-          <button class="btn btn-outline btn-sm" style="margin-top:16px;" @click="downloadContract">
-            <Download :size="15" />
-            Otevřít PDF
+      <!-- PDF preview -->
+      <div id="contract-pdf-preview" class="card pdf-preview">
+        <iframe
+          v-if="pdfPreviewUrl"
+          id="contract-pdf-iframe"
+          :src="pdfPreviewUrl"
+          class="pdf-iframe"
+          title="Náhled smlouvy"
+        />
+        <div v-else-if="pdfPreviewFailed" class="pdf-placeholder">
+          <FileSignature :size="48" style="color:var(--color-gray-300);" />
+          <p class="text-muted" style="font-size:13px; margin-top:12px;">Náhled není dostupný</p>
+          <button class="btn btn-outline btn-sm" style="margin-top:12px;" @click="downloadContract">
+            <Download :size="15" /> Stáhnout PDF
           </button>
+        </div>
+        <div v-else class="pdf-placeholder">
+          <Loader2 :size="32" class="spin" style="color:var(--color-gray-300);" />
+          <p class="text-muted" style="font-size:13px; margin-top:12px;">Načítám náhled...</p>
         </div>
       </div>
     </div>
@@ -139,6 +179,12 @@ async function downloadContract() {
         </div>
       </div>
     </div>
+    <FilePreviewModal
+      :show="previewModal.show"
+      :url="pdfPreviewUrl || ''"
+      :filename="contract.filename || 'smlouva.pdf'"
+      @close="closePreview"
+    />
   </div>
 </template>
 
@@ -198,6 +244,14 @@ async function downloadContract() {
 /* PDF preview */
 .pdf-preview {
   min-height: 360px;
+  overflow: hidden;
+}
+
+.pdf-iframe {
+  width: 100%;
+  height: 600px;
+  border: none;
+  display: block;
 }
 
 .pdf-placeholder {

@@ -68,8 +68,9 @@ $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class],
     // Stats
     $router->get('/stats', 'AdminController@stats');
 
-    // File upload
+    // File upload and removal
     $router->post('/upload', 'AdminController@uploadFile');
+    $router->delete('/upload', 'AdminController@removeFile');
 
     // Clients
     $router->get('/clients', 'AdminController@listClients');

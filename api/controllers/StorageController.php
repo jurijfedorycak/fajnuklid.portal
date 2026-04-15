@@ -42,7 +42,12 @@ class StorageController extends Controller
         $this->storage = new R2StorageService();
     }
 
-    public function upload(Request $request): void
+    /**
+     * Upload a file to R2 and return the result without sending an HTTP response.
+     *
+     * @return array{key: string, url: string}
+     */
+    public function processUpload(Request $request): array
     {
         if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
             throw new ValidationException('Soubor nebyl nahrán nebo došlo k chybě při nahrávání');
@@ -72,10 +77,14 @@ class StorageController extends Controller
         $key = $this->storage->upload($folder, $file['tmp_name'], $file['name'], $mimeType);
         $url = $this->storage->getUrl($key);
 
-        Response::success([
-            'key' => $key,
-            'url' => $url,
-        ], 'Soubor byl nahrán');
+        return ['key' => $key, 'url' => $url];
+    }
+
+    public function upload(Request $request): void
+    {
+        $result = $this->processUpload($request);
+
+        Response::success($result, 'Soubor byl nahrán');
     }
 
     public function getDownloadUrl(Request $request): void

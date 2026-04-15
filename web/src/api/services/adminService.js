@@ -7,11 +7,18 @@ export const adminService = {
     return response.data
   },
 
-  // File upload
-  async uploadFile(file, folder) {
+  // File upload. Optional entity param persists the URL to DB immediately.
+  // entity: { type: 'employee'|'company'|'staff_contact', id: number, field: string }
+  async uploadFile(file, folder, entity = null) {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('folder', folder)
+
+    if (entity?.type && entity?.id && entity?.field) {
+      formData.append('entity_type', entity.type)
+      formData.append('entity_id', String(entity.id))
+      formData.append('field', entity.field)
+    }
 
     const response = await apiClient.post('/admin/upload', formData, {
       headers: {
@@ -19,6 +26,14 @@ export const adminService = {
       },
     })
     return response.data?.url || response.data?.data?.url
+  },
+
+  // File removal — clears a file field on a DB record immediately
+  async removeFile(entityType, entityId, field) {
+    const response = await apiClient.delete('/admin/upload', {
+      data: { entity_type: entityType, entity_id: entityId, field },
+    })
+    return response.data
   },
 
   // Clients
