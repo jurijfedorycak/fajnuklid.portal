@@ -101,7 +101,7 @@ const benefits = [
 
     <div id="login-container" class="login-container">
       <!-- Marketing Panel -->
-      <div id="login-marketing-panel" class="login-marketing" aria-hidden="true">
+      <div id="login-marketing-panel" class="login-marketing">
         <div id="login-marketing-content" class="login-marketing-content">
           <h1 id="login-marketing-title" class="login-marketing-title">
             Klientský portál<br />
@@ -240,10 +240,11 @@ const benefits = [
           </form>
         </div>
 
-        <footer id="login-footer" class="login-footer">
-          © {{ currentYear }} FAJN UKLID s.r.o. - Klientský portál
-        </footer>
       </div>
+
+      <footer id="login-footer" class="login-footer">
+        © {{ currentYear }} FAJN UKLID s.r.o. - Klientský portál
+      </footer>
     </div>
   </div>
 </template>
@@ -256,16 +257,19 @@ const benefits = [
 
 .login-container {
   display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
 /* Marketing Panel */
 .login-marketing {
-  flex: 1;
-  display: none;
-  background: transparent;
-  padding: 3rem;
+  flex: none;
+  background: rgba(22, 36, 56, 0.55);
+  border-radius: var(--radius-xl);
+  margin: 0 1.5rem 2rem;
+  padding: 2rem 1.5rem;
   color: var(--color-white);
+  order: 1;
 }
 
 .login-marketing-content {
@@ -358,7 +362,6 @@ const benefits = [
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  min-height: 100vh;
 }
 
 .login-card {
@@ -396,21 +399,43 @@ const benefits = [
 }
 
 .login-footer {
-  margin-top: 1.5rem;
+  order: 2;
+  padding: 1.5rem;
   font-size: 0.75rem;
   color: var(--color-text-on-gradient);
   text-align: center;
 }
 
-/* Desktop: Show marketing panel */
+/* Desktop: Side-by-side layout */
 @media (min-width: 64rem) {
+  .login-container {
+    flex-direction: row;
+    position: relative;
+  }
+
   .login-marketing {
+    flex: 1;
     display: flex;
+    background: transparent;
+    border-radius: 0;
+    margin: 0;
+    padding: 3rem;
+    order: 0;
   }
 
   .login-form-panel {
-    flex: 0 0 32.5rem;
+    flex: 1.5;
     background: transparent;
+    min-height: 100vh;
+  }
+
+  .login-footer {
+    position: absolute;
+    bottom: 1rem;
+    right: 0;
+    left: 0;
+    order: unset;
+    padding: 0;
   }
 }
 
