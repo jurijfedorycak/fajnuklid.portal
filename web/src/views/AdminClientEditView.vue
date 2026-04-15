@@ -155,11 +155,11 @@ const hasErrors = computed(() => Object.keys(validationErrors).length > 0)
 
 // ── Section nav ───────────────────────────────────────────────────────────────
 const sections = [
-  { id: 'sec-basic',    label: 'Základní informace', icon: User },
-  { id: 'sec-logins',   label: 'Přihlašovací účty',  icon: Lock },
-  { id: 'sec-icos',     label: 'IČO & Provozovny',   icon: Building2 },
-  { id: 'sec-staff',    label: 'Personál',            icon: Users },
-  { id: 'sec-contacts', label: 'Kontaktní osoby',     icon: Phone },
+  { id: 'sec-basic',    key: 'basic',    label: 'Základní informace', icon: User },
+  { id: 'sec-logins',   key: 'logins',   label: 'Přihlašovací účty',  icon: Lock },
+  { id: 'sec-icos',     key: 'icos',     label: 'IČO & Provozovny',   icon: Building2 },
+  { id: 'sec-staff',    key: 'staff',    label: 'Personál',            icon: Users },
+  { id: 'sec-contacts', key: 'contacts', label: 'Kontaktní osoby',     icon: Phone },
 ]
 const activeSection = ref('sec-basic')
 
@@ -267,6 +267,8 @@ const sectionProgress = computed(() => ({
   basic: form.displayName.trim().length > 0,
   logins: form.logins.some(l => l.email.trim().length > 0),
   icos: form.icos.some(i => i.ico.trim().length > 0),
+  staff: form.staff.length > 0,
+  contacts: form.contacts.some(c => c.name.trim().length > 0),
 }))
 
 const requiredCount = computed(() =>
@@ -717,21 +719,10 @@ onBeforeUnmount(() => {
           :key="sec.id"
           :id="`nav-${sec.id}`"
           class="snav-item"
-          :class="{
-            active: activeSection === sec.id,
-            completed: (sec.id === 'sec-basic' && sectionProgress.basic) ||
-                       (sec.id === 'sec-logins' && sectionProgress.logins) ||
-                       (sec.id === 'sec-icos' && sectionProgress.icos)
-          }"
+          :class="{ active: activeSection === sec.id, completed: sectionProgress[sec.key] }"
           @click="scrollToSection(sec.id)"
         >
-          <CheckCircle2
-            v-if="(sec.id === 'sec-basic' && sectionProgress.basic) ||
-                  (sec.id === 'sec-logins' && sectionProgress.logins) ||
-                  (sec.id === 'sec-icos' && sectionProgress.icos)"
-            :size="15"
-            class="snav-check"
-          />
+          <CheckCircle2 v-if="sectionProgress[sec.key]" :size="15" class="snav-check" />
           <component v-else :is="sec.icon" :size="15" />
           <span>{{ sec.label }}</span>
         </button>
