@@ -852,70 +852,8 @@ class AdminController extends Controller
      */
     public function uploadFile(Request $request): void
     {
-        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-            throw new ValidationException('Soubor nebyl nahrán nebo došlo k chybě při nahrávání');
-        }
-
-        $file = $_FILES['file'];
-        $folder = $request->input('folder', 'uploads');
-
-        // Validate folder
-        $allowedFolders = ['employee-photos', 'employee-contracts', 'staff-contacts'];
-        if (!in_array($folder, $allowedFolders, true)) {
-            throw new ValidationException('Neplatná složka pro nahrání');
-        }
-
-        // Validate file type based on folder
-        $allowedMimes = [];
-        $maxSize = 5 * 1024 * 1024; // 5MB default
-
-        if ($folder === 'employee-photos' || $folder === 'staff-contacts') {
-            $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-            $maxSize = 2 * 1024 * 1024; // 2MB for photos
-        } elseif ($folder === 'employee-contracts') {
-            $allowedMimes = [
-                'application/pdf',
-                'application/msword',
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            ];
-            $maxSize = 10 * 1024 * 1024; // 10MB for contracts
-        }
-
-        // Check file size
-        if ($file['size'] > $maxSize) {
-            throw new ValidationException('Soubor je příliš velký. Maximum: ' . ($maxSize / 1024 / 1024) . ' MB');
-        }
-
-        // Check MIME type
-        $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mimeType = $finfo->file($file['tmp_name']);
-
-        if (!in_array($mimeType, $allowedMimes, true)) {
-            throw new ValidationException('Nepodporovaný typ souboru');
-        }
-
-        // Generate unique filename
-        $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-        $safeName = preg_replace('/[^a-zA-Z0-9_-]/', '', pathinfo($file['name'], PATHINFO_FILENAME));
-        $uniqueName = $safeName . '_' . uniqid() . '.' . $extension;
-
-        // Create upload directory if it doesn't exist
-        $uploadDir = dirname(__DIR__) . '/uploads/' . $folder;
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-
-        $targetPath = $uploadDir . '/' . $uniqueName;
-
-        if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
-            throw new ValidationException('Nepodařilo se uložit soubor');
-        }
-
-        // Return the URL
-        $baseUrl = rtrim(getenv('APP_URL') ?: '', '/');
-        $url = $baseUrl . '/uploads/' . $folder . '/' . $uniqueName;
-
-        Response::success(['url' => $url], 'Soubor byl nahrán');
+        $storageController = new StorageController();
+        $storageController->upload($request);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

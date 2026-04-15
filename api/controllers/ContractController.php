@@ -9,17 +9,20 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\CompanyRepository;
 use App\Repositories\StaffContactRepository;
+use App\Services\R2StorageService;
 use App\Exceptions\NotFoundException;
 
 class ContractController extends Controller
 {
     private CompanyRepository $companyRepo;
     private StaffContactRepository $staffContactRepo;
+    private R2StorageService $storage;
 
     public function __construct()
     {
         $this->companyRepo = new CompanyRepository();
         $this->staffContactRepo = new StaffContactRepository();
+        $this->storage = new R2StorageService();
     }
 
     public function index(Request $request): void
@@ -91,14 +94,20 @@ class ContractController extends Controller
 
         $filePath = $company['contract_pdf_path'];
 
-        // In a real app, this would be a proper file path
-        // For now, return a placeholder response indicating the file path
-        if (!file_exists($filePath)) {
-            throw new NotFoundException('Soubor smlouvy nebyl nalezen');
-        }
+        $isLocalPath = str_starts_with($filePath, '/') || (bool) preg_match('/^[A-Za-z]:/', $filePath);
 
-        $content = file_get_contents($filePath);
-        $filename = basename($filePath);
+        if ($isLocalPath) {
+            $realPath = realpath($filePath);
+            $uploadsDir = realpath(dirname(__DIR__) . '/uploads');
+            if ($realPath === false || $uploadsDir === false || !str_starts_with($realPath, $uploadsDir)) {
+                throw new NotFoundException('Soubor smlouvy nebyl nalezen');
+            }
+            $content = file_get_contents($realPath);
+            $filename = basename($realPath);
+        } else {
+            $content = $this->storage->getContent($filePath);
+            $filename = basename($filePath);
+        }
 
         Response::pdf($content, $filename);
     }

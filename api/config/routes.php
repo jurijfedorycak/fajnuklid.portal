@@ -58,6 +58,9 @@ $router->group(['middleware' => [AuthMiddleware::class]], function (Router $rout
     $router->post('/maintenance-requests/{id}/reject', 'MaintenanceRequestController@reject');
     $router->post('/maintenance-requests/{id}/cancel', 'MaintenanceRequestController@cancel');
     $router->post('/maintenance-requests/{id}/attachments', 'MaintenanceRequestController@uploadAttachment');
+
+    // Storage (download URL generation for authenticated users)
+    $router->get('/storage/download', 'StorageController@getDownloadUrl');
 });
 
 // Admin routes - require authentication + admin privileges
@@ -97,4 +100,8 @@ $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class],
     $router->put('/maintenance-requests/{id}', 'AdminController@updateMaintenanceRequest');
     $router->post('/maintenance-requests/{id}/activity', 'AdminController@addMaintenanceRequestActivity');
     $router->delete('/maintenance-requests/{id}', 'AdminController@deleteMaintenanceRequest');
+
+    // Storage management (admin-only upload and delete)
+    $router->post('/storage/upload', 'StorageController@upload');
+    $router->delete('/storage', 'StorageController@delete');
 });

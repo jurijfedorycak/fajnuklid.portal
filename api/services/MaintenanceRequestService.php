@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Config\Config;
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
 use App\Repositories\CompanyRepository;
@@ -30,15 +31,18 @@ class MaintenanceRequestService
     private MaintenanceRequestRepository $repo;
     private CompanyRepository $companyRepo;
     private ?MailerService $mailer;
+    private R2StorageService $storage;
 
     public function __construct(
         ?MaintenanceRequestRepository $repo = null,
         ?CompanyRepository $companyRepo = null,
-        ?MailerService $mailer = null
+        ?MailerService $mailer = null,
+        ?R2StorageService $storage = null
     ) {
         $this->repo = $repo ?? new MaintenanceRequestRepository();
         $this->companyRepo = $companyRepo ?? new CompanyRepository();
         $this->mailer = $mailer;
+        $this->storage = $storage ?? new R2StorageService();
     }
 
     public function resolveClientIdForUser(int $userId): ?int
@@ -246,27 +250,17 @@ class MaintenanceRequestService
             throw new ValidationException('Maximální počet příloh (5) byl dosažen.');
         }
 
-        $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-        $safeBase = preg_replace('/[^a-zA-Z0-9_-]/', '', pathinfo($file['name'], PATHINFO_FILENAME)) ?: 'soubor';
-        $uniqueName = $safeBase . '_' . uniqid() . ($extension ? '.' . $extension : '');
-
-        $folder = 'maintenance-request-attachments';
-        $uploadDir = dirname(__DIR__) . '/uploads/' . $folder;
-        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
-            throw new ValidationException('Nepodařilo se připravit úložiště.');
-        }
-
-        $targetPath = $uploadDir . '/' . $uniqueName;
-        if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
-            throw new ValidationException('Nepodařilo se uložit soubor.');
-        }
-
-        $relativePath = '/uploads/' . $folder . '/' . $uniqueName;
+        $key = $this->storage->upload(
+            'maintenance-request-attachments',
+            $file['tmp_name'],
+            $file['name'],
+            $mime
+        );
 
         $id = $this->repo->addAttachment([
             'request_id' => $requestId,
             'phase' => $phase,
-            'file_path' => $relativePath,
+            'file_path' => $key,
             'original_filename' => $file['name'],
             'mime_type' => $mime,
             'size_bytes' => (int) $file['size'],
@@ -276,17 +270,22 @@ class MaintenanceRequestService
         return [
             'id' => $id,
             'phase' => $phase,
-            'url' => $this->attachmentUrl($relativePath),
+            'url' => $this->attachmentUrl($key),
             'filename' => $file['name'],
             'mimeType' => $mime,
             'sizeBytes' => (int) $file['size'],
         ];
     }
 
-    private function attachmentUrl(string $relativePath): string
+    private function attachmentUrl(string $keyOrPath): string
     {
-        $base = rtrim(getenv('APP_URL') ?: '', '/');
-        return $base . $relativePath;
+        // Backward compatibility: legacy rows have /uploads/... paths
+        if (str_starts_with($keyOrPath, '/uploads/')) {
+            $base = rtrim(Config::get('APP_URL', ''), '/');
+            return $base . $keyOrPath;
+        }
+
+        return $this->storage->getUrl($keyOrPath);
     }
 
     // ─────────── Admin ───────────
