@@ -86,4 +86,58 @@ class Response
     {
         self::file($content, $filename, 'application/pdf');
     }
+
+    /**
+     * Stream a binary payload to the browser with inline (or attachment) disposition.
+     * Used by the R2 proxy endpoint so that `<img src>` and download links resolve to
+     * stable URLs that return the underlying bytes directly.
+     *
+     * `immutable` is deliberately NOT set — admins can remove a file, so browsers
+     * must be allowed to re-validate. `max-age=300` gives a five-minute cache to
+     * keep list views snappy without letting deleted photos linger for a day.
+     */
+    public static function stream(
+        string $content,
+        string $contentType,
+        ?string $filename = null,
+        bool $asAttachment = false,
+        int $cacheMaxAge = 300
+    ): void {
+        $contentType = self::sanitizeContentType($contentType);
+
+        http_response_code(200);
+        header('Content-Type: ' . $contentType);
+        header('Content-Length: ' . strlen($content));
+        header('Cache-Control: private, max-age=' . $cacheMaxAge);
+        header('X-Content-Type-Options: nosniff');
+        // Make <img> and <iframe> work when FE and API live on different origins, and
+        // ensure shared caches key responses per-Origin rather than leaking CORS headers.
+        header('Cross-Origin-Resource-Policy: cross-origin');
+        header('Vary: Origin');
+
+        if ($filename !== null) {
+            $safeFilename = preg_replace('/[^a-zA-Z0-9._-]/', '', basename($filename));
+            if ($safeFilename === '' || $safeFilename === null) {
+                $safeFilename = 'file';
+            }
+            $disposition = $asAttachment ? 'attachment' : 'inline';
+            header('Content-Disposition: ' . $disposition . '; filename="' . $safeFilename . '"');
+        }
+
+        echo $content;
+        exit;
+    }
+
+    /**
+     * Reject anything that doesn't look like a RFC-compliant media type so an
+     * attacker-controlled ContentType cannot inject extra response headers
+     * (CR/LF/other bytes) via `header()`. Falls back to application/octet-stream
+     * when validation fails. Delimiter is ~ because the character class
+     * legitimately contains #.
+     */
+    public static function sanitizeContentType(string $contentType): string
+    {
+        $pattern = '~^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*/[a-zA-Z0-9!#$&\-^_.+]+(?:\s*;\s*[a-zA-Z0-9!#$&\-^_.+]+=[a-zA-Z0-9!#$&\-^_.+"]+)*$~';
+        return preg_match($pattern, $contentType) === 1 ? $contentType : 'application/octet-stream';
+    }
 }

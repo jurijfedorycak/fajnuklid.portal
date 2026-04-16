@@ -37,14 +37,16 @@ class ContractController extends Controller
         // Multi-company support can iterate via separate calls when added.
         $primary = $companies[0] ?? null;
 
+        $contractStored = $primary['contract_pdf_path'] ?? null;
         $contract = [
             'contractsEnabled' => $primary !== null,
-            'hasPdf' => $primary !== null && !empty($primary['contract_pdf_path']),
+            'hasPdf' => $primary !== null && !empty($contractStored),
             'companyId' => $primary['id'] ?? null,
             'companyName' => $primary['name'] ?? null,
             'registrationNumber' => $primary['registration_number'] ?? null,
-            'filename' => $primary && !empty($primary['contract_pdf_path'])
-                ? basename($primary['contract_pdf_path'])
+            // basename on a raw URL would include the signed-request query string — normalize first.
+            'filename' => !empty($contractStored)
+                ? basename($this->storage->extractKey($contractStored))
                 : null,
             'uploadedAt' => $primary['updated_at'] ?? null,
             'startDate' => $primary['contract_start_date'] ?? null,
@@ -105,8 +107,10 @@ class ContractController extends Controller
             $content = file_get_contents($realPath);
             $filename = basename($realPath);
         } else {
-            $content = $this->storage->getContent($filePath);
-            $filename = basename($filePath);
+            // Legacy rows may hold a full URL instead of the bare key; normalize first.
+            $key = $this->storage->extractKey($filePath);
+            $content = $this->storage->getContent($key);
+            $filename = basename($key);
         }
 
         Response::pdf($content, $filename);

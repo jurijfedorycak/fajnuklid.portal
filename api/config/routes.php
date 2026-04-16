@@ -16,6 +16,10 @@ $router->addGlobalMiddleware(CorsMiddleware::class);
 $router->get('/robots.txt', 'RobotsController@index');
 $router->post('/auth/login', 'AuthController@login');
 
+// Public stable proxy URL for R2-backed files. Authentication is the HMAC signature
+// carried on the URL itself — see StorageController::serveFile for the security model.
+$router->get('/storage/file', 'StorageController@serveFile');
+
 // Protected routes - require authentication
 $router->group(['middleware' => [AuthMiddleware::class]], function (Router $router) {
     // Auth

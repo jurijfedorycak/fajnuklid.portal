@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Config\Config;
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
 use App\Repositories\CompanyRepository;
@@ -277,15 +276,12 @@ class MaintenanceRequestService
         ];
     }
 
-    private function attachmentUrl(string $keyOrPath): string
+    private function attachmentUrl(string $keyOrPath): ?string
     {
-        // Backward compatibility: legacy rows have /uploads/... paths
-        if (str_starts_with($keyOrPath, '/uploads/')) {
-            $base = rtrim(Config::get('APP_URL', ''), '/');
-            return $base . $keyOrPath;
-        }
-
-        return $this->storage->getUrl($keyOrPath);
+        // Use the stable HMAC-signed proxy URL so attachments don't expire while
+        // a maintenance-request view is open in the browser. Return null (not '')
+        // so FE doesn't accidentally render <img src=""> and re-request the page.
+        return $this->storage->resolveProxyUrl($keyOrPath);
     }
 
     // ─────────── Admin ───────────

@@ -8,14 +8,17 @@ use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\StaffContactRepository;
+use App\Services\R2StorageService;
 
 class ContactController extends Controller
 {
     private StaffContactRepository $staffContactRepo;
+    private R2StorageService $storage;
 
     public function __construct()
     {
         $this->staffContactRepo = new StaffContactRepository();
+        $this->storage = new R2StorageService();
     }
 
     public function index(Request $request): void
@@ -30,7 +33,7 @@ class ContactController extends Controller
                 'role' => $c['position'],
                 'phone' => $c['phone'],
                 'email' => $c['email'],
-                'photo_url' => $c['photo_url'],
+                'photo_url' => $this->storage->resolveProxyUrl($c['photo_url'] ?? null),
             ];
         }, $staffContacts);
 

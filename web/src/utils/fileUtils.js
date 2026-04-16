@@ -1,34 +1,35 @@
 /**
- * Extract a human-readable filename from an R2 URL or storage key.
+ * Pull the R2 storage key out of a value that might be a key, a legacy R2 URL, or
+ * one of our stable proxy URLs (/storage/file?key=...&sig=...). Returns the original
+ * input untouched when it's neither a parseable URL nor empty.
+ */
+function storageKeyFromAny(urlOrKey) {
+  if (!urlOrKey) return ''
+  try {
+    const url = new URL(urlOrKey, 'http://localhost')
+    const keyParam = url.searchParams.get('key')
+    if (keyParam) return keyParam
+    return url.pathname.replace(/^\/+/, '')
+  } catch {
+    return urlOrKey
+  }
+}
+
+/**
+ * Extract a human-readable filename from an R2 URL, proxy URL, or storage key.
  * R2 keys follow the pattern: {folder}/{safeName}_{16hexchars}.{ext}
  * This strips the folder and the unique-ID suffix.
- *
- * Examples:
- *   "https://cdn.example.com/employee-photos/jan_novak_abc123def456gh78.jpg" → "jan_novak.jpg"
- *   "employee-photos/report_a1b2c3d4e5f6g7h8.pdf" → "report.pdf"
- *   "my_file.jpg" → "my_file.jpg"  (no unique suffix detected)
- *   null → ""
  */
 export function extractFilename(urlOrKey) {
   if (!urlOrKey) return ''
 
-  // Get the last path segment (handles full URLs and keys)
-  let filename
-  try {
-    const url = new URL(urlOrKey)
-    const segments = url.pathname.split('/').filter(Boolean)
-    filename = segments[segments.length - 1] || ''
-  } catch {
-    // Not a valid URL — treat as a key or plain filename
-    const segments = urlOrKey.split('/').filter(Boolean)
-    filename = segments[segments.length - 1] || urlOrKey
-  }
+  const key = storageKeyFromAny(urlOrKey)
+  const segments = key.split('/').filter(Boolean)
+  let filename = segments[segments.length - 1] || urlOrKey
 
-  // Decode URI-encoded characters
   filename = decodeURIComponent(filename)
 
   // Strip the _{16hexchars} unique-ID suffix before the extension
-  // Pattern: name_[0-9a-f]{16}.ext → name.ext
   const match = filename.match(/^(.+)_[0-9a-f]{16}(\.\w+)$/i)
   if (match) {
     return match[1] + match[2]
@@ -44,22 +45,17 @@ const PDF_EXTENSIONS = ['pdf']
 function getExtension(urlOrMime) {
   if (!urlOrMime) return ''
 
-  // If it looks like a MIME type
+  // MIME-type shape: "image/jpeg" → "jpeg"
   if (urlOrMime.includes('/') && !urlOrMime.includes('.')) {
     const sub = urlOrMime.split('/')[1] || ''
     return sub.toLowerCase()
   }
 
-  // Extract extension from URL or filename
-  try {
-    const url = new URL(urlOrMime)
-    const path = url.pathname
-    const ext = path.split('.').pop()
-    return (ext || '').toLowerCase()
-  } catch {
-    const ext = urlOrMime.split('.').pop()
-    return (ext || '').toLowerCase()
-  }
+  // Resolve to the underlying storage key so proxy URLs (/storage/file?key=...)
+  // still yield the right extension.
+  const filename = extractFilename(urlOrMime)
+  const ext = filename.split('.').pop()
+  return (ext || '').toLowerCase()
 }
 
 export function isImageUrl(urlOrMime) {

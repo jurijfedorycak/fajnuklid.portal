@@ -38,6 +38,7 @@ class AdminController extends Controller
     private ClientContactRepository $clientContactRepo;
     private StaffContactRepository $staffContactRepo;
     private MaintenanceRequestService $maintenanceRequestService;
+    private R2StorageService $storage;
 
     public function __construct()
     {
@@ -53,6 +54,7 @@ class AdminController extends Controller
         $this->clientContactRepo = new ClientContactRepository();
         $this->staffContactRepo = new StaffContactRepository();
         $this->maintenanceRequestService = new MaintenanceRequestService();
+        $this->storage = new R2StorageService();
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -173,7 +175,7 @@ class AdminController extends Controller
                 'freshqrEnabled' => false,
                 'billingModel' => 'hourly',
                 'contractUploaded' => !empty($contractPath),
-                'contractFile' => $contractPath,
+                'contractFile' => $this->storage->resolveProxyUrl($contractPath),
                 'objects' => $objects,
             ];
         }, $companies);
@@ -203,7 +205,7 @@ class AdminController extends Controller
                 'phone' => $emp['phone'] ?? '',
                 'tenure' => $emp['tenure_text'] ?? '',
                 'bio' => $emp['bio'] ?? '',
-                'photoUrl' => $emp['photo_url'] ?? null,
+                'photoUrl' => $this->storage->resolveProxyUrl($emp['photo_url'] ?? null),
                 'assignedObjects' => $locationMappings[$employeeId] ?? [],
             ];
         }, $clientEmployees);
@@ -301,11 +303,16 @@ class AdminController extends Controller
                     ]);
                 }
 
+                $incomingContract = $icoData['contract_file'] ?? null;
                 $companyId = $this->companyRepo->create([
                     'client_id' => $clientDbId,
                     'registration_number' => $ico,
                     'name' => $officialName ?: $data['display_name'],
-                    'contract_pdf_path' => $icoData['contract_file'] ?? null,
+                    // FE echoes the resolved URL; persist the bare R2 key so the URL
+                    // can be regenerated fresh on every read.
+                    'contract_pdf_path' => is_string($incomingContract)
+                        ? ($this->storage->extractKey($incomingContract) ?: null)
+                        : null,
                 ]);
 
                 $companyIds[] = $companyId;
@@ -677,11 +684,11 @@ class AdminController extends Controller
                 'phone' => $emp['phone'],
                 'personal_id' => $emp['personal_id'],
                 'position' => $emp['position'],
-                'photo_url' => $emp['photo_url'],
+                'photo_url' => $this->storage->resolveProxyUrl($emp['photo_url'] ?? null),
                 'tenure_text' => $emp['tenure_text'],
                 'bio' => $emp['bio'],
                 'hobbies' => $emp['hobbies'],
-                'contract_file' => $emp['contract_file'],
+                'contract_file' => $this->storage->resolveProxyUrl($emp['contract_file'] ?? null),
                 'show_name' => (bool) $emp['show_name'],
                 'show_photo' => (bool) $emp['show_photo'],
                 'show_phone' => (bool) $emp['show_phone'],
@@ -707,6 +714,9 @@ class AdminController extends Controller
         if (!$employee) {
             throw new NotFoundException('Zaměstnanec nebyl nalezen');
         }
+
+        $employee['photo_url'] = $this->storage->resolveProxyUrl($employee['photo_url'] ?? null);
+        $employee['contract_file'] = $this->storage->resolveProxyUrl($employee['contract_file'] ?? null);
 
         $locations = $this->employeeLocationRepo->findByEmployeeId($id);
 
@@ -759,6 +769,13 @@ class AdminController extends Controller
         ];
         $updateData = array_intersect_key($data, array_flip($allowedFields));
 
+        // FE may echo the resolved URL back; always persist the bare R2 key.
+        foreach (['photo_url', 'contract_file'] as $fileField) {
+            if (array_key_exists($fileField, $updateData) && is_string($updateData[$fileField])) {
+                $updateData[$fileField] = $this->storage->extractKey($updateData[$fileField]) ?: null;
+            }
+        }
+
         if (!empty($updateData)) {
             $this->employeeRepo->update($id, $updateData);
         }
@@ -769,6 +786,8 @@ class AdminController extends Controller
         }
 
         $updated = $this->employeeRepo->findById($id);
+        $updated['photo_url'] = $this->storage->resolveProxyUrl($updated['photo_url'] ?? null);
+        $updated['contract_file'] = $this->storage->resolveProxyUrl($updated['contract_file'] ?? null);
 
         Response::success($updated, 'Zaměstnanec byl aktualizován');
     }
@@ -801,6 +820,8 @@ class AdminController extends Controller
         // Map camelCase from frontend to snake_case for database
         $mappedEmployees = [];
         foreach ($employees as $emp) {
+            $incomingPhoto = $emp['photoUrl'] ?? $emp['photo_url'] ?? null;
+            $incomingContract = $emp['contractFile'] ?? $emp['contract_file'] ?? null;
             $mapped = [
                 'first_name' => $emp['firstName'] ?? $emp['first_name'] ?? '',
                 'last_name' => $emp['lastName'] ?? $emp['last_name'] ?? '',
@@ -808,11 +829,12 @@ class AdminController extends Controller
                 'phone' => $emp['phone'] ?? null,
                 'personal_id' => $emp['personalId'] ?? $emp['personal_id'] ?? null,
                 'position' => $emp['role'] ?? $emp['position'] ?? null,
-                'photo_url' => $emp['photoUrl'] ?? $emp['photo_url'] ?? null,
+                // Normalize file fields — FE may echo resolved URLs; we persist the bare key.
+                'photo_url' => is_string($incomingPhoto) ? ($this->storage->extractKey($incomingPhoto) ?: null) : null,
                 'tenure_text' => $emp['tenureText'] ?? $emp['tenure_text'] ?? null,
                 'bio' => $emp['bio'] ?? null,
                 'hobbies' => $emp['hobbies'] ?? null,
-                'contract_file' => $emp['contractFile'] ?? $emp['contract_file'] ?? null,
+                'contract_file' => is_string($incomingContract) ? ($this->storage->extractKey($incomingContract) ?: null) : null,
                 // Explicitly cast boolean fields to ensure proper database values
                 'show_name' => (bool) ($emp['showName'] ?? $emp['show_name'] ?? true),
                 'show_photo' => (bool) ($emp['showPhoto'] ?? $emp['show_photo'] ?? true),
@@ -851,8 +873,12 @@ class AdminController extends Controller
     // ─────────────────────────────────────────────────────────────────────────────
 
     /**
-     * Upload a file and optionally persist the URL to the database immediately.
+     * Upload a file and optionally persist the storage key to the database immediately.
      * Accepts optional form fields: entity_type, entity_id, field.
+     *
+     * We persist the R2 key (never the URL). URLs returned to the FE are stable
+     * proxy URLs resolved via R2StorageService::resolveProxyUrl() on every read,
+     * so nothing the FE receives can ever expire.
      */
     public function uploadFile(Request $request): void
     {
@@ -864,16 +890,16 @@ class AdminController extends Controller
         $field = $request->input('field');
 
         if ($entityType && $entityId && $field) {
-            $this->persistFileUrl((string) $entityType, (int) $entityId, (string) $field, $result['url']);
+            $this->persistFileKey((string) $entityType, (int) $entityId, (string) $field, $result['key']);
         }
 
         Response::success($result, 'Soubor byl nahrán');
     }
 
     /**
-     * Persist an uploaded file URL directly to the relevant DB record.
+     * Persist an uploaded file's storage key (or null to clear) to the relevant DB record.
      */
-    private function persistFileUrl(string $entityType, int $entityId, string $field, ?string $url): void
+    private function persistFileKey(string $entityType, int $entityId, string $field, ?string $key): void
     {
         $allowed = [
             'employee' => ['photo_url', 'contract_file'],
@@ -887,13 +913,13 @@ class AdminController extends Controller
 
         switch ($entityType) {
             case 'employee':
-                $this->employeeRepo->update($entityId, [$field => $url]);
+                $this->employeeRepo->update($entityId, [$field => $key]);
                 break;
             case 'company':
-                $this->companyRepo->update($entityId, [$field => $url]);
+                $this->companyRepo->update($entityId, [$field => $key]);
                 break;
             case 'staff_contact':
-                $this->staffContactRepo->update($entityId, [$field => $url]);
+                $this->staffContactRepo->update($entityId, [$field => $key]);
                 break;
         }
     }
@@ -912,17 +938,16 @@ class AdminController extends Controller
             throw new ValidationException('Chybí parametry entity_type, entity_id nebo field');
         }
 
-        $currentUrl = $this->getEntityFileUrl((string) $entityType, (int) $entityId, (string) $field);
+        $stored = $this->getEntityFileValue((string) $entityType, (int) $entityId, (string) $field);
 
-        $this->persistFileUrl((string) $entityType, (int) $entityId, (string) $field, null);
+        $this->persistFileKey((string) $entityType, (int) $entityId, (string) $field, null);
 
-        if ($currentUrl) {
+        // Legacy rows can still hold a full URL — normalize to a key before deleting.
+        if ($stored && !str_starts_with($stored, '/uploads/')) {
             try {
-                $storage = new R2StorageService();
-                // Extract storage key from full URL (path after domain)
-                $key = ltrim(parse_url($currentUrl, PHP_URL_PATH) ?: '', '/');
-                if ($key) {
-                    $storage->delete($key);
+                $key = $this->storage->extractKey($stored);
+                if ($key !== '') {
+                    $this->storage->delete($key);
                 }
             } catch (\Throwable $e) {
                 // R2 deletion is best-effort; DB record is already cleared
@@ -933,9 +958,9 @@ class AdminController extends Controller
     }
 
     /**
-     * Look up the current file URL stored on an entity record.
+     * Look up the current raw value stored on an entity record (either a storage key or a legacy URL/path).
      */
-    private function getEntityFileUrl(string $entityType, int $entityId, string $field): ?string
+    private function getEntityFileValue(string $entityType, int $entityId, string $field): ?string
     {
         $allowed = [
             'employee' => ['photo_url', 'contract_file'],
@@ -1009,6 +1034,10 @@ class AdminController extends Controller
             $pagination['offset'],
             $search
         );
+        foreach ($items as &$item) {
+            $item['photo_url'] = $this->storage->resolveProxyUrl($item['photo_url'] ?? null);
+        }
+        unset($item);
         $total = $this->staffContactRepo->countAll($search);
 
         Response::paginated($items, $total, $pagination['page'], $pagination['per_page']);
@@ -1022,6 +1051,8 @@ class AdminController extends Controller
         if (!$contact) {
             throw new NotFoundException('Kontakt nebyl nalezen');
         }
+
+        $contact['photo_url'] = $this->storage->resolveProxyUrl($contact['photo_url'] ?? null);
 
         Response::success($contact);
     }
@@ -1041,8 +1072,13 @@ class AdminController extends Controller
             $data['sort_order'] = $this->staffContactRepo->getMaxSortOrder() + 1;
         }
 
+        if (isset($data['photo_url']) && is_string($data['photo_url'])) {
+            $data['photo_url'] = $this->storage->extractKey($data['photo_url']) ?: null;
+        }
+
         $id = $this->staffContactRepo->create($data);
         $created = $this->staffContactRepo->findById($id);
+        $created['photo_url'] = $this->storage->resolveProxyUrl($created['photo_url'] ?? null);
 
         Response::created($created, 'Kontakt byl vytvořen');
     }
@@ -1068,11 +1104,16 @@ class AdminController extends Controller
         $allowed = ['name', 'position', 'phone', 'email', 'photo_url', 'sort_order'];
         $updateData = array_intersect_key($data, array_flip($allowed));
 
+        if (array_key_exists('photo_url', $updateData) && is_string($updateData['photo_url'])) {
+            $updateData['photo_url'] = $this->storage->extractKey($updateData['photo_url']) ?: null;
+        }
+
         if (!empty($updateData)) {
             $this->staffContactRepo->update($id, $updateData);
         }
 
         $updated = $this->staffContactRepo->findById($id);
+        $updated['photo_url'] = $this->storage->resolveProxyUrl($updated['photo_url'] ?? null);
 
         Response::success($updated, 'Kontakt byl aktualizován');
     }

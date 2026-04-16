@@ -12,6 +12,7 @@ use App\Repositories\LocationRepository;
 use App\Repositories\EmployeeRepository;
 use App\Repositories\EmployeeLocationRepository;
 use App\Repositories\ClientEmployeeRepository;
+use App\Services\R2StorageService;
 
 class PersonnelController extends Controller
 {
@@ -20,6 +21,7 @@ class PersonnelController extends Controller
     private EmployeeRepository $employeeRepo;
     private EmployeeLocationRepository $employeeLocationRepo;
     private ClientEmployeeRepository $clientEmployeeRepo;
+    private R2StorageService $storage;
 
     public function __construct()
     {
@@ -28,6 +30,7 @@ class PersonnelController extends Controller
         $this->employeeRepo = new EmployeeRepository();
         $this->employeeLocationRepo = new EmployeeLocationRepository();
         $this->clientEmployeeRepo = new ClientEmployeeRepository();
+        $this->storage = new R2StorageService();
     }
 
     public function index(Request $request): void
@@ -111,7 +114,7 @@ class PersonnelController extends Controller
             'showBio' => (bool) ($employee['show_bio'] ?? false),
             'hobbies' => !empty($employee['show_hobbies']) ? ($employee['hobbies'] ?? null) : null,
             'showHobbies' => (bool) ($employee['show_hobbies'] ?? false),
-            'photoUrl' => !empty($employee['show_photo']) ? ($employee['photo_url'] ?? null) : null,
+            'photoUrl' => !empty($employee['show_photo']) ? $this->storage->resolveProxyUrl($employee['photo_url'] ?? null) : null,
         ];
     }
 }

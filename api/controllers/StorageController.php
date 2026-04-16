@@ -75,7 +75,7 @@ class StorageController extends Controller
         }
 
         $key = $this->storage->upload($folder, $file['tmp_name'], $file['name'], $mimeType);
-        $url = $this->storage->getUrl($key);
+        $url = $this->storage->getProxyUrl($key);
 
         return ['key' => $key, 'url' => $url];
     }
@@ -89,30 +89,111 @@ class StorageController extends Controller
 
     public function getDownloadUrl(Request $request): void
     {
-        $key = $request->query('key');
+        $raw = $request->query('key');
 
-        if (empty($key)) {
+        if (empty($raw)) {
             throw new ValidationException('Klíč souboru nebyl zadán');
         }
 
-        if (str_contains($key, '..') || str_starts_with($key, '/')) {
+        // Accept either a bare storage key or a legacy URL — normalize to a key.
+        $key = $this->storage->extractKey((string) $raw);
+
+        if ($key === '' || str_contains($key, '..') || str_starts_with($key, '/')) {
             throw new ValidationException('Neplatný klíč souboru');
         }
 
-        $url = $this->storage->getPresignedUrl($key);
+        // Hand back the stable, HMAC-signed proxy URL rather than a short-lived
+        // presigned R2 URL — FE can use it as <img src> or href indefinitely.
+        $url = $this->storage->getProxyUrl($key);
 
         Response::success(['url' => $url]);
     }
 
+    /**
+     * Public proxy endpoint. Streams an R2 object to the browser if the HMAC
+     * signature matches. Usable directly in <img src>, <a href>, etc. — the URL
+     * the API hands out is stable forever, so DOM nodes never go stale.
+     *
+     * Security model:
+     *   - The sig is HMAC-SHA256(key, JWT_SECRET). Without the secret a signature
+     *     cannot be forged, so the signature itself is the authentication.
+     *   - Keys include 16 random hex chars on generation (2^64 space), so enumeration
+     *     is infeasible — and enumeration alone doesn't help without the sig.
+     *   - Key is length-capped and charset-restricted before it reaches R2 to stop
+     *     null-byte, array, or oversized inputs from wasting HMAC cycles or tripping
+     *     AWS SDK edge cases.
+     *   - Signature verified before the folder check so an attacker without the
+     *     secret cannot use error-message differences to probe valid folder names.
+     */
+    public function serveFile(Request $request): void
+    {
+        $rawKey = $request->query('key');
+        $rawSig = $request->query('sig');
+
+        if (is_array($rawKey) || is_array($rawSig)) {
+            throw new ValidationException('Neplatný klíč souboru');
+        }
+
+        $key = (string) ($rawKey ?? '');
+        $sig = (string) ($rawSig ?? '');
+
+        if ($key === '' || $sig === '') {
+            throw new ValidationException('Chybí parametry souboru');
+        }
+
+        if (!self::isValidStorageKey($key)) {
+            throw new ValidationException('Neplatný klíč souboru');
+        }
+
+        // HMAC first — ensures an attacker without the secret gets the same error
+        // regardless of whether the folder happens to exist.
+        if (!$this->storage->verifyKeySignature($key, $sig)) {
+            throw new ValidationException('Neplatný podpis souboru');
+        }
+
+        $folder = explode('/', $key, 2)[0] ?? '';
+        if (!isset(self::FOLDER_RULES[$folder])) {
+            throw new ValidationException('Neplatná složka');
+        }
+
+        $object = $this->storage->getObjectWithMeta($key);
+
+        $asAttachment = $request->query('dl') === '1';
+        Response::stream(
+            $object['body'],
+            $object['contentType'],
+            basename($key),
+            $asAttachment
+        );
+    }
+
+    /**
+     * Defense-in-depth validation for storage keys accepted via public query params.
+     * Matches the key shape generateKey() emits (folder/name_{16hex}.ext) and keeps the
+     * surface small: ASCII-only, no traversal, bounded length.
+     */
+    private static function isValidStorageKey(string $key): bool
+    {
+        if (strlen($key) > 512) {
+            return false;
+        }
+        if (str_contains($key, "\0") || str_contains($key, '..') || str_starts_with($key, '/')) {
+            return false;
+        }
+        return (bool) preg_match('#^[a-zA-Z0-9_\-./]+$#', $key);
+    }
+
     public function delete(Request $request): void
     {
-        $key = $request->input('key');
+        $raw = $request->input('key');
 
-        if (empty($key)) {
+        if (empty($raw)) {
             throw new ValidationException('Klíč souboru nebyl zadán');
         }
 
-        if (str_contains($key, '..') || str_starts_with($key, '/')) {
+        $key = $this->storage->extractKey((string) $raw);
+
+        if ($key === '' || str_contains($key, '..') || str_starts_with($key, '/')) {
             throw new ValidationException('Neplatný klíč souboru');
         }
 

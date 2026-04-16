@@ -11,6 +11,7 @@ use App\Repositories\CompanyRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\ClientEmployeeRepository;
 use App\Repositories\InvoiceRepository;
+use App\Services\R2StorageService;
 use DateTime;
 
 class DashboardController extends Controller
@@ -19,6 +20,7 @@ class DashboardController extends Controller
     private LocationRepository $locationRepo;
     private ClientEmployeeRepository $clientEmployeeRepo;
     private InvoiceRepository $invoiceRepo;
+    private R2StorageService $storage;
 
     public function __construct()
     {
@@ -26,6 +28,7 @@ class DashboardController extends Controller
         $this->locationRepo = new LocationRepository();
         $this->clientEmployeeRepo = new ClientEmployeeRepository();
         $this->invoiceRepo = new InvoiceRepository();
+        $this->storage = new R2StorageService();
     }
 
     public function index(Request $request): void
@@ -92,7 +95,7 @@ class DashboardController extends Controller
                     'id' => (int) $ce['employee_id'],
                     'name' => $fullName,
                     'role' => !empty($ce['show_role']) ? ($ce['position'] ?? '') : '',
-                    'photoUrl' => !empty($ce['show_photo']) ? ($ce['photo_url'] ?? null) : null,
+                    'photoUrl' => !empty($ce['show_photo']) ? $this->storage->resolveProxyUrl($ce['photo_url'] ?? null) : null,
                 ];
             }
         }

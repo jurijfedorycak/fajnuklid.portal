@@ -73,18 +73,26 @@ set_exception_handler(function (Throwable $e) {
         error_log($e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     }
 
-    Response::json([
+    $payload = [
         'success' => false,
         'message' => $message,
         'errors' => $errors,
-        'debug' => [
+    ];
+
+    // Never expose file paths, class names, or stack traces to the browser in production —
+    // a public unauthenticated endpoint (/storage/file) can reach this handler, so leaking
+    // internals here would hand attackers a server-layout reconnaissance tool.
+    if (Config::get('APP_ENV') === 'development') {
+        $payload['debug'] = [
             'exception' => get_class($e),
             'message' => $e->getMessage(),
             'file' => $e->getFile(),
             'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString()
-        ]
-    ], $statusCode);
+            'trace' => $e->getTraceAsString(),
+        ];
+    }
+
+    Response::json($payload, $statusCode);
 });
 
 // Create request and router
