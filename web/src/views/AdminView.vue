@@ -158,7 +158,7 @@ function formatDate(d) {
       </div>
 
       <!-- Table with clients -->
-      <div v-else id="admin-client-table-wrap" class="table-wrap">
+      <div v-else id="admin-client-table-wrap" class="table-wrap table-wrap--sticky-first">
         <table class="data-table">
           <thead>
             <tr>
@@ -202,17 +202,29 @@ function formatDate(d) {
 </template>
 
 <style scoped>
+/* Mobile-first admin stats: 1 → 2 (sm) → 3 (md) */
 .admin-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 12px;
   margin-bottom: 20px;
+}
+@media (min-width: 640px) {
+  .admin-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+}
+@media (min-width: 1024px) {
+  .admin-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 .admin-stat { text-align: center; }
 
 .stat-num {
-  font-size: 28px;
+  font-size: var(--fs-3xl);
   font-weight: 700;
   color: var(--color-primary);
 }
@@ -233,8 +245,10 @@ function formatDate(d) {
 
 .search-wrap {
   position: relative;
-  max-width: 280px;
   width: 100%;
+}
+@media (min-width: 640px) {
+  .search-wrap { max-width: 280px; }
 }
 
 .search-icon {
@@ -264,18 +278,8 @@ function formatDate(d) {
   cursor: pointer;
 }
 .client-row:hover td {
-  background: var(--color-light) !important;
+  background: var(--color-light);
 }
 
-/* Responsive */
-@media (max-width: 900px) {
-  .admin-stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-@media (max-width: 600px) {
-  .admin-stats {
-    grid-template-columns: 1fr;
-  }
-}
+/* .admin-stats + .search-wrap handled mobile-first above */
 </style>

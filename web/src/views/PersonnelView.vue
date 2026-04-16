@@ -225,7 +225,13 @@ function initials(name) {
   transition: var(--transition);
   text-align: left;
   gap: 2px;
-  min-width: 200px;
+  width: 100%;
+}
+@media (min-width: 640px) {
+  .ico-tab {
+    width: auto;
+    min-width: 200px;
+  }
 }
 
 .ico-tab:hover {
@@ -298,11 +304,17 @@ function initials(name) {
   color: var(--color-gray-600);
 }
 
-/* Staff grid */
+/* Staff grid — mobile-first: 1 col → 2 at sm → 3 at lg */
 .personnel-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
   gap: 16px;
+}
+@media (min-width: 640px) {
+  .personnel-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1280px) {
+  .personnel-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
 .person-card {
@@ -376,12 +388,5 @@ function initials(name) {
   text-align: center;
 }
 
-@media (max-width: 1100px) {
-  .personnel-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
-@media (max-width: 640px) {
-  .personnel-grid { grid-template-columns: 1fr; }
-  .ico-tab { min-width: unset; width: 100%; }
-}
+/* .personnel-grid + .ico-tab handled mobile-first above */
 </style>

@@ -351,17 +351,27 @@ async function submit() {
 </template>
 
 <style scoped>
+/* Mobile-first: single column. Split to 2 cols at lg. */
 .new-request-layout {
   display: grid;
-  grid-template-columns: minmax(0, 780px) minmax(280px, 360px);
+  grid-template-columns: 1fr;
   gap: 24px;
   align-items: start;
 }
 
 .recent-panel {
   padding: 20px;
-  position: sticky;
-  top: 24px;
+  position: static;
+}
+
+@media (min-width: 1024px) {
+  .new-request-layout {
+    grid-template-columns: minmax(0, 780px) minmax(280px, 360px);
+  }
+  .recent-panel {
+    position: sticky;
+    top: 24px;
+  }
 }
 .recent-header {
   display: flex;
@@ -431,17 +441,16 @@ async function submit() {
   margin-top: 2px;
 }
 
-@media (max-width: 1100px) {
-  .new-request-layout {
-    grid-template-columns: 1fr;
-  }
-  .recent-panel { position: static; }
-}
+/* new-request-layout handled mobile-first above */
 
+/* Mobile-first: 2 cols → 3 at sm */
 .category-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
+}
+@media (min-width: 640px) {
+  .category-grid { grid-template-columns: repeat(3, 1fr); }
 }
 .category-card {
   display: flex;
@@ -562,7 +571,5 @@ async function submit() {
 .spin { animation: spin 1.5s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 600px) {
-  .category-grid { grid-template-columns: repeat(2, 1fr); }
-}
+/* category-grid handled mobile-first above */
 </style>

@@ -1040,10 +1040,11 @@ onBeforeUnmount(() => {
 }
 
 /* Stats */
+/* Mobile-first: 2 cols → 4 at lg */
 .emp-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
   margin-bottom: 20px;
   max-width: 900px;
 }
@@ -1259,8 +1260,11 @@ onBeforeUnmount(() => {
 /* Field grid */
 .field-grid-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 14px;
+}
+@media (min-width: 768px) {
+  .field-grid-2 { grid-template-columns: 1fr 1fr; }
 }
 
 .field-hint {
@@ -1428,10 +1432,17 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 
+/* Mobile-first GDPR grid: 1 → 2 (sm) → 3 (md) */
 .gdpr-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
   gap: 10px;
+}
+@media (min-width: 640px) {
+  .gdpr-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 768px) {
+  .gdpr-grid { grid-template-columns: repeat(3, 1fr); }
 }
 .gdpr-toggle-item {
   display: flex;
@@ -1527,25 +1538,21 @@ onBeforeUnmount(() => {
   margin-top: 20px;
 }
 
-/* Responsive */
-@media (max-width: 900px) {
-  .emp-stats { grid-template-columns: repeat(2, 1fr); }
-  .field-grid-2 { grid-template-columns: 1fr; }
-  .gdpr-grid { grid-template-columns: 1fr 1fr; }
+/* Responsive — grids handled mobile-first above. Enhance emp-stats at lg: */
+@media (min-width: 1024px) {
+  .emp-stats {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
 }
-@media (max-width: 600px) {
-  .emp-stats { grid-template-columns: 1fr 1fr; }
-  .gdpr-grid { grid-template-columns: 1fr; }
-  /* Show condensed badges on mobile instead of hiding */
-  .emp-header-badges {
-    gap: 2px;
-  }
-  .emp-header-badges .badge {
-    padding: 2px 6px;
-    font-size: 10px;
-  }
-  .emp-header-badges .badge .badge-text {
-    display: none;
-  }
+
+/* Condensed badges on mobile — keep text hidden but maintain 12px size for accessibility */
+.emp-header-badges { gap: 2px; }
+.emp-header-badges .badge { padding: 3px 7px; font-size: 12px; }
+.emp-header-badges .badge .badge-text { display: none; }
+@media (min-width: 640px) {
+  .emp-header-badges { gap: 6px; }
+  .emp-header-badges .badge { padding: 3px 10px; }
+  .emp-header-badges .badge .badge-text { display: inline; }
 }
 </style>

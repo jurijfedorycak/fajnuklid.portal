@@ -371,7 +371,7 @@ function closePreview() {
 <style scoped>
 .meta-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 .meta-card {
@@ -605,7 +605,7 @@ function closePreview() {
 .spin { animation: spin 1.5s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 700px) {
-  .meta-grid { grid-template-columns: 1fr; }
+@media (min-width: 768px) {
+  .meta-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

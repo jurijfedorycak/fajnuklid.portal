@@ -76,6 +76,31 @@
 
   --sidebar-width: 240px;
   --transition: 0.2s ease;
+
+  /* Breakpoint reference (CSS vars can't be used inside @media — documented for consistency)
+     xs: 480px  — tiny-phone adjustments (auth cards, calendar cells)
+     sm: 640px  — small tablet / phone-landscape transition
+     md: 768px  — sidebar drawer → persistent sidebar, 2-col grids activate
+     lg: 1024px — multi-column dashboard, dense admin layouts
+     xl: 1280px — wide-desktop enhancements */
+
+  /* Fluid typography */
+  --fs-xs:   clamp(11px, 0.25vw + 10px, 12px);
+  --fs-sm:   clamp(12px, 0.25vw + 11px, 13px);
+  --fs-base: 14px;
+  --fs-md:   clamp(14px, 0.25vw + 13px, 15px);
+  --fs-lg:   clamp(15px, 0.5vw + 13px, 16px);
+  --fs-xl:   clamp(16px, 1vw + 13px, 18px);
+  --fs-2xl:  clamp(18px, 1.5vw + 13px, 22px);
+  --fs-3xl:  clamp(20px, 2vw + 14px, 26px);
+
+  /* Fluid spacing */
+  --space-xs:  4px;
+  --space-sm:  8px;
+  --space-md:  clamp(10px, 1vw + 8px, 12px);
+  --space-lg:  clamp(12px, 1.5vw + 8px, 16px);
+  --space-xl:  clamp(16px, 2vw + 10px, 24px);
+  --space-2xl: clamp(20px, 3vw + 12px, 32px);
 }
 
 html, body {
@@ -145,7 +170,7 @@ input, select, textarea {
   background: var(--card-bg);
   border-radius: var(--card-radius);
   box-shadow: none;
-  padding: 24px;
+  padding: var(--space-xl);
 }
 
 /* Shared button styles */
@@ -271,14 +296,36 @@ input, select, textarea {
 /* Table */
 .table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
+
+/* Sticky first column — keeps row context visible while scrolling horizontally on mobile */
+.table-wrap--sticky-first .data-table th:first-child,
+.table-wrap--sticky-first .data-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--color-white);
+  z-index: 1;
+  box-shadow: 2px 0 4px -2px rgba(22, 36, 56, 0.08);
+}
+.table-wrap--sticky-first .data-table th:first-child {
+  background: var(--color-gray-50);
+}
+@media (min-width: 1024px) {
+  .table-wrap--sticky-first .data-table th:first-child,
+  .table-wrap--sticky-first .data-table td:first-child {
+    position: static;
+    box-shadow: none;
+  }
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
 }
 .data-table th {
   text-align: left;
-  padding: 10px 14px;
+  padding: 10px 10px;
   font-size: 12px;
   font-weight: 600;
   color: var(--color-gray-600);
@@ -288,9 +335,13 @@ input, select, textarea {
   white-space: nowrap;
 }
 .data-table td {
-  padding: 12px 14px;
+  padding: 12px 10px;
   border-bottom: 1px solid var(--color-gray-100);
   vertical-align: middle;
+}
+@media (min-width: 768px) {
+  .data-table th { padding: 10px 14px; }
+  .data-table td { padding: 12px 14px; }
 }
 .data-table tr:last-child td {
   border-bottom: none;
@@ -302,19 +353,66 @@ input, select, textarea {
   text-align: right;
 }
 
+/* Mobile card list (for data that becomes cards instead of table rows on small screens) */
+.mobile-card-list {
+  display: grid;
+  gap: 12px;
+}
+.mobile-card {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mobile-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.mobile-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 6px 14px;
+  font-size: 13px;
+}
+.mobile-card-row-label {
+  color: var(--color-gray-500);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  align-self: center;
+}
+.mobile-card-row-value {
+  color: var(--color-gray-800);
+  text-align: right;
+  word-break: break-word;
+}
+.mobile-card-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 /* Page header */
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 24px;
+  margin-bottom: var(--space-xl);
   flex-wrap: wrap;
   gap: 12px;
 }
 .page-title {
-  font-size: 22px;
+  font-size: var(--fs-2xl);
   font-weight: 600;
   color: var(--color-primary);
+  line-height: 1.25;
 }
 .page-subtitle {
   font-size: 13px;
@@ -468,11 +566,7 @@ input, select, textarea {
   to   { transform: rotate(360deg); }
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-  .page-title { font-size: 18px; }
-  .card { padding: 16px; }
-}
+/* Responsive helpers — .page-title and .card use fluid tokens above, so no breakpoint needed here */
 
 /* ═══ ONBOARDING: Enhanced Empty States ═══ */
 .empty-state-guide {

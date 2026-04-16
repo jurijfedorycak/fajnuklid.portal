@@ -167,11 +167,13 @@ function initials(name) {
 </template>
 
 <style scoped>
+/* Mobile-first: sidebar hidden off-canvas, slides in when .open */
 .sidebar {
   position: fixed;
   top: 0;
   left: 0;
   width: var(--sidebar-width);
+  max-width: 85vw;
   height: 100vh;
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
@@ -179,17 +181,21 @@ function initials(name) {
   flex-direction: column;
   overflow-y: auto;
   z-index: 100;
+  transform: translateX(-100%);
+  box-shadow: var(--shadow-lg);
   transition: transform var(--transition);
 }
 
-/* Mobile: hidden by default, slides in */
-@media (max-width: 768px) {
+.sidebar.open {
+  transform: translateX(0);
+}
+
+/* Desktop: persistent sidebar, no shadow */
+@media (min-width: 768px) {
   .sidebar {
-    transform: translateX(-100%);
-    box-shadow: var(--shadow-lg);
-  }
-  .sidebar.open {
-    transform: translateX(0);
+    transform: none;
+    box-shadow: none;
+    max-width: var(--sidebar-width);
   }
 }
 

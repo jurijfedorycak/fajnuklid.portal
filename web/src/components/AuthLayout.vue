@@ -49,9 +49,14 @@ defineProps({
   background: var(--color-white);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-auth-card);
-  padding: 40px 36px;
+  padding: 32px 24px;
   width: 100%;
   max-width: 420px;
+}
+@media (min-width: 480px) {
+  .auth-card {
+    padding: 40px 36px;
+  }
 }
 
 .auth-logo {
@@ -86,9 +91,5 @@ defineProps({
   text-align: center;
 }
 
-@media (max-width: 480px) {
-  .auth-card {
-    padding: 32px 24px;
-  }
-}
+/* auth-card handled mobile-first above */
 </style>

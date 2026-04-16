@@ -34,6 +34,7 @@ const sidebarOpen = ref(false)
 </template>
 
 <style scoped>
+/* Mobile-first: no sidebar margin, topbar visible, smaller padding */
 .app-layout {
   display: flex;
   height: 100%;
@@ -47,9 +48,15 @@ const sidebarOpen = ref(false)
   z-index: 99;
 }
 
+/* Hide overlay on desktop — sidebar is persistent, no drawer behavior needed */
+@media (min-width: 768px) {
+  .sidebar-overlay {
+    display: none;
+  }
+}
+
 .main-wrapper {
   flex: 1;
-  margin-left: var(--sidebar-width);
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -58,16 +65,16 @@ const sidebarOpen = ref(false)
 
 .main-content {
   flex: 1;
-  padding: 32px;
+  padding: var(--space-lg) var(--space-md);
   overflow-y: auto;
 }
 
-/* Mobile topbar */
+/* Mobile topbar — visible by default, hidden on desktop */
 .mobile-topbar {
-  display: none;
+  display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 20px;
+  padding: 12px 16px;
   background: var(--color-primary);
   color: white;
   position: sticky;
@@ -86,8 +93,17 @@ const sidebarOpen = ref(false)
   gap: 4px;
   background: none;
   border: none;
-  padding: 4px;
+  padding: 10px;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.hamburger:focus-visible {
+  outline: 2px solid var(--color-light);
+  outline-offset: 2px;
 }
 .hamburger span {
   display: block;
@@ -97,15 +113,16 @@ const sidebarOpen = ref(false)
   border-radius: 2px;
 }
 
-@media (max-width: 768px) {
+/* Desktop: persistent sidebar, hide mobile topbar, spacious padding */
+@media (min-width: 768px) {
   .main-wrapper {
-    margin-left: 0;
+    margin-left: var(--sidebar-width);
   }
   .mobile-topbar {
-    display: flex;
+    display: none;
   }
   .main-content {
-    padding: 20px 16px;
+    padding: var(--space-2xl);
   }
 }
 </style>

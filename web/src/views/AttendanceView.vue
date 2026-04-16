@@ -265,6 +265,12 @@ function goToRequest(id) {
               <ClipboardList :size="9" />{{ cell.requestCount }}
             </span>
 
+            <div
+              v-if="openPopoverDate === cell.key"
+              id="day-popover-backdrop"
+              class="day-popover-backdrop"
+              @click.stop="openPopoverDate = null"
+            />
             <div v-if="openPopoverDate === cell.key" class="day-popover" @click.stop>
               <div class="day-popover-header">Požadavky · {{ cell.day }}.{{ viewMonth + 1 }}.</div>
               <div v-if="popoverLoading" style="padding:10px; font-size:12px; color:var(--color-gray-500);">Načítám…</div>
@@ -323,7 +329,10 @@ function goToRequest(id) {
 .legend-dot.empty   { background: var(--color-gray-100); border: 1.5px solid var(--color-gray-300); }
 
 /* Calendar wrapper */
-.cal-card { padding: 24px; }
+.cal-card { padding: var(--space-lg); }
+@media (min-width: 640px) {
+  .cal-card { padding: 24px; }
+}
 
 /* Header */
 .cal-header {
@@ -338,11 +347,17 @@ function goToRequest(id) {
   gap: 12px;
 }
 .cal-month {
-  font-size: 18px;
+  font-size: var(--fs-xl);
   font-weight: 700;
   color: var(--color-primary);
-  min-width: 180px;
   text-align: center;
+  flex: 1;
+}
+@media (min-width: 640px) {
+  .cal-month {
+    min-width: 180px;
+    flex: 0 0 auto;
+  }
 }
 .nav-btn {
   width: 36px;
@@ -397,11 +412,14 @@ function goToRequest(id) {
 .ongoing-text { color: var(--color-warning); }
 .empty-text   { color: var(--color-gray-500); font-weight: 400; }
 
-/* Grid */
+/* Grid — mobile-first: tighter gap and smaller type at xs */
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+  gap: 3px;
+}
+@media (min-width: 480px) {
+  .cal-grid { gap: 6px; }
 }
 .wd-header {
   text-align: center;
@@ -426,7 +444,10 @@ function goToRequest(id) {
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .empty-cell { background: transparent; }
-.day-num { font-size: 14px; font-weight: 500; line-height: 1; }
+.day-num { font-size: 12px; font-weight: 500; line-height: 1; }
+@media (min-width: 480px) {
+  .day-num { font-size: 14px; }
+}
 
 .day-past    { background: var(--color-gray-100); color: var(--color-gray-400); }
 .day-past .day-num { font-weight: 400; }
@@ -454,10 +475,13 @@ function goToRequest(id) {
 }
 
 .day-icon {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   line-height: 1;
+}
+@media (min-width: 480px) {
+  .day-icon { display: flex; }
 }
 .done-icon    { color: var(--color-success); }
 .ongoing-icon { color: var(--color-warning); }
@@ -481,20 +505,48 @@ function goToRequest(id) {
 }
 .day-has-requests { box-shadow: inset 0 0 0 1.5px var(--color-primary); }
 
+/* Backdrop — mobile-only tap-outside dismiss for the bottom-sheet popover */
+.day-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 19;
+}
+@media (min-width: 640px) {
+  .day-popover-backdrop { display: none; }
+}
+
+/* Popover: on mobile becomes a centered bottom-sheet anchored to the viewport,
+   avoiding clipping when the tapped day cell is near a screen edge. */
 .day-popover {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-top: 6px;
+  position: fixed;
+  top: auto;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  transform: none;
   z-index: 20;
-  min-width: 220px;
   background: var(--color-white);
   border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   text-align: left;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+@media (min-width: 640px) {
+  .day-popover {
+    position: absolute;
+    top: 100%;
+    bottom: auto;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    margin-top: 6px;
+    min-width: 220px;
+    max-height: none;
+  }
 }
 .day-popover-header {
   padding: 8px 12px;
@@ -545,10 +597,5 @@ function goToRequest(id) {
   text-align: center;
 }
 
-@media (max-width: 500px) {
-  .cal-grid { gap: 3px; }
-  .day-num  { font-size: 11px; }
-  .day-icon { display: none; }
-  .wd-header { font-size: 10px; }
-}
+/* .day-num + .day-icon handled mobile-first in their base declarations above. */
 </style>

@@ -358,8 +358,6 @@ function selectCompany(ico) {
   if (ico === activeIco.value) return
   activeIco.value = ico
 }
-
-onMounted(fetchLatestOpenRequest)
 </script>
 
 <template>
@@ -776,7 +774,7 @@ onMounted(fetchLatestOpenRequest)
 }
 
 .dashboard-greeting {
-  font-size: 24px;
+  font-size: var(--fs-3xl);
   font-weight: 600;
   color: var(--color-primary);
   line-height: 1.2;
@@ -799,8 +797,14 @@ onMounted(fetchLatestOpenRequest)
   cursor: pointer;
   transition: var(--transition);
   text-align: left;
-  min-width: 180px;
+  flex: 1 1 100%;
   opacity: 0.7;
+}
+@media (min-width: 640px) {
+  .company-tile {
+    flex: 0 1 auto;
+    min-width: 180px;
+  }
 }
 
 .company-tile:hover {
@@ -884,17 +888,25 @@ onMounted(fetchLatestOpenRequest)
   border-color: var(--color-accent);
 }
 
+/* Mobile-first: anchor to left edge so popover can't clip off-screen when button is near the right edge */
 .date-popover {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  left: 0;
   z-index: 30;
   background: var(--color-white);
   border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   padding: 16px;
-  min-width: 280px;
+  width: min(280px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+}
+@media (min-width: 480px) {
+  .date-popover {
+    right: 0;
+    left: auto;
+  }
 }
 
 .date-presets {
@@ -918,10 +930,25 @@ onMounted(fetchLatestOpenRequest)
   margin-top: 8px;
 }
 
+/* Mobile-first: stacked metrics. Enhance at sm and lg. */
 .overview-metrics {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 24px;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+@media (min-width: 640px) {
+  .overview-metrics {
+    grid-template-columns: repeat(2, 1fr);
+    row-gap: 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .overview-metrics {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+  }
 }
 
 .metric {
@@ -931,9 +958,23 @@ onMounted(fetchLatestOpenRequest)
   position: relative;
 }
 
-.metric + .metric {
-  padding-left: 24px;
-  border-left: 1px solid var(--color-gray-200);
+/* Dividers only appear when metrics are side-by-side */
+@media (min-width: 640px) {
+  .metric:nth-child(odd) {
+    padding-right: 24px;
+    border-right: 1px solid var(--color-gray-200);
+  }
+}
+
+@media (min-width: 1024px) {
+  .metric:nth-child(odd) {
+    padding-right: 0;
+    border-right: none;
+  }
+  .metric + .metric {
+    padding-left: 24px;
+    border-left: 1px solid var(--color-gray-200);
+  }
 }
 
 .metric-label {
@@ -1009,12 +1050,19 @@ onMounted(fetchLatestOpenRequest)
 }
 
 /* ── Mid row ────────────────────────────────────────────────────────────── */
+/* Mobile-first: stacked. Two-column at lg. */
 .dashboard-mid-row {
   display: grid;
-  grid-template-columns: 1fr 360px;
+  grid-template-columns: 1fr;
   gap: 16px;
   margin-bottom: 24px;
   align-items: start;
+}
+
+@media (min-width: 1024px) {
+  .dashboard-mid-row {
+    grid-template-columns: 1fr 360px;
+  }
 }
 
 .card-title {
@@ -1079,10 +1127,25 @@ onMounted(fetchLatestOpenRequest)
   color: var(--color-primary);
 }
 
+/* Mobile-first: horizontal scroll with snap; wraps on desktop. */
 .day-strip {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+  margin-right: -16px;
+  padding-right: 16px;
+}
+
+@media (min-width: 768px) {
+  .day-strip {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    margin-right: 0;
+    padding-right: 0;
+  }
 }
 
 .ds-cell {
@@ -1095,6 +1158,7 @@ onMounted(fetchLatestOpenRequest)
   height: 60px;
   border-radius: var(--radius-md);
   flex-shrink: 0;
+  scroll-snap-align: start;
   transition: transform 0.12s ease;
 }
 
@@ -1221,20 +1285,46 @@ onMounted(fetchLatestOpenRequest)
 }
 
 /* ── Bottom row ─────────────────────────────────────────────────────────── */
+/* Mobile-first: stacked, chart comes first. Two-column at lg. */
 .dashboard-bottom-row {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 1fr;
   gap: 16px;
   align-items: start;
+}
+
+@media (min-width: 1024px) {
+  .dashboard-bottom-row {
+    grid-template-columns: 320px 1fr;
+  }
 }
 
 .chart-card .card-title {
   margin-bottom: 16px;
 }
 
+/* Mobile: square chart capped so it doesn't dominate a phone screen.
+   Tablet: lift the cap so the chart scales with its card.
+   Desktop (lg): side-by-side layout — chart-wrap is 320px wide; use a fixed height. */
 .chart-wrap {
-  height: 200px;
   position: relative;
+  aspect-ratio: 1 / 1;
+  max-width: 280px;
+  max-height: 280px;
+  margin: 0 auto;
+}
+@media (min-width: 640px) {
+  .chart-wrap {
+    max-width: none;
+    max-height: none;
+  }
+}
+@media (min-width: 1024px) {
+  .chart-wrap {
+    aspect-ratio: auto;
+    height: 200px;
+    margin: 0;
+  }
 }
 
 .chart-totals {
@@ -1292,39 +1382,5 @@ onMounted(fetchLatestOpenRequest)
 }
 
 /* ── Responsive ─────────────────────────────────────────────────────────── */
-@media (max-width: 1100px) {
-  .overview-metrics {
-    grid-template-columns: repeat(2, 1fr);
-    row-gap: 24px;
-  }
-  .metric + .metric {
-    padding-left: 0;
-    border-left: none;
-  }
-  .metric:nth-child(odd) {
-    padding-right: 24px;
-    border-right: 1px solid var(--color-gray-200);
-  }
-  .dashboard-mid-row,
-  .dashboard-bottom-row {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 768px) {
-  .overview-metrics {
-    grid-template-columns: 1fr;
-  }
-  .metric:nth-child(odd) {
-    padding-right: 0;
-    border-right: none;
-  }
-  .dashboard-greeting {
-    font-size: 20px;
-  }
-  .company-tile {
-    min-width: 0;
-    flex: 1 1 calc(50% - 6px);
-  }
-}
+/* Grids/popover/day-strip/chart handled mobile-first above. */
 </style>

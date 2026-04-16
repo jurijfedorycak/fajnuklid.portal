@@ -507,11 +507,16 @@ async function copyToClipboard(varName) {
   letter-spacing: 0.04em;
 }
 
-/* Color Grid */
+/* Color Grid — mobile-first: 2 tight cols on tiny phones, auto-fill flex above xs */
 .dt-color-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+@media (min-width: 480px) {
+  .dt-color-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  }
 }
 
 .dt-color-grid-compact {
@@ -611,8 +616,13 @@ async function copyToClipboard(varName) {
 
 .dt-weights-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+@media (min-width: 480px) {
+  .dt-weights-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
 }
 
 .dt-weight-item {
@@ -670,8 +680,13 @@ async function copyToClipboard(varName) {
 /* Radius */
 .dt-radius-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+@media (min-width: 480px) {
+  .dt-radius-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
 }
 
 .dt-radius-card {
@@ -733,8 +748,13 @@ async function copyToClipboard(varName) {
 /* Shadows */
 .dt-shadows-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+@media (min-width: 480px) {
+  .dt-shadows-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  }
 }
 
 .dt-shadow-card {
@@ -901,19 +921,5 @@ async function copyToClipboard(varName) {
   color: var(--color-primary);
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-  .dt-color-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .dt-radius-grid,
-  .dt-shadows-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .dt-weights-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
+/* Token grids handled mobile-first in their base declarations above. */
 </style>

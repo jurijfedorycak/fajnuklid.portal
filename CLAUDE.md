@@ -19,6 +19,7 @@ App Language: Czech, but use English URL routing
 3. Always use CSS variables from `web/src/style.css` for colors, never hardcode color values.
 4. Create a custom unique ID to each visual HTML element
 5. Dont write dumb comments in code and SQL migration columns. Properties should be self explanatory, comment only special logics and business perspective explanations
+6. The web must be mobile-first: write base styles for phones and enhance with `@media (min-width: …)` using the standardized breakpoints (480, 640, 768, 1024, 1280).
 
 # Critical
 

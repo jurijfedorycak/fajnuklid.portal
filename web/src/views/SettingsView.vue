@@ -221,7 +221,7 @@ async function changePassword() {
           <h2 class="section-title">Propojené firmy</h2>
         </div>
 
-        <div class="ico-table-wrap table-wrap">
+        <div class="ico-table-wrap table-wrap table-wrap--sticky-first">
           <table class="data-table">
             <thead>
               <tr>
@@ -293,21 +293,26 @@ async function changePassword() {
 
 .input-with-icon .form-input {
   width: 100%;
-  padding-right: 38px;
+  padding-right: 48px;
 }
 
+/* Local override must preserve the 44x44 touch target from global .input-eye */
 .input-eye {
   position: absolute;
-  right: 10px;
+  right: 4px;
   top: 50%;
   transform: translateY(-50%);
   background: none;
   border: none;
   color: var(--color-gray-500);
-  padding: 4px;
+  padding: 8px;
+  min-width: 44px;
+  min-height: 44px;
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
 }
 
 .input-eye:hover {

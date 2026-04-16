@@ -671,14 +671,14 @@ async function persistOrder() {
   background: var(--color-white);
   border-radius: var(--radius-lg);
   width: 100%;
-  max-width: 560px;
+  max-width: min(560px, calc(100vw - 32px));
   max-height: 90vh;
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-lg);
 }
 .modal-card-sm {
-  max-width: 420px;
+  max-width: min(420px, calc(100vw - 32px));
 }
 
 .modal-header {

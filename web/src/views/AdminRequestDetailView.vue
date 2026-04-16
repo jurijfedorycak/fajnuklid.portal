@@ -406,12 +406,16 @@ async function confirmDelete() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 480px;
+  max-width: 220px;
+}
+@media (min-width: 768px) {
+  .breadcrumb-current { max-width: 480px; }
 }
 
 /* Header */
 .request-header {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
@@ -438,8 +442,8 @@ async function confirmDelete() {
 /* Controls row: status + due date */
 .controls-row {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 24px 32px;
+  grid-template-columns: 1fr;
+  gap: 16px;
   align-items: flex-start;
   padding: 18px 20px;
   background: var(--color-gray-50);
@@ -489,13 +493,19 @@ async function confirmDelete() {
 }
 .status-pill:disabled { cursor: default; opacity: 0.7; }
 
-.due-block { justify-self: end; }
+.due-block { justify-self: stretch; }
 .due-row {
   display: flex;
   gap: 8px;
   align-items: center;
 }
-.due-input { width: 170px; }
+@media (min-width: 768px) {
+  .due-block { justify-self: end; }
+}
+.due-input { flex: 1; min-width: 0; width: auto; }
+@media (min-width: 768px) {
+  .due-input { flex: 0 0 auto; width: 170px; }
+}
 
 .field-error {
   margin-top: 6px;
@@ -725,11 +735,9 @@ async function confirmDelete() {
 .spin { animation: spin 1.5s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 760px) {
-  .request-header { flex-direction: column; }
-  .controls-row { grid-template-columns: 1fr; }
-  .due-block { justify-self: stretch; }
-  .due-input { flex: 1; width: auto; }
-  .breadcrumb-current { max-width: 220px; }
+/* Mobile-first. Expand at md: */
+@media (min-width: 768px) {
+  .request-header { flex-direction: row; }
+  .controls-row { grid-template-columns: 1fr auto; gap: 24px 32px; }
 }
 </style>

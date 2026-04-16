@@ -182,7 +182,7 @@ function openDetail(id) {
           <p class="empty-state-text">Zkuste jiný filtr.</p>
         </div>
 
-        <div v-else class="table-wrap">
+        <div v-else class="table-wrap table-wrap--sticky-first">
           <table id="admin-requests-table" class="data-table">
             <thead>
               <tr>
@@ -224,23 +224,25 @@ function openDetail(id) {
 </template>
 
 <style scoped>
+/* Mobile-first summary bar: wrap, no separators; single-row at lg */
 .summary-bar {
   display: flex;
   align-items: center;
-  gap: 0;
-  padding: 14px 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 16px;
 }
 
 .summary-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  flex: 1;
+  flex: 1 1 45%;
   gap: 2px;
 }
 
 .summary-val {
-  font-size: 20px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--color-primary);
 }
@@ -257,6 +259,14 @@ function openDetail(id) {
   height: 36px;
   background: var(--color-gray-200);
   flex-shrink: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .summary-bar { flex-wrap: nowrap; gap: 0; padding: 14px 20px; }
+  .summary-item { flex: 1; }
+  .summary-val { font-size: 20px; }
+  .summary-sep { display: block; }
 }
 
 .filters-row {
@@ -270,7 +280,10 @@ function openDetail(id) {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 220px;
+  flex: 1 1 100%;
+}
+@media (min-width: 640px) {
+  .filter-group { flex: 0 1 auto; min-width: 220px; }
 }
 
 .filter-group-search {
@@ -306,9 +319,5 @@ function openDetail(id) {
 .spin { animation: spin 1.5s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 768px) {
-  .summary-bar { flex-wrap: wrap; gap: 12px; }
-  .summary-sep { display: none; }
-  .summary-item { flex: 1 1 40%; }
-}
+/* summary-bar + filter-group handled mobile-first above */
 </style>

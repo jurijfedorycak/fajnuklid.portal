@@ -189,11 +189,17 @@ async function downloadContract() {
 </template>
 
 <style scoped>
+/* Mobile-first: stacked; two-column at ≥768 */
 .contract-available {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 20px;
   align-items: start;
+}
+@media (min-width: 768px) {
+  .contract-available {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .contract-main {
@@ -217,7 +223,7 @@ async function downloadContract() {
 }
 
 .contract-title {
-  font-size: 22px;
+  font-size: var(--fs-2xl);
   font-weight: 700;
   color: var(--color-primary);
 }
@@ -249,7 +255,7 @@ async function downloadContract() {
 
 .pdf-iframe {
   width: 100%;
-  height: 600px;
+  height: clamp(360px, 70vh, 600px);
   border: none;
   display: block;
 }
@@ -297,9 +303,5 @@ async function downloadContract() {
   justify-content: center;
 }
 
-@media (max-width: 768px) {
-  .contract-available {
-    grid-template-columns: 1fr;
-  }
-}
+/* .contract-available handled mobile-first above */
 </style>

@@ -245,59 +245,105 @@ async function downloadPdf(inv) {
         </button>
       </div>
 
-      <!-- Table -->
+      <!-- Table + mobile cards -->
       <div id="invoices-table-card" class="card">
         <div v-if="filtered.length === 0" id="invoices-empty" class="empty-state">
           <FileText id="invoices-empty-icon" :size="40" class="empty-state-icon" />
           <p id="invoices-empty-text" class="empty-state-title">Zatím zde nejsou žádné faktury.</p>
         </div>
 
-        <div v-else class="table-wrap">
-          <table id="invoices-table" class="data-table">
-            <thead>
-              <tr>
-                <th>Číslo faktury</th>
-                <th>Vystaveno</th>
-                <th>Splatnost</th>
-                <th class="text-right">Částka</th>
-                <th>VS</th>
-                <th>Stav</th>
-                <th>Zbývá / uplynulo</th>
-                <th>Akce</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="inv in filtered" :key="inv.dbId" :id="'invoice-row-' + inv.dbId">
-                <td class="fw-600" style="color:var(--color-primary)">{{ inv.id }}</td>
-                <td class="text-muted">{{ formatDate(inv.issued) }}</td>
-                <td>{{ formatDate(inv.due) }}</td>
-                <td class="text-right fw-500">{{ formatAmount(inv.amount) }}</td>
-                <td class="text-muted">{{ inv.varSymbol }}</td>
-                <td>
-                  <span class="badge" :class="statusBadge(inv.status).cls">
-                    {{ statusBadge(inv.status).label }}
-                  </span>
-                </td>
-                <td :class="dueDaysCls(inv)" style="font-size:13px;">
-                  {{ inv.status === 'paid' ? '—' : dueDays(inv) }}
-                </td>
-                <td>
-                  <button
-                    :id="'download-pdf-' + inv.dbId"
-                    class="btn btn-ghost btn-sm"
-                    @click="downloadPdf(inv)"
-                    :disabled="downloadingPdf === inv.dbId"
-                    title="Stáhnout PDF"
-                  >
-                    <Loader2 v-if="downloadingPdf === inv.dbId" :size="16" class="spin" />
-                    <Download v-else :size="16" />
-                    <span>PDF</span>
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <template v-else>
+          <!-- Mobile: card list (< 768px) -->
+          <div id="invoices-cards" class="invoices-cards">
+            <article
+              v-for="inv in filtered"
+              :key="inv.dbId"
+              :id="'invoice-card-' + inv.dbId"
+              class="mobile-card invoice-card"
+            >
+              <header class="mobile-card-header">
+                <span class="invoice-card-number">{{ inv.id }}</span>
+                <span class="badge" :class="statusBadge(inv.status).cls">
+                  {{ statusBadge(inv.status).label }}
+                </span>
+              </header>
+              <div class="mobile-card-body">
+                <span class="mobile-card-row-label">Vystaveno</span>
+                <span class="mobile-card-row-value">{{ formatDate(inv.issued) }}</span>
+                <span class="mobile-card-row-label">Splatnost</span>
+                <span class="mobile-card-row-value">{{ formatDate(inv.due) }}</span>
+                <span class="mobile-card-row-label">Částka</span>
+                <span class="mobile-card-row-value invoice-card-amount">{{ formatAmount(inv.amount) }}</span>
+                <span class="mobile-card-row-label">VS</span>
+                <span class="mobile-card-row-value">{{ inv.varSymbol }}</span>
+                <template v-if="inv.status !== 'paid'">
+                  <span class="mobile-card-row-label">Zbývá</span>
+                  <span class="mobile-card-row-value" :class="dueDaysCls(inv)">{{ dueDays(inv) }}</span>
+                </template>
+              </div>
+              <footer class="mobile-card-footer">
+                <button
+                  :id="'download-pdf-card-' + inv.dbId"
+                  class="btn btn-outline btn-full"
+                  @click="downloadPdf(inv)"
+                  :disabled="downloadingPdf === inv.dbId"
+                >
+                  <Loader2 v-if="downloadingPdf === inv.dbId" :size="16" class="spin" />
+                  <Download v-else :size="16" />
+                  <span>Stáhnout PDF</span>
+                </button>
+              </footer>
+            </article>
+          </div>
+
+          <!-- Desktop: standard table (≥ 768px) -->
+          <div class="table-wrap invoices-table-wrap">
+            <table id="invoices-table" class="data-table">
+              <thead>
+                <tr>
+                  <th>Číslo faktury</th>
+                  <th>Vystaveno</th>
+                  <th>Splatnost</th>
+                  <th class="text-right">Částka</th>
+                  <th>VS</th>
+                  <th>Stav</th>
+                  <th>Zbývá / uplynulo</th>
+                  <th>Akce</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="inv in filtered" :key="inv.dbId" :id="'invoice-row-' + inv.dbId">
+                  <td class="fw-600" style="color:var(--color-primary)">{{ inv.id }}</td>
+                  <td class="text-muted">{{ formatDate(inv.issued) }}</td>
+                  <td>{{ formatDate(inv.due) }}</td>
+                  <td class="text-right fw-500">{{ formatAmount(inv.amount) }}</td>
+                  <td class="text-muted">{{ inv.varSymbol }}</td>
+                  <td>
+                    <span class="badge" :class="statusBadge(inv.status).cls">
+                      {{ statusBadge(inv.status).label }}
+                    </span>
+                  </td>
+                  <td :class="dueDaysCls(inv)" style="font-size:13px;">
+                    {{ inv.status === 'paid' ? '—' : dueDays(inv) }}
+                  </td>
+                  <td>
+                    <button
+                      :id="'download-pdf-' + inv.dbId"
+                      class="btn btn-ghost btn-sm"
+                      @click="downloadPdf(inv)"
+                      :disabled="downloadingPdf === inv.dbId"
+                      title="Stáhnout PDF"
+                    >
+                      <Loader2 v-if="downloadingPdf === inv.dbId" :size="16" class="spin" />
+                      <Download v-else :size="16" />
+                      <span>PDF</span>
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
       </div>
     </template>
   </div>
@@ -339,24 +385,25 @@ async function downloadPdf(inv) {
   margin-top: 1px;
 }
 
-/* Summary bar */
+/* Summary bar — mobile-first: wrap, hide separators; enhance on ≥768 */
 .summary-bar {
   display: flex;
   align-items: center;
-  gap: 0;
-  padding: 14px 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 16px;
 }
 
 .summary-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  flex: 1;
+  flex: 1 1 45%;
   gap: 2px;
 }
 
 .summary-val {
-  font-size: 20px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--color-primary);
 }
@@ -373,6 +420,18 @@ async function downloadPdf(inv) {
   height: 36px;
   background: var(--color-gray-200);
   flex-shrink: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .summary-bar {
+    flex-wrap: nowrap;
+    gap: 0;
+    padding: 14px 20px;
+  }
+  .summary-item { flex: 1; }
+  .summary-val { font-size: 20px; }
+  .summary-sep { display: block; }
 }
 
 .last-sync {
@@ -389,12 +448,26 @@ async function downloadPdf(inv) {
   to   { transform: rotate(360deg); }
 }
 
-@media (max-width: 768px) {
-  .summary-bar {
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-  .summary-sep { display: none; }
-  .summary-item { flex: 1 1 40%; }
+/* Invoices: mobile cards by default, table at md */
+.invoices-cards {
+  display: grid;
+  gap: 12px;
+}
+.invoices-table-wrap {
+  display: none;
+}
+@media (min-width: 768px) {
+  .invoices-cards { display: none; }
+  .invoices-table-wrap { display: block; }
+}
+
+.invoice-card-number {
+  font-size: var(--fs-lg);
+  color: var(--color-primary);
+}
+.invoice-card-amount {
+  font-weight: 600;
+  color: var(--color-primary);
+  font-size: var(--fs-lg);
 }
 </style>

@@ -185,10 +185,17 @@ function whatsappUrl(phone) {
 </template>
 
 <style scoped>
+/* Mobile-first: single column, slightly tighter padding */
 .contact-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+@media (min-width: 640px) {
+  .contact-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
 }
 
 .contact-card {
@@ -197,7 +204,12 @@ function whatsappUrl(phone) {
   align-items: center;
   text-align: center;
   gap: 10px;
-  padding: 36px 28px;
+  padding: 24px 20px;
+}
+@media (min-width: 640px) {
+  .contact-card {
+    padding: 36px 28px;
+  }
 }
 
 .contact-avatar {
@@ -205,7 +217,7 @@ function whatsappUrl(phone) {
 }
 
 .contact-name {
-  font-size: 20px;
+  font-size: var(--fs-xl);
   font-weight: 700;
   color: var(--color-primary);
 }
@@ -323,9 +335,5 @@ function whatsappUrl(phone) {
   min-width: 48px;
 }
 
-@media (max-width: 640px) {
-  .contact-grid {
-    grid-template-columns: 1fr;
-  }
-}
+/* Contact-grid + contact-card handled mobile-first above */
 </style>

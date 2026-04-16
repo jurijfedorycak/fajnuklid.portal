@@ -1609,40 +1609,81 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
-/* Split layout */
+/* Split layout — mobile-first: single column, horizontal chip nav sticks below page header */
 .edit-layout {
   display: flex;
-  gap: 24px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 16px;
+  align-items: stretch;
   flex: 1;
 }
 
-/* Section nav */
+@media (min-width: 1024px) {
+  .edit-layout {
+    flex-direction: row;
+    gap: 24px;
+    align-items: flex-start;
+  }
+}
+
+/* Section nav — horizontal scrollable chip bar on mobile, sticky vertical sidebar on desktop */
 .section-nav {
-  width: 200px;
-  flex-shrink: 0;
-  position: sticky;
-  top: 20px;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--page-bg);
+  padding: 8px 0;
+  margin: 0 -4px;
+}
+
+@media (min-width: 1024px) {
+  .section-nav {
+    flex-direction: column;
+    gap: 2px;
+    overflow: visible;
+    width: 200px;
+    flex-shrink: 0;
+    top: 20px;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+  }
 }
 
 .snav-item {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 12px;
-  border-radius: 8px;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: var(--radius-pill);
   font-size: 13px;
   font-weight: 500;
   color: var(--color-gray-600);
-  background: none;
+  background: var(--color-gray-100);
   border: none;
   cursor: pointer;
   text-align: left;
   transition: var(--transition);
-  width: 100%;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  white-space: nowrap;
+}
+
+@media (min-width: 1024px) {
+  .snav-item {
+    border-radius: 8px;
+    padding: 9px 12px;
+    gap: 9px;
+    background: none;
+    width: 100%;
+    white-space: normal;
+  }
 }
 
 .snav-item:hover {
@@ -1706,11 +1747,14 @@ onBeforeUnmount(() => {
   margin: 8px 0 24px;
 }
 
-/* Field layouts */
+/* Field layouts — mobile-first: single column */
 .field-grid-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 14px;
+}
+@media (min-width: 768px) {
+  .field-grid-2 { grid-template-columns: 1fr 1fr; }
 }
 
 .field-hint {
@@ -2015,7 +2059,7 @@ onBeforeUnmount(() => {
 .map-wrap {}
 .map-iframe {
   width: 100%;
-  height: 260px;
+  height: clamp(200px, 40vh, 320px);
   border-radius: var(--radius-md);
   border: 1.5px solid var(--color-gray-200);
   overflow: hidden;
@@ -2099,10 +2143,17 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-gray-200);
   margin-top: 4px;
 }
+/* Mobile-first GDPR grid: 1 → 2 (sm) → 3 (md) */
 .gdpr-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
   gap: 10px;
+}
+@media (min-width: 640px) {
+  .gdpr-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 768px) {
+  .gdpr-grid { grid-template-columns: repeat(3, 1fr); }
 }
 .gdpr-toggle-item {
   display: flex;
@@ -2251,8 +2302,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 .employee-picker {
-  width: 420px;
-  max-width: 95vw;
+  width: min(420px, calc(100vw - 32px));
 }
 .modal-header {
   display: flex;
@@ -2399,8 +2449,7 @@ onBeforeUnmount(() => {
 
 /* Password reset modal */
 .password-reset-modal {
-  width: 420px;
-  max-width: 95vw;
+  width: min(420px, calc(100vw - 32px));
 }
 .password-reset-header-title {
   display: inline-flex;
@@ -2432,14 +2481,8 @@ onBeforeUnmount(() => {
   border-bottom-right-radius: var(--radius-lg);
 }
 
-/* Responsive */
-@media (max-width: 900px) {
-  .section-nav { display: none; }
-  .field-grid-2 { grid-template-columns: 1fr; }
-  .gdpr-grid    { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 600px) {
-  .gdpr-grid { grid-template-columns: 1fr; }
-  .ico-toggles-row { flex-direction: column; }
+/* Responsive — grids/nav/ico-toggles-row already mobile-first. Add row-direction at sm: */
+@media (min-width: 640px) {
+  .ico-toggles-row { flex-direction: row; }
 }
 </style>
