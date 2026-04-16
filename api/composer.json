@@ -32,5 +32,11 @@
     "config": {
         "optimize-autoloader": true,
         "preferred-install": "dist"
+    },
+    "scripts": {
+        "pre-autoload-dump": "Aws\\Script\\Composer\\Composer::removeUnusedServices"
+    },
+    "extra": {
+        "aws/aws-sdk-php": ["S3"]
     }
 }
