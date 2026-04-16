@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { Download, FileText, Loader2, RefreshCw } from 'lucide-vue-next'
+import { Download, FileText, Loader2, RefreshCw, Sparkles } from 'lucide-vue-next'
 import { invoiceService } from '../api'
 
 const loading = ref(true)
@@ -166,7 +166,7 @@ async function downloadPdf(inv) {
           </p>
         </div>
 
-        <div id="invoices-actions" style="display: flex; gap: 12px; align-items: flex-start;">
+        <div id="invoices-actions" class="invoices-actions">
           <!-- Sync button -->
           <button
             v-if="isConfigured"
@@ -202,7 +202,7 @@ async function downloadPdf(inv) {
       </div>
 
       <!-- Summary bar -->
-      <div id="invoices-summary" class="summary-bar card" style="margin-bottom:16px;">
+      <div v-if="invoices.length > 0" id="invoices-summary" class="summary-bar card" style="margin-bottom:16px;">
         <div id="summary-item-total" class="summary-item">
           <span id="summary-total" class="summary-val">{{ totals.all }}</span>
           <span id="summary-total-lbl" class="summary-lbl">Celkem faktur</span>
@@ -232,7 +232,7 @@ async function downloadPdf(inv) {
       </div>
 
       <!-- Filters -->
-      <div id="invoices-filters" class="chip-group" style="margin-bottom:16px;">
+      <div v-if="invoices.length > 0" id="invoices-filters" class="chip-group" style="margin-bottom:16px;">
         <button
           v-for="f in filters"
           :key="f.key"
@@ -245,11 +245,44 @@ async function downloadPdf(inv) {
         </button>
       </div>
 
+      <!-- Brand-new-client onboarding hero for the list -->
+      <div
+        v-if="invoices.length === 0"
+        id="invoices-onboarding"
+        class="onboarding-hero invoices-onboarding"
+      >
+        <div class="onboarding-hero-icon onboarding-hero-icon--soft">
+          <FileText :size="28" aria-hidden="true" />
+        </div>
+        <h2 id="invoices-onboarding-title" class="onboarding-hero-title">
+          Vaše faktury budou přehledně čekat tady
+        </h2>
+        <p id="invoices-onboarding-desc" class="onboarding-hero-desc">
+          Jakmile vám vystavíme první fakturu, najdete ji zde spolu s datem splatnosti
+          a možností stažení PDF. Žádné papírové archivy, žádné hledání v e-mailu.
+        </p>
+        <div class="invoices-onboarding-perks">
+          <div class="invoices-perk" id="invoices-perk-1">
+            <Sparkles :size="14" aria-hidden="true" />
+            <span>Stav zaplacení na první pohled</span>
+          </div>
+          <div class="invoices-perk" id="invoices-perk-2">
+            <Sparkles :size="14" aria-hidden="true" />
+            <span>PDF ke stažení kdykoliv</span>
+          </div>
+          <div class="invoices-perk" id="invoices-perk-3">
+            <Sparkles :size="14" aria-hidden="true" />
+            <span>Upozornění na blížící se splatnost</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Table + mobile cards -->
-      <div id="invoices-table-card" class="card">
+      <div v-else id="invoices-table-card" class="card">
         <div v-if="filtered.length === 0" id="invoices-empty" class="empty-state">
           <FileText id="invoices-empty-icon" :size="40" class="empty-state-icon" />
-          <p id="invoices-empty-text" class="empty-state-title">Zatím zde nejsou žádné faktury.</p>
+          <p id="invoices-empty-text" class="empty-state-title">Žádné faktury pro tento filtr</p>
+          <p class="empty-state-text">Zkuste vybrat jiný stav nebo zobrazit vše.</p>
         </div>
 
         <template v-else>
@@ -385,34 +418,43 @@ async function downloadPdf(inv) {
   margin-top: 1px;
 }
 
-/* Summary bar — mobile-first: wrap, hide separators; enhance on ≥768 */
+/* Summary bar — mobile-first: 2-col grid, debt spans full width;
+   flat row at ≥1024 with separators. */
 .summary-bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: 14px 12px;
+  padding: 16px 18px;
 }
 
 .summary-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  flex: 1 1 45%;
-  gap: 2px;
+  gap: 4px;
+  text-align: center;
+}
+
+#summary-item-debt {
+  grid-column: 1 / -1;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-gray-200);
 }
 
 .summary-val {
-  font-size: var(--fs-lg);
+  font-size: 20px;
   font-weight: 700;
   color: var(--color-primary);
+  line-height: 1.1;
 }
 
 .summary-lbl {
   font-size: 11px;
   color: var(--color-gray-600);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
+  font-weight: 500;
 }
 
 .summary-sep {
@@ -423,15 +465,30 @@ async function downloadPdf(inv) {
   display: none;
 }
 
+@media (min-width: 640px) {
+  .summary-bar {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  #summary-item-debt {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (min-width: 1024px) {
   .summary-bar {
+    display: flex;
     flex-wrap: nowrap;
     gap: 0;
-    padding: 14px 20px;
+    padding: 16px 22px;
   }
   .summary-item { flex: 1; }
-  .summary-val { font-size: 20px; }
+  .summary-val { font-size: 22px; }
   .summary-sep { display: block; }
+  #summary-item-debt {
+    grid-column: unset;
+    padding-top: 0;
+    border-top: none;
+  }
 }
 
 .last-sync {
@@ -469,5 +526,48 @@ async function downloadPdf(inv) {
   font-weight: 600;
   color: var(--color-primary);
   font-size: var(--fs-lg);
+}
+
+/* Actions in header — on mobile stack below the title, on sm+ align right */
+.invoices-actions {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+/* Onboarding hero spacing within list views */
+.invoices-onboarding {
+  margin-top: 4px;
+}
+
+.invoices-onboarding-perks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  width: 100%;
+  max-width: 420px;
+  text-align: left;
+}
+@media (min-width: 640px) {
+  .invoices-onboarding-perks {
+    margin-top: 18px;
+  }
+}
+
+.invoices-perk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-gray-700);
+  padding: 8px 12px;
+  background: var(--color-gray-50);
+  border-radius: var(--radius-md);
+}
+.invoices-perk svg {
+  color: var(--color-accent);
+  flex-shrink: 0;
 }
 </style>

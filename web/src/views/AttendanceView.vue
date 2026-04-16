@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronLeft, ChevronRight, CheckCircle2, Loader2, ClipboardList } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, CheckCircle2, Loader2, ClipboardList, Calendar as CalendarIcon, Phone, Mail } from 'lucide-vue-next'
 import { attendanceService, maintenanceRequestService } from '../api'
 
 const router = useRouter()
@@ -172,14 +172,25 @@ function goToRequest(id) {
       {{ error }}
     </div>
 
-    <!-- Fallback when FreshQR not active -->
-    <div v-else-if="!freshqrActive" class="card" style="padding:40px; text-align:center;">
-      <p style="font-size:15px; color:var(--color-gray-700); margin-bottom:16px;">
-        Docházka přes QR je dostupná jen u vybraných objektů. Pokud ji chcete aktivovat, ozvěte se nám.
+    <!-- Fallback when FreshQR not active — onboarding tone -->
+    <div v-else-if="!freshqrActive" id="attendance-freshqr-off" class="onboarding-hero">
+      <div class="onboarding-hero-icon onboarding-hero-icon--soft">
+        <CalendarIcon :size="28" aria-hidden="true" />
+      </div>
+      <h2 class="onboarding-hero-title">Chcete přehled o každém úklidu?</h2>
+      <p class="onboarding-hero-desc">
+        Po aktivaci docházky přes QR kód uvidíte ve svém kalendáři každý úklid:
+        den, který proběhl, i ten, co zrovna probíhá. Transparentní kontrola bez papírování.
       </p>
-      <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
-        <a href="tel:+420773023608" class="btn btn-primary">Zavolat</a>
-        <a href="mailto:jurij.fedorycak@fajnuklid.cz" class="btn btn-ghost">Napsat e-mail</a>
+      <div class="onboarding-hero-actions">
+        <a href="tel:+420773023608" class="btn btn-primary btn-sm">
+          <Phone :size="14" aria-hidden="true" />
+          Aktivovat telefonicky
+        </a>
+        <a href="mailto:jurij.fedorycak@fajnuklid.cz" class="btn btn-outline btn-sm">
+          <Mail :size="14" aria-hidden="true" />
+          Napsat e-mail
+        </a>
       </div>
     </div>
 
@@ -223,14 +234,14 @@ function goToRequest(id) {
         <template v-if="monthStats.total > 0">
           <span class="ms-item done-text">
             <CheckCircle2 :size="14" />
-            {{ monthStats.done }} úklidů v tomto měsíci
+            {{ monthStats.done }} {{ monthStats.done === 1 ? 'úklid' : (monthStats.done >= 2 && monthStats.done <= 4 ? 'úklidy' : 'úklidů') }} v tomto měsíci
           </span>
           <span v-if="monthStats.ongoing > 0" class="ms-item ongoing-text">
             <Loader2 :size="14" class="spin" />
             Právě probíhá
           </span>
         </template>
-        <span v-else class="ms-item empty-text">Žádné úklidy v tomto měsíci</span>
+        <span v-else class="ms-item empty-text">V tomto měsíci se zatím neuklízelo</span>
       </div>
 
       <!-- Grid -->

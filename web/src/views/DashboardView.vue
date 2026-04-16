@@ -8,6 +8,7 @@ import {
 import {
   Calendar, ChevronLeft, ChevronRight, ArrowRight,
   CheckCircle2, Loader2, Clock, Check, ClipboardList, Plus,
+  Sparkles, FileText, Users, FileSignature,
 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { dashboardService, maintenanceRequestService, REQUEST_STATUSES } from '../api'
@@ -286,6 +287,14 @@ function cancelCustomRange() {
 
 const dateRangeLabel = computed(() => `${formatCsDate(range.value.from)} – ${formatCsDate(range.value.to)}`)
 
+// Photos can occasionally 404 (e.g. broken links from the admin); when that happens
+// we fall back to initials rather than showing a broken-image icon on the dashboard.
+const brokenPhotos = ref({})
+
+function markPhotoBroken(id) {
+  brokenPhotos.value = { ...brokenPhotos.value, [id]: true }
+}
+
 // ── Personnel pagination ────────────────────────────────────────────────────
 const personnelPage = ref(0)
 const PERSONNEL_PER_PAGE = 2
@@ -315,6 +324,16 @@ const cleaningStats = computed(() => {
   }
   return stats
 })
+
+// True when the client has no data at all — used to show a WOW onboarding hero
+// instead of a wall of zeros on the brand-new client's first visit.
+const isBrandNewClient = computed(() => {
+  return (invoicesOverview.value.total || 0) === 0
+    && cleaningDays.value.length === 0
+    && !contract.value.hasPdf
+})
+
+const hasAnyInvoiceData = computed(() => (invoicesOverview.value.total || 0) > 0)
 
 const MONTHS = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec']
 const currentMonthLabel = computed(() => `${MONTHS[today.getMonth()]} ${today.getFullYear()}`)
@@ -416,6 +435,69 @@ function selectCompany(ico) {
         </div>
       </header>
 
+      <!-- Brand-new-client onboarding hero -->
+      <section
+        v-if="isBrandNewClient"
+        id="dashboard-onboarding-hero"
+        class="onboarding-hero dashboard-onboarding"
+      >
+        <span class="onboarding-hero-badge">
+          <Sparkles :size="12" aria-hidden="true" />
+          Vítejte ve vašem portálu
+        </span>
+        <div class="onboarding-hero-icon">
+          <Sparkles :size="28" aria-hidden="true" />
+        </div>
+        <h2 id="dashboard-onboarding-title" class="onboarding-hero-title">
+          Všechno důležité o úklidu vašich prostor na jednom místě
+        </h2>
+        <p id="dashboard-onboarding-desc" class="onboarding-hero-desc">
+          Až začnou probíhat první úklidy a přijdou vaše první faktury, uvidíte je tady.
+          Mezitím se můžete rozhlédnout nebo nám napsat jakoukoliv zprávu.
+        </p>
+
+        <div class="onboarding-hero-steps">
+          <div class="onboarding-hero-step" id="dashboard-onboarding-step-1">
+            <span class="onboarding-hero-step-num">1</span>
+            <div class="onboarding-hero-step-text">
+              <span class="onboarding-hero-step-title">Poznejte svůj tým</span>
+              <span class="onboarding-hero-step-desc">
+                Zjistěte, kdo se o vás postará a jak se s ním spojit.
+              </span>
+            </div>
+          </div>
+          <div class="onboarding-hero-step" id="dashboard-onboarding-step-2">
+            <span class="onboarding-hero-step-num">2</span>
+            <div class="onboarding-hero-step-text">
+              <span class="onboarding-hero-step-title">Sledujte docházku</span>
+              <span class="onboarding-hero-step-desc">
+                V kalendáři hned uvidíte, kdy se u vás uklízelo.
+              </span>
+            </div>
+          </div>
+          <div class="onboarding-hero-step" id="dashboard-onboarding-step-3">
+            <span class="onboarding-hero-step-num">3</span>
+            <div class="onboarding-hero-step-text">
+              <span class="onboarding-hero-step-title">Pošlete požadavek</span>
+              <span class="onboarding-hero-step-desc">
+                Reklamace, dotaz, cokoliv – odpovíme co nejdříve.
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="onboarding-hero-actions">
+          <RouterLink id="dashboard-onboarding-cta-personnel" to="/personal" class="btn btn-primary btn-sm">
+            <Users :size="14" aria-hidden="true" />
+            <span>Poznat svůj tým</span>
+          </RouterLink>
+          <RouterLink id="dashboard-onboarding-cta-request" to="/zadosti/nova" class="btn btn-outline btn-sm">
+            <Plus :size="14" aria-hidden="true" />
+            <span>Vytvořit požadavek</span>
+          </RouterLink>
+        </div>
+      </section>
+
       <!-- Overview card -->
       <section id="dashboard-overview-card" class="card overview-card" :class="{ 'is-refetching': refetching }">
         <div class="overview-head">
@@ -475,7 +557,9 @@ function selectCompany(ico) {
           <div id="dashboard-metric-invoices" class="metric">
             <div class="metric-label">Faktur celkem</div>
             <div class="metric-row">
-              <div class="metric-value">{{ invoicesOverview.total }}</div>
+              <div class="metric-value" :class="{ 'metric-value-muted': !invoicesOverview.total }">
+                {{ invoicesOverview.total }}
+              </div>
               <div class="metric-badges">
                 <span v-if="invoicesOverview.overdueCount > 0" class="badge badge-danger">
                   {{ invoicesOverview.overdueCount }} po splatnosti
@@ -488,12 +572,16 @@ function selectCompany(ico) {
           </div>
 
           <div id="dashboard-metric-next-due" class="metric">
-            <div class="metric-label">Nejbližší splatnost za</div>
+            <div class="metric-label">Nejbližší splatnost</div>
             <div class="metric-row">
               <div v-if="invoicesOverview.nextDue" class="metric-value">
-                {{ invoicesOverview.nextDue.daysRelative }} dní
+                za {{ invoicesOverview.nextDue.daysRelative }} dní
               </div>
-              <div v-else class="metric-value metric-value-ok">Vše splaceno</div>
+              <div v-else-if="hasAnyInvoiceData" class="metric-value metric-value-ok">
+                <Check :size="18" aria-hidden="true" />
+                Vše splaceno
+              </div>
+              <div v-else class="metric-placeholder">Zatím žádné faktury</div>
               <div v-if="invoicesOverview.nextDue" class="metric-badges">
                 <span class="badge badge-info">{{ invoicesOverview.nextDue.documentNumber }}</span>
               </div>
@@ -501,24 +589,27 @@ function selectCompany(ico) {
           </div>
 
           <div id="dashboard-metric-personnel" class="metric">
-            <div class="metric-label">Přiřazených pracovníků</div>
+            <div class="metric-label">Přiřazený tým</div>
             <div class="metric-row">
-              <div class="metric-value">{{ personnelOverview.count }}</div>
+              <div class="metric-value" :class="{ 'metric-value-muted': !personnelOverview.count }">
+                {{ personnelOverview.count }}
+                <span class="metric-value-unit">{{ personnelOverview.count === 1 ? 'pracovník' : (personnelOverview.count >= 2 && personnelOverview.count <= 4 ? 'pracovníci' : 'pracovníků') }}</span>
+              </div>
               <div v-if="personnelOverview.locationName" class="metric-badges">
-                <span class="badge badge-info">Vaše místo: {{ personnelOverview.locationName }}</span>
+                <span class="badge badge-info">{{ personnelOverview.locationName }}</span>
               </div>
             </div>
           </div>
 
           <div id="dashboard-metric-contract" class="metric">
-            <div class="metric-label">Nahraná smlouva</div>
+            <div class="metric-label">Smlouva</div>
             <div class="metric-row metric-row-contract">
-              <Check v-if="contract.hasPdf" :size="22" class="metric-contract-icon ok" aria-label="Smlouva nahrána" />
-              <span v-else class="metric-contract-icon missing" aria-label="Smlouva chybí">!</span>
+              <Check v-if="contract.hasPdf" :size="18" class="metric-contract-icon ok" aria-label="Smlouva nahrána" />
+              <FileSignature v-else :size="18" class="metric-contract-icon pending" aria-label="Smlouva zatím není" />
               <RouterLink v-if="contract.hasPdf" id="dashboard-metric-contract-link" to="/smlouva" class="metric-link">
                 Zobrazit smlouvu <ArrowRight :size="14" />
               </RouterLink>
-              <span v-else class="metric-link metric-link-missing">Smlouva zatím nenahrána</span>
+              <span v-else class="metric-link metric-link-muted">Připravujeme</span>
             </div>
           </div>
         </div>
@@ -611,8 +702,15 @@ function selectCompany(ico) {
               <Clock v-else-if="cell.status === 'scheduled'" :size="11" class="ds-icon" />
             </div>
           </div>
-          <div v-else id="dashboard-cleaning-empty" class="cleaning-empty">
-            Pro toto období zatím nejsou k dispozici žádné úklidy.
+          <div v-else id="dashboard-cleaning-empty" class="inline-empty">
+            <span class="inline-empty-icon">
+              <Calendar :size="22" aria-hidden="true" />
+            </span>
+            <span class="inline-empty-title">Zatím žádné úklidy</span>
+            <span class="inline-empty-desc">
+              Po prvním úklidu se tu rozsvítí zelené dny.
+              <RouterLink to="/dochazka" class="inline-empty-link">Otevřít kalendář</RouterLink>
+            </span>
           </div>
         </article>
 
@@ -659,7 +757,12 @@ function selectCompany(ico) {
               class="personnel-row"
             >
               <div class="avatar avatar-md personnel-avatar">
-                <img v-if="staff.photoUrl" :src="staff.photoUrl" :alt="staff.name" />
+                <img
+                  v-if="staff.photoUrl && !brokenPhotos[staff.id]"
+                  :src="staff.photoUrl"
+                  :alt="staff.name"
+                  @error="markPhotoBroken(staff.id)"
+                />
                 <span v-else>{{ initials(staff.name) }}</span>
               </div>
               <div class="personnel-info">
@@ -668,8 +771,14 @@ function selectCompany(ico) {
               </div>
             </div>
           </div>
-          <div v-else id="dashboard-personnel-empty" class="cleaning-empty">
-            Pro tento účet zatím nejsou přiřazeni pracovníci.
+          <div v-else id="dashboard-personnel-empty" class="inline-empty">
+            <span class="inline-empty-icon">
+              <Users :size="22" aria-hidden="true" />
+            </span>
+            <span class="inline-empty-title">Ještě žádný přiřazený tým</span>
+            <span class="inline-empty-desc">
+              Jakmile vám přiřadíme pracovníky, najdete je tady i s jejich profily.
+            </span>
           </div>
         </article>
       </section>
@@ -678,32 +787,48 @@ function selectCompany(ico) {
       <section id="dashboard-bottom-row" class="dashboard-bottom-row">
         <article id="dashboard-chart-card" class="card chart-card">
           <h3 id="dashboard-chart-title" class="card-title">Přehled faktur</h3>
-          <div id="dashboard-chart-wrap" class="chart-wrap">
-            <Doughnut :data="chartData" :options="chartOptions" />
-          </div>
-          <div class="chart-totals">
-            <div id="dashboard-chart-legend-paid" class="total-row">
-              <span class="total-dot total-dot-paid" />
-              <span>Zaplaceno</span>
-              <strong>{{ invoicesOverview.paidCount || 0 }}</strong>
+          <template v-if="hasAnyInvoiceData">
+            <div id="dashboard-chart-wrap" class="chart-wrap">
+              <Doughnut :data="chartData" :options="chartOptions" />
             </div>
-            <div id="dashboard-chart-legend-unpaid" class="total-row">
-              <span class="total-dot total-dot-unpaid" />
-              <span>Nezaplaceno</span>
-              <strong>{{ invoicesOverview.unpaidCount || 0 }}</strong>
+            <div class="chart-totals">
+              <div id="dashboard-chart-legend-paid" class="total-row">
+                <span class="total-dot total-dot-paid" />
+                <span>Zaplaceno</span>
+                <strong>{{ invoicesOverview.paidCount || 0 }}</strong>
+              </div>
+              <div id="dashboard-chart-legend-unpaid" class="total-row">
+                <span class="total-dot total-dot-unpaid" />
+                <span>Nezaplaceno</span>
+                <strong>{{ invoicesOverview.unpaidCount || 0 }}</strong>
+              </div>
+              <div id="dashboard-chart-legend-overdue" class="total-row">
+                <span class="total-dot total-dot-overdue" />
+                <span>Po splatnosti</span>
+                <strong>{{ invoicesOverview.overdueCount || 0 }}</strong>
+              </div>
             </div>
-            <div id="dashboard-chart-legend-overdue" class="total-row">
-              <span class="total-dot total-dot-overdue" />
-              <span>Po splatnosti</span>
-              <strong>{{ invoicesOverview.overdueCount || 0 }}</strong>
-            </div>
+          </template>
+          <div v-else id="dashboard-chart-empty" class="inline-empty">
+            <span class="inline-empty-icon">
+              <FileText :size="22" aria-hidden="true" />
+            </span>
+            <span class="inline-empty-title">Zatím žádné faktury</span>
+            <span class="inline-empty-desc">
+              Jakmile vám vystavíme první fakturu, uvidíte tu rychlý přehled podle stavu.
+            </span>
           </div>
         </article>
 
         <article id="dashboard-recent-invoices-card" class="card recent-card">
           <div class="card-header-row">
             <h3 id="dashboard-recent-title" class="card-title">Poslední faktury</h3>
-            <RouterLink id="dashboard-recent-all-link" to="/faktury" class="card-link">
+            <RouterLink
+              v-if="recentInvoices.length > 0"
+              id="dashboard-recent-all-link"
+              to="/faktury"
+              class="card-link"
+            >
               Zobrazit vše <ArrowRight :size="14" />
             </RouterLink>
           </div>
@@ -731,8 +856,14 @@ function selectCompany(ico) {
               </tbody>
             </table>
           </div>
-          <div v-else id="dashboard-recent-empty" class="cleaning-empty">
-            Pro vybrané období nejsou žádné faktury.
+          <div v-else id="dashboard-recent-empty" class="inline-empty">
+            <span class="inline-empty-icon">
+              <FileText :size="22" aria-hidden="true" />
+            </span>
+            <span class="inline-empty-title">Žádné faktury v tomto období</span>
+            <span class="inline-empty-desc">
+              Až vám fakturu vystavíme, objeví se tady na přehledu.
+            </span>
           </div>
         </article>
       </section>
@@ -775,9 +906,10 @@ function selectCompany(ico) {
 
 .dashboard-greeting {
   font-size: var(--fs-3xl);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--color-primary);
-  line-height: 1.2;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
 }
 
 .company-switcher {
@@ -995,11 +1127,34 @@ function selectCompany(ico) {
   font-weight: 700;
   color: var(--color-primary);
   line-height: 1.1;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.metric-value-muted {
+  color: var(--color-gray-400);
+}
+
+.metric-value-unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-gray-500);
+  letter-spacing: 0;
 }
 
 .metric-value-ok {
-  font-size: 18px;
+  font-size: 17px;
   color: var(--color-success);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.metric-placeholder {
+  font-size: 14px;
+  color: var(--color-gray-500);
 }
 
 .metric-badges {
@@ -1010,6 +1165,7 @@ function selectCompany(ico) {
 
 .metric-row-contract {
   align-items: center;
+  gap: 10px;
 }
 
 .metric-contract-icon {
@@ -1019,8 +1175,7 @@ function selectCompany(ico) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
-  font-size: 18px;
+  flex-shrink: 0;
 }
 
 .metric-contract-icon.ok {
@@ -1028,9 +1183,9 @@ function selectCompany(ico) {
   color: var(--color-success);
 }
 
-.metric-contract-icon.missing {
-  background: var(--color-danger-light);
-  color: var(--color-danger);
+.metric-contract-icon.pending {
+  background: var(--color-light);
+  color: var(--color-primary);
 }
 
 .metric-link {
@@ -1039,14 +1194,16 @@ function selectCompany(ico) {
   gap: 4px;
   font-size: 13px;
   color: var(--color-accent);
+  font-weight: 500;
 }
 
 .metric-link:hover {
   color: var(--color-primary);
 }
 
-.metric-link-missing {
+.metric-link-muted {
   color: var(--color-gray-500);
+  font-size: 13px;
 }
 
 /* ── Mid row ────────────────────────────────────────────────────────────── */
@@ -1202,6 +1359,24 @@ function selectCompany(ico) {
   font-size: 13px;
   color: var(--color-gray-500);
   padding: 16px 0;
+}
+
+.inline-empty-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  color: var(--color-accent);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.inline-empty-link:hover {
+  color: var(--color-primary);
+}
+
+/* Onboarding hero on dashboard — sits between greeting and metrics on first visit */
+.dashboard-onboarding {
+  margin-bottom: 24px;
 }
 
 /* Personnel card */

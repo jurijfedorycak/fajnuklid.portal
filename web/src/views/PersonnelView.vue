@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { Users, Clock, Star, BookOpen, MapPin, Loader2 } from 'lucide-vue-next'
+import { Users, Clock, Star, BookOpen, MapPin, Loader2, Sparkles } from 'lucide-vue-next'
 import { personnelService } from '../api'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
 
@@ -60,6 +60,19 @@ function initials(name) {
   if (!name) return '?'
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 }
+
+// Czech pluralization for "pracovník": 1 pracovník, 2-4 pracovníci, 0/5+ pracovníků
+function pluralWorkers(n) {
+  if (n === 1) return 'pracovník'
+  if (n >= 2 && n <= 4) return 'pracovníci'
+  return 'pracovníků'
+}
+
+function pluralPlaces(n) {
+  if (n === 1) return 'provozovna'
+  if (n >= 2 && n <= 4) return 'provozovny'
+  return 'provozoven'
+}
 </script>
 
 <template>
@@ -75,11 +88,25 @@ function initials(name) {
       {{ error }}
     </div>
 
-    <!-- Empty state -->
-    <div v-else-if="personnelByLocation.length === 0" class="card">
-      <div class="empty-state">
-        <Users :size="40" class="empty-state-icon" />
-        <p class="empty-state-title">Zatím nejsou přiřazeni žádní pracovníci.</p>
+    <!-- Empty state — onboarding hero -->
+    <div v-else-if="personnelByLocation.length === 0" id="personnel-onboarding" class="onboarding-hero">
+      <div class="onboarding-hero-icon">
+        <Users :size="28" aria-hidden="true" />
+      </div>
+      <h2 class="onboarding-hero-title">Brzy se seznámíte se svým týmem</h2>
+      <p class="onboarding-hero-desc">
+        Jakmile vám přiřadíme úklidové pracovníky, uvidíte tu jejich profily –
+        fotku, zkušenosti a jméno. Budete přesně vědět, kdo u vás uklízí.
+      </p>
+      <div class="personnel-onboarding-perks">
+        <div class="personnel-perk">
+          <Sparkles :size="14" aria-hidden="true" />
+          <span>Foto a představení pracovníka</span>
+        </div>
+        <div class="personnel-perk">
+          <Sparkles :size="14" aria-hidden="true" />
+          <span>Zkušenosti a délka spolupráce</span>
+        </div>
       </div>
     </div>
 
@@ -91,8 +118,8 @@ function initials(name) {
         <h1 class="page-title">Personál</h1>
         <p class="page-subtitle">Pracovníci přiřazení na vaše provozovny</p>
       </div>
-      <div class="badge badge-info" style="font-size:13px; padding: 6px 14px;">
-        {{ totalStaff }} pracovníků
+      <div class="badge badge-info personnel-total-badge">
+        {{ totalStaff }} {{ pluralWorkers(totalStaff) }}
       </div>
     </div>
 
@@ -108,8 +135,8 @@ function initials(name) {
         <span class="ico-tab-name">{{ group.icoName }}</span>
         <span class="ico-tab-ico">IČO {{ group.ico }}</span>
         <span class="ico-tab-badge">
-          {{ group.objects.reduce((s, o) => s + o.staff.length, 0) }} osob ·
-          {{ group.objects.length }} {{ group.objects.length === 1 ? 'provozovna' : 'provozovny' }}
+          {{ group.objects.reduce((s, o) => s + o.staff.length, 0) }} {{ pluralWorkers(group.objects.reduce((s, o) => s + o.staff.length, 0)) }} ·
+          {{ group.objects.length }} {{ pluralPlaces(group.objects.length) }}
         </span>
       </button>
     </div>
@@ -124,21 +151,24 @@ function initials(name) {
         <!-- Object header -->
         <div class="object-header">
           <div class="object-title-wrap">
-            <h2 class="object-name">{{ obj.name }}</h2>
-            <div class="object-address">
+            <h2 class="object-name">{{ obj.name || 'Vaše provozovna' }}</h2>
+            <div v-if="obj.address" class="object-address">
               <MapPin :size="13" />
               {{ obj.address }}
             </div>
           </div>
-          <span class="badge badge-gray">{{ obj.staff.length }} {{ obj.staff.length === 1 ? 'pracovník' : 'pracovníci' }}</span>
+          <span class="badge badge-gray">{{ obj.staff.length }} {{ pluralWorkers(obj.staff.length) }}</span>
         </div>
 
         <!-- Empty object -->
-        <div v-if="obj.staff.length === 0" class="card">
-          <div class="empty-state">
-            <Users :size="32" class="empty-state-icon" />
-            <p class="empty-state-title">Pro tuto provozovnu zatím nejsou přiřazeni žádní pracovníci.</p>
-          </div>
+        <div v-if="obj.staff.length === 0" class="inline-empty object-inline-empty">
+          <span class="inline-empty-icon">
+            <Users :size="22" aria-hidden="true" />
+          </span>
+          <span class="inline-empty-title">Tým ještě nebyl přiřazen</span>
+          <span class="inline-empty-desc">
+            Jakmile sem nasadíme úklidového pracovníka, uvidíte tu jeho profil.
+          </span>
         </div>
 
         <!-- Staff grid -->
@@ -386,6 +416,47 @@ function initials(name) {
   font-size: 12px;
   color: var(--color-gray-500);
   text-align: center;
+  line-height: 1.55;
+}
+
+.personnel-total-badge {
+  font-size: 13px;
+  padding: 6px 14px;
+  align-self: flex-start;
+}
+@media (min-width: 640px) {
+  .personnel-total-badge { align-self: auto; }
+}
+
+.personnel-onboarding-perks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  width: 100%;
+  max-width: 380px;
+}
+
+.personnel-perk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-gray-700);
+  padding: 8px 12px;
+  background: var(--color-gray-50);
+  border-radius: var(--radius-md);
+}
+.personnel-perk svg {
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.object-inline-empty {
+  background: var(--color-gray-50);
+  border: 1px dashed var(--color-gray-300);
+  border-radius: var(--radius-lg);
+  padding: 26px 20px;
 }
 
 /* .personnel-grid + .ico-tab handled mobile-first above */

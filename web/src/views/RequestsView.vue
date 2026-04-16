@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Loader2, ClipboardList, Plus } from 'lucide-vue-next'
+import { Loader2, ClipboardList, Plus, MessageSquare, Sparkles } from 'lucide-vue-next'
 import { maintenanceRequestService, REQUEST_STATUSES } from '../api'
 
 const router = useRouter()
@@ -59,7 +59,7 @@ function openDetail(id) {
       <div id="requests-header" class="page-header">
         <div id="requests-header-text">
           <h1 id="requests-title" class="page-title">
-            <ClipboardList :size="22" style="vertical-align:-4px; margin-right:8px; color:var(--color-mid);" />
+            <ClipboardList :size="22" class="requests-title-icon" aria-hidden="true" />
             Požadavky a reklamace
           </h1>
           <p id="requests-subtitle" class="page-subtitle">
@@ -72,6 +72,39 @@ function openDetail(id) {
         </button>
       </div>
 
+      <!-- Brand-new-state onboarding (no requests at all) -->
+      <div v-if="requests.length === 0" id="requests-onboarding" class="onboarding-hero">
+        <div class="onboarding-hero-icon">
+          <MessageSquare :size="28" aria-hidden="true" />
+        </div>
+        <h2 class="onboarding-hero-title">Máte problém, dotaz, nebo mimořádnou žádost?</h2>
+        <p class="onboarding-hero-desc">
+          Vytvořte požadavek online – my se na něj podíváme a co nejdřív vám dáme vědět.
+          Každý požadavek má přehledný stav, takže vždy víte, na čem jste.
+        </p>
+        <div class="requests-onboarding-perks">
+          <div class="requests-perk">
+            <Sparkles :size="14" aria-hidden="true" />
+            <span>Přidejte fotky a popis</span>
+          </div>
+          <div class="requests-perk">
+            <Sparkles :size="14" aria-hidden="true" />
+            <span>Sledujte stav v reálném čase</span>
+          </div>
+          <div class="requests-perk">
+            <Sparkles :size="14" aria-hidden="true" />
+            <span>Vše na jednom místě</span>
+          </div>
+        </div>
+        <div class="onboarding-hero-actions">
+          <button id="requests-onboarding-create" class="btn btn-primary btn-sm" @click="router.push('/zadosti/nova')">
+            <Plus :size="14" aria-hidden="true" />
+            <span>Vytvořit první požadavek</span>
+          </button>
+        </div>
+      </div>
+
+      <template v-else>
       <div id="requests-filters" class="chip-group" style="margin-bottom:16px;">
         <button
           v-for="f in filters"
@@ -87,8 +120,8 @@ function openDetail(id) {
 
       <div v-if="filtered.length === 0" id="requests-empty" class="card empty-state">
         <ClipboardList id="requests-empty-icon" :size="40" class="empty-state-icon" />
-        <p class="empty-state-title">Žádné žádosti k zobrazení.</p>
-        <p class="empty-state-text">Zkuste jiný filtr, nebo vytvořte novou žádost.</p>
+        <p class="empty-state-title">Žádné žádosti v tomto filtru</p>
+        <p class="empty-state-text">Zkuste vybrat jiný stav nebo zobrazit vše.</p>
       </div>
 
       <div v-else id="requests-list" class="requests-list">
@@ -110,6 +143,7 @@ function openDetail(id) {
           </span>
         </button>
       </div>
+      </template>
     </template>
   </div>
 </template>
@@ -161,4 +195,53 @@ function openDetail(id) {
 
 .spin { animation: spin 1.5s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.requests-title-icon {
+  vertical-align: -4px;
+  margin-right: 8px;
+  color: var(--color-mid);
+}
+
+/* Make the request row friendlier on mobile — title/badge stack vertically */
+@media (max-width: 479.98px) {
+  .request-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 16px 18px;
+  }
+}
+
+.requests-onboarding-perks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  width: 100%;
+  max-width: 420px;
+}
+@media (min-width: 640px) {
+  .requests-onboarding-perks {
+    flex-direction: row;
+    justify-content: center;
+    max-width: none;
+  }
+}
+
+.requests-perk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-gray-700);
+  padding: 8px 12px;
+  background: var(--color-gray-50);
+  border-radius: var(--radius-md);
+  flex: 1;
+  justify-content: center;
+}
+.requests-perk svg {
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
 </style>

@@ -65,8 +65,13 @@ const sidebarOpen = ref(false)
 
 .main-content {
   flex: 1;
-  padding: var(--space-lg) var(--space-md);
+  padding: var(--space-lg) var(--space-lg);
   overflow-y: auto;
+}
+@media (min-width: 480px) {
+  .main-content {
+    padding: var(--space-xl) var(--space-xl);
+  }
 }
 
 /* Mobile topbar — visible by default, hidden on desktop */

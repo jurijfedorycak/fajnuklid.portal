@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { FileSignature, Download, AlertTriangle, Phone, Mail, Loader2 } from 'lucide-vue-next'
+import { FileSignature, Download, Phone, Mail, Loader2, Clock } from 'lucide-vue-next'
 import { contractService } from '../api'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
 
@@ -148,24 +148,33 @@ async function downloadContract() {
       </div>
     </div>
 
-    <!-- Contract missing (enabled but no PDF) -->
-    <div v-else-if="contract.contractsEnabled && !contract.hasPdf">
-      <div class="card contract-missing">
-        <AlertTriangle :size="48" color="#e67e00" />
-        <h2 class="missing-title">Smlouva není k dispozici</h2>
-        <p class="missing-text">
-          Smlouva zde není nahraná, prosím obraťte se na nás telefonicky či e-mailem.
-        </p>
-        <div class="missing-contacts">
-          <a :href="'tel:+420773023608'" class="btn btn-outline">
-            <Phone :size="16" />
-            +420 773 023 608
-          </a>
-          <a href="mailto:jurij.fedorycak@fajnuklid.cz" class="btn btn-outline">
-            <Mail :size="16" />
-            jurij.fedorycak@fajnuklid.cz
-          </a>
-        </div>
+    <!-- Contract missing (enabled but no PDF) — friendly onboarding tone -->
+    <div v-else-if="contract.contractsEnabled && !contract.hasPdf" id="contract-pending" class="onboarding-hero contract-pending">
+      <div class="onboarding-hero-icon onboarding-hero-icon--soft">
+        <FileSignature :size="28" aria-hidden="true" />
+      </div>
+      <h2 id="contract-pending-title" class="onboarding-hero-title">
+        Vaši smlouvu tu brzy najdete
+      </h2>
+      <p id="contract-pending-desc" class="onboarding-hero-desc">
+        Jakmile podepsanou smlouvu nahrajeme, uvidíte ji tady i s tlačítkem pro stažení PDF.
+        Potřebujete mezitím kopii nebo máte dotaz? Napište nám.
+      </p>
+      <div class="contract-pending-meta">
+        <span class="contract-pending-meta-item">
+          <Clock :size="14" aria-hidden="true" />
+          Obvykle do 2 pracovních dnů od podpisu
+        </span>
+      </div>
+      <div class="onboarding-hero-actions">
+        <a id="contract-pending-call" href="tel:+420773023608" class="btn btn-primary btn-sm">
+          <Phone :size="14" aria-hidden="true" />
+          +420 773 023 608
+        </a>
+        <a id="contract-pending-email" href="mailto:jurij.fedorycak@fajnuklid.cz" class="btn btn-outline btn-sm">
+          <Mail :size="14" aria-hidden="true" />
+          Napsat e-mail
+        </a>
       </div>
     </div>
 
@@ -272,35 +281,28 @@ async function downloadContract() {
   padding: 40px;
 }
 
-/* Missing contract */
-.contract-missing {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 60px 32px;
-  gap: 16px;
-  max-width: 480px;
+/* Contract pending (onboarding tone) */
+.contract-pending {
+  max-width: 560px;
   margin: 0 auto;
 }
 
-.missing-title {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--color-warning);
-}
-
-.missing-text {
-  font-size: 14px;
-  color: var(--color-gray-600);
-  line-height: 1.6;
-}
-
-.missing-contacts {
+.contract-pending-meta {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
   justify-content: center;
+  margin-top: 4px;
+}
+
+.contract-pending-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  color: var(--color-gray-600);
 }
 
 /* .contract-available handled mobile-first above */
