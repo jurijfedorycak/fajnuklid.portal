@@ -149,7 +149,7 @@ async function confirmDelete() {
       <div class="skeleton" style="height:14px; width:240px; margin-bottom:18px;"></div>
       <div class="skeleton" style="height:32px; width:60%; margin-bottom:10px;"></div>
       <div class="skeleton" style="height:14px; width:40%; margin-bottom:24px;"></div>
-      <div style="display:flex; gap:8px; margin-bottom:24px;">
+      <div style="display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap;">
         <div class="skeleton" style="height:32px; width:90px; border-radius:999px;"></div>
         <div class="skeleton" style="height:32px; width:110px; border-radius:999px;"></div>
         <div class="skeleton" style="height:32px; width:200px; border-radius:999px;"></div>
