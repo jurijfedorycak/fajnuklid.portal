@@ -561,11 +561,17 @@ async function persistOrder() {
   margin-bottom: 8px;
 }
 
+/* Mobile-first: grid with actions stacked on a second row; ≥640px switch to horizontal row */
 .staff-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "handle avatar info"
+    "actions actions actions";
+  column-gap: 12px;
+  row-gap: 12px;
+  padding: 14px;
   align-items: center;
-  gap: 16px;
-  padding: 16px;
   transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
   border: 2px solid transparent;
 }
@@ -578,6 +584,7 @@ async function persistOrder() {
 }
 
 .staff-drag-handle {
+  grid-area: handle;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -596,6 +603,7 @@ async function persistOrder() {
 }
 
 .staff-avatar {
+  grid-area: avatar;
   background: var(--color-mid);
   color: var(--color-white);
   flex-shrink: 0;
@@ -608,7 +616,7 @@ async function persistOrder() {
 }
 
 .staff-info {
-  flex: 1;
+  grid-area: info;
   min-width: 0;
 }
 
@@ -627,8 +635,8 @@ async function persistOrder() {
 
 .staff-meta {
   display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .staff-meta-item {
@@ -637,12 +645,45 @@ async function persistOrder() {
   gap: 5px;
   font-size: 12px;
   color: var(--color-mid);
+  word-break: break-word;
+  min-width: 0;
 }
 
 .staff-actions {
+  grid-area: actions;
   display: flex;
   gap: 8px;
-  flex-shrink: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-gray-100);
+}
+.staff-actions > .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+@media (min-width: 640px) {
+  .staff-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+  }
+  .staff-info {
+    flex: 1;
+  }
+  .staff-meta {
+    flex-direction: row;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .staff-actions {
+    padding-top: 0;
+    border-top: none;
+    flex-shrink: 0;
+  }
+  .staff-actions > .btn {
+    flex: 0 0 auto;
+  }
 }
 
 .btn-danger-outline {

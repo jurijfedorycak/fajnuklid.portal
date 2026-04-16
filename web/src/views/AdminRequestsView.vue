@@ -103,31 +103,27 @@ function openDetail(id) {
     <div v-else-if="error" id="admin-requests-error" class="alert alert-danger">{{ error }}</div>
 
     <template v-else>
-      <!-- Stats bar -->
-      <div id="admin-requests-stats" class="summary-bar card" style="margin-bottom:16px;">
-        <div id="admin-stats-total" class="summary-item">
-          <span class="summary-val">{{ stats.total }}</span>
-          <span class="summary-lbl">Celkem</span>
+      <!-- Stats tiles -->
+      <div id="admin-requests-stats" class="stats-grid">
+        <div id="admin-stats-total" class="stat-tile stat-tile--featured">
+          <span class="stat-lbl">Celkem</span>
+          <span class="stat-val">{{ stats.total }}</span>
         </div>
-        <div class="summary-sep" />
-        <div id="admin-stats-prijato" class="summary-item">
-          <span class="summary-val text-mid">{{ stats.prijato }}</span>
-          <span class="summary-lbl">Přijato</span>
+        <div id="admin-stats-prijato" class="stat-tile stat-tile--prijato">
+          <span class="stat-lbl">Přijato</span>
+          <span class="stat-val">{{ stats.prijato }}</span>
         </div>
-        <div class="summary-sep" />
-        <div id="admin-stats-resi" class="summary-item">
-          <span class="summary-val text-warning">{{ stats.resi }}</span>
-          <span class="summary-lbl">Řeší se</span>
+        <div id="admin-stats-resi" class="stat-tile stat-tile--resi">
+          <span class="stat-lbl">Řeší se</span>
+          <span class="stat-val">{{ stats.resi }}</span>
         </div>
-        <div class="summary-sep" />
-        <div id="admin-stats-ceka" class="summary-item">
-          <span class="summary-val text-mid">{{ stats.ceka }}</span>
-          <span class="summary-lbl">Čeká na potvrzení</span>
+        <div id="admin-stats-ceka" class="stat-tile stat-tile--ceka">
+          <span class="stat-lbl">Čeká<span class="stat-lbl-extra"> na potvrzení</span></span>
+          <span class="stat-val">{{ stats.ceka }}</span>
         </div>
-        <div class="summary-sep" />
-        <div id="admin-stats-vyreseno" class="summary-item">
-          <span class="summary-val text-success">{{ stats.vyreseno }}</span>
-          <span class="summary-lbl">Vyřešeno</span>
+        <div id="admin-stats-vyreseno" class="stat-tile stat-tile--vyreseno">
+          <span class="stat-lbl">Vyřešeno</span>
+          <span class="stat-val">{{ stats.vyreseno }}</span>
         </div>
       </div>
 
@@ -174,7 +170,7 @@ function openDetail(id) {
         </button>
       </div>
 
-      <!-- Table -->
+      <!-- Table + mobile cards -->
       <div id="admin-requests-table-card" class="card">
         <div v-if="filtered.length === 0" id="admin-requests-empty" class="empty-state">
           <ClipboardList :size="40" class="empty-state-icon" />
@@ -182,91 +178,145 @@ function openDetail(id) {
           <p class="empty-state-text">Zkuste jiný filtr.</p>
         </div>
 
-        <div v-else class="table-wrap table-wrap--sticky-first">
-          <table id="admin-requests-table" class="data-table">
-            <thead>
-              <tr>
-                <th>Vytvořeno</th>
-                <th>Klient</th>
-                <th>Název</th>
-                <th>Kategorie</th>
-                <th>Místo</th>
-                <th>Stav</th>
-                <th>Termín</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="r in filtered"
-                :key="r.id"
-                :id="'admin-request-row-' + r.id"
-                class="clickable-row"
-                @click="openDetail(r.id)"
-              >
-                <td class="text-muted">{{ formatDate(r.createdAt) }}</td>
-                <td class="fw-500" style="color:var(--color-primary)">{{ r.clientDisplayName || '—' }}</td>
-                <td>{{ r.title }}</td>
-                <td class="text-muted">{{ categoryLabel(r.category) }}</td>
-                <td class="text-muted">{{ r.locationValue || '—' }}</td>
-                <td>
-                  <span class="badge" :class="statusMeta(r.status).badge">
-                    {{ statusMeta(r.status).label }}
-                  </span>
-                </td>
-                <td class="text-muted">{{ formatDate(r.dueDate) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <template v-else>
+          <!-- Mobile cards (< 768px) -->
+          <div id="admin-requests-cards" class="requests-cards">
+            <div
+              v-for="r in filtered"
+              :key="r.id"
+              :id="'admin-request-card-' + r.id"
+              class="request-card"
+              role="button"
+              tabindex="0"
+              @click="openDetail(r.id)"
+              @keydown.enter="openDetail(r.id)"
+              @keydown.space.prevent="openDetail(r.id)"
+            >
+              <div class="request-card-head">
+                <span class="request-card-client">{{ r.clientDisplayName || '—' }}</span>
+                <span class="badge" :class="statusMeta(r.status).badge">
+                  {{ statusMeta(r.status).label }}
+                </span>
+              </div>
+              <h3 class="request-card-title">{{ r.title }}</h3>
+              <dl class="request-card-meta">
+                <dt>Vytvořeno</dt>
+                <dd>{{ formatDate(r.createdAt) }}</dd>
+                <dt>Termín</dt>
+                <dd>{{ formatDate(r.dueDate) }}</dd>
+                <dt>Kategorie</dt>
+                <dd>{{ categoryLabel(r.category) }}</dd>
+                <template v-if="r.locationValue">
+                  <dt>Místo</dt>
+                  <dd>{{ r.locationValue }}</dd>
+                </template>
+              </dl>
+            </div>
+          </div>
+
+          <!-- Desktop table (≥ 768px) -->
+          <div class="table-wrap table-wrap--sticky-first requests-table-wrap">
+            <table id="admin-requests-table" class="data-table">
+              <thead>
+                <tr>
+                  <th>Vytvořeno</th>
+                  <th>Klient</th>
+                  <th>Název</th>
+                  <th>Kategorie</th>
+                  <th>Místo</th>
+                  <th>Stav</th>
+                  <th>Termín</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="r in filtered"
+                  :key="r.id"
+                  :id="'admin-request-row-' + r.id"
+                  class="clickable-row"
+                  @click="openDetail(r.id)"
+                >
+                  <td class="text-muted">{{ formatDate(r.createdAt) }}</td>
+                  <td class="fw-500" style="color:var(--color-primary)">{{ r.clientDisplayName || '—' }}</td>
+                  <td>{{ r.title }}</td>
+                  <td class="text-muted">{{ categoryLabel(r.category) }}</td>
+                  <td class="text-muted">{{ r.locationValue || '—' }}</td>
+                  <td>
+                    <span class="badge" :class="statusMeta(r.status).badge">
+                      {{ statusMeta(r.status).label }}
+                    </span>
+                  </td>
+                  <td class="text-muted">{{ formatDate(r.dueDate) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
       </div>
     </template>
   </div>
 </template>
 
 <style scoped>
-/* Mobile-first summary bar: wrap, no separators; single-row at lg */
-.summary-bar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 14px 16px;
+/* Stat tiles — mobile-first: 2-col grid with Celkem spanning full width, single row ≥640px */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
-.summary-item {
+.stat-tile {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-left: 3px solid var(--color-gray-300);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  flex: 1 1 45%;
-  gap: 2px;
+  justify-content: center;
+  gap: 4px;
+  min-height: 64px;
 }
 
-.summary-val {
-  font-size: var(--fs-lg);
-  font-weight: 700;
-  color: var(--color-primary);
+.stat-tile--featured {
+  grid-column: 1 / -1;
+  border-left-color: var(--color-primary);
+  background: var(--color-gray-50);
 }
 
-.summary-lbl {
+.stat-tile--prijato  { border-left-color: var(--color-mid); }
+.stat-tile--resi     { border-left-color: var(--color-warning); }
+.stat-tile--ceka     { border-left-color: var(--color-mid); }
+.stat-tile--vyreseno { border-left-color: var(--color-success); }
+
+.stat-lbl {
   font-size: 11px;
   color: var(--color-gray-600);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+  line-height: 1.3;
 }
 
-.summary-sep {
-  width: 1px;
-  height: 36px;
-  background: var(--color-gray-200);
-  flex-shrink: 0;
-  display: none;
+.stat-lbl-extra { display: none; }
+
+.stat-val {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1;
 }
 
-@media (min-width: 1024px) {
-  .summary-bar { flex-wrap: nowrap; gap: 0; padding: 14px 20px; }
-  .summary-item { flex: 1; }
-  .summary-val { font-size: 20px; }
-  .summary-sep { display: block; }
+.stat-tile--prijato  .stat-val { color: var(--color-mid); }
+.stat-tile--resi     .stat-val { color: var(--color-warning); }
+.stat-tile--ceka     .stat-val { color: var(--color-mid); }
+.stat-tile--vyreseno .stat-val { color: var(--color-success); }
+
+@media (min-width: 640px) {
+  .stats-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .stat-tile--featured { grid-column: auto; }
+  .stat-lbl-extra { display: inline; }
 }
 
 .filters-row {
@@ -316,8 +366,90 @@ function openDetail(id) {
 
 .clickable-row { cursor: pointer; }
 
+/* Mobile cards for requests — shown < 768px, hidden ≥ 768px */
+.requests-cards {
+  display: grid;
+  gap: 10px;
+}
+.requests-table-wrap {
+  display: none;
+}
+@media (min-width: 768px) {
+  .requests-cards { display: none; }
+  .requests-table-wrap { display: block; }
+}
+
+.request-card {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+}
+.request-card:hover {
+  border-color: var(--color-mid);
+  box-shadow: var(--shadow-sm);
+}
+.request-card:focus-visible {
+  outline: 2px solid var(--color-mid);
+  outline-offset: 2px;
+}
+
+.request-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.request-card-client {
+  font-size: 11px;
+  color: var(--color-gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-card-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-primary);
+  margin: 0;
+  line-height: 1.35;
+}
+
+.request-card-meta {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-gray-100);
+  font-size: 13px;
+}
+.request-card-meta dt {
+  color: var(--color-gray-500);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  align-self: center;
+}
+.request-card-meta dd {
+  color: var(--color-gray-800);
+  text-align: right;
+  margin: 0;
+  word-break: break-word;
+}
+
 .spin { animation: spin 1.5s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-/* summary-bar + filter-group handled mobile-first above */
 </style>
