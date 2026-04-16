@@ -45,8 +45,42 @@ jobs:
         run: |
           mkdir -p deploy
 
-          # Copy API files (excluding sensitive files)
-          rsync -a --exclude='.env' --exclude='.env.local' --exclude='storage/logs/*' api/ deploy/api/
+          # Runtime-only API copy: strip env files, dev artifacts, and vendor tests/docs
+          rsync -a \
+            --exclude='.env' \
+            --exclude='.env.local' \
+            --exclude='.env.example' \
+            --exclude='storage/logs/*' \
+            --exclude='/tests' \
+            --exclude='/phpunit.xml' \
+            --exclude='/phpunit.xml.dist' \
+            --exclude='/.phpunit.cache' \
+            --exclude='/schema.sql' \
+            --exclude='*.log' \
+            --exclude='vendor/**/tests' \
+            --exclude='vendor/**/test' \
+            --exclude='vendor/**/Tests' \
+            --exclude='vendor/**/docs' \
+            --exclude='vendor/**/doc' \
+            --exclude='vendor/**/examples' \
+            --exclude='vendor/**/example' \
+            --exclude='vendor/**/.github' \
+            --exclude='vendor/**/.gitignore' \
+            --exclude='vendor/**/.gitattributes' \
+            --exclude='vendor/**/README*' \
+            --exclude='vendor/**/CHANGELOG*' \
+            --exclude='vendor/**/UPGRADE*' \
+            --exclude='vendor/**/UPGRADING*' \
+            --exclude='vendor/**/CONTRIBUTING*' \
+            --exclude='vendor/**/CODE_OF_CONDUCT*' \
+            --exclude='vendor/**/SECURITY*' \
+            --exclude='vendor/**/phpunit.xml*' \
+            --exclude='vendor/**/phpcs.xml*' \
+            --exclude='vendor/**/.editorconfig' \
+            --exclude='vendor/**/.travis*' \
+            --exclude='vendor/**/.scrutinizer*' \
+            --exclude='vendor/**/Makefile' \
+            api/ deploy/api/
 
           # Copy built frontend
           cp -r web/dist/* deploy/
