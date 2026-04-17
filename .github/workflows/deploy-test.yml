@@ -5,13 +5,14 @@ on:
     branches: [master]
   workflow_dispatch:
 
+concurrency:
+  group: deploy-test
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    concurrency:
-      group: deploy-test
-      cancel-in-progress: false
 
     steps:
       - name: Checkout code
@@ -132,14 +133,12 @@ jobs:
         working-directory: api
         run: ./vendor/bin/phpunit --testdox
 
-      # - name: Run database migrations
-      #   uses: appleboy/ssh-action@v1.0.3
-      #   with:
-      #     host: ${{ secrets.TEST_DB_HOST }}
-      #     username: ${{ secrets.TEST_DB_USERNAME }}
-      #     password: ${{ secrets.TEST_DB_PASSWORD }}
-      #     port: ${{ secrets.TEST_DB_PORT || '22' }}
-      #     script: |
-      #       set -e
-      #       cd ${{ secrets.TEST_DB_API_PATH }}
-      #       php vendor/bin/phinx migrate -e production
+      - name: Run database migrations
+        working-directory: api
+        env:
+          DB_HOST: ${{ secrets.TEST_DB_HOST }}
+          DB_PORT: ${{ secrets.TEST_DB_PORT || '3306' }}
+          DB_DATABASE: ${{ secrets.TEST_DB_DATABASE }}
+          DB_USERNAME: ${{ secrets.TEST_DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
+        run: ./vendor/bin/phinx migrate -e production
