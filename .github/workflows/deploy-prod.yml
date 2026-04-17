@@ -104,7 +104,12 @@ jobs:
             **/.git*
             **/.git*/**
             **/node_modules/**
-            **/vendor/**
+            **/vendor/aws/**
+            **/vendor/symfony/**
+            **/vendor/cakephp/**
+            **/vendor/nikic/**
+            **/vendor/guzzlehttp/**
+            **/vendor/robmorgan/**
             **/.env
             **/.env.local
             **/storage/logs/**
