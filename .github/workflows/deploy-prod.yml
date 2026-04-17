@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
-      group: deploy-test
+      group: deploy-prod
       cancel-in-progress: false
 
     steps:
@@ -132,14 +132,14 @@ jobs:
         working-directory: api
         run: ./vendor/bin/phpunit --testdox
 
-      # - name: Run database migrations
-      #   uses: appleboy/ssh-action@v1.0.3
-      #   with:
-      #     host: ${{ secrets.SSH_HOST }}
-      #     username: ${{ secrets.SSH_USERNAME }}
-      #     key: ${{ secrets.SSH_PRIVATE_KEY }}
-      #     port: ${{ secrets.SSH_PORT || '22' }}
-      #     script: |
-      #       set -e
-      #       cd /fajnuklid/api
-      #       php vendor/bin/phinx migrate -e production
+      - name: Run database migrations
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_DB_HOST }}
+          username: ${{ secrets.PROD_DB_USERNAME }}
+          password: ${{ secrets.PROD_DB_PASSWORD }}
+          port: ${{ secrets.PROD_DB_PORT || '22' }}
+          script: |
+            set -e
+            cd /api/
+            php vendor/bin/phinx migrate -e production

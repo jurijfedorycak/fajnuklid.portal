@@ -135,11 +135,11 @@ jobs:
       # - name: Run database migrations
       #   uses: appleboy/ssh-action@v1.0.3
       #   with:
-      #     host: ${{ secrets.SSH_HOST }}
-      #     username: ${{ secrets.SSH_USERNAME }}
-      #     key: ${{ secrets.SSH_PRIVATE_KEY }}
-      #     port: ${{ secrets.SSH_PORT || '22' }}
+      #     host: ${{ secrets.TEST_DB_HOST }}
+      #     username: ${{ secrets.TEST_DB_USERNAME }}
+      #     password: ${{ secrets.TEST_DB_PASSWORD }}
+      #     port: ${{ secrets.TEST_DB_PORT || '22' }}
       #     script: |
       #       set -e
-      #       cd /fajnuklid/api
+      #       cd ${{ secrets.TEST_DB_API_PATH }}
       #       php vendor/bin/phinx migrate -e production
