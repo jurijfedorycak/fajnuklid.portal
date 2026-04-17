@@ -133,12 +133,12 @@ jobs:
         working-directory: api
         run: ./vendor/bin/phpunit --testdox
 
-      - name: Run database migrations
-        working-directory: api
-        env:
-          DB_HOST: ${{ secrets.TEST_DB_HOST }}
-          DB_PORT: ${{ secrets.TEST_DB_PORT || '3306' }}
-          DB_DATABASE: ${{ secrets.TEST_DB_DATABASE }}
-          DB_USERNAME: ${{ secrets.TEST_DB_USERNAME }}
-          DB_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
-        run: ./vendor/bin/phinx migrate -e production
+      # - name: Run database migrations
+      #   working-directory: api
+      #   env:
+      #     DB_HOST: ${{ secrets.TEST_DB_HOST }}
+      #     DB_PORT: ${{ secrets.TEST_DB_PORT || '3306' }}
+      #     DB_DATABASE: ${{ secrets.TEST_DB_DATABASE }}
+      #     DB_USERNAME: ${{ secrets.TEST_DB_USERNAME }}
+      #     DB_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
+      #   run: ./vendor/bin/phinx migrate -e production
