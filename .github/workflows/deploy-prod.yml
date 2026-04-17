@@ -104,6 +104,7 @@ jobs:
             **/.git*
             **/.git*/**
             **/node_modules/**
+            **/vendor/**
             **/.env
             **/.env.local
             **/storage/logs/**
