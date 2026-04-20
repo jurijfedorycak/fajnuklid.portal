@@ -30,9 +30,11 @@ class InitialDataSeeder extends AbstractSeed
             return;
         }
 
-        // Insert test login account (password: Admin@Fajn2024)
+        // The bootstrap migration (BootstrapAdminAccount) already creates this row on
+        // fresh installs. Kept here as INSERT IGNORE so `seed:run` stays a safe way to
+        // restore the dev admin account after truncating login_accounts.
         $this->execute(
-            "INSERT INTO login_accounts (email, password_hash, portal_enabled) VALUES " .
+            "INSERT IGNORE INTO login_accounts (email, password_hash, portal_enabled) VALUES " .
             "('admin@fajnuklid.cz', '\$2y\$12\$GQO5RtHD2sTU.MYBrhbUa.0cTo9hwK4mVZUfZpcQJX153TNCEb.5y', 1)"
         );
 
