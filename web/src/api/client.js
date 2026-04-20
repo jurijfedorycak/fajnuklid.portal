@@ -31,8 +31,8 @@ apiClient.interceptors.response.use(
       localStorage.removeItem('auth_token')
       localStorage.removeItem('auth_user')
       // Only redirect if not already on login page
-      if (window.location.hash !== '#/login') {
-        window.location.hash = '#/login'
+      if (window.location.pathname !== '/login') {
+        window.location.assign('/login')
       }
     }
     return Promise.reject(error)
