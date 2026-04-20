@@ -30,7 +30,7 @@ function submit() {
         </p>
         <RouterLink
           id="forgot-back-to-login-btn"
-          to="/login"
+          to="/"
           class="btn btn-primary btn-full mt-20"
         >
           Zpět na přihlášení
@@ -78,7 +78,7 @@ function submit() {
         </form>
 
         <div class="text-center mt-20">
-          <RouterLink id="forgot-back-link" to="/login" class="auth-back-link">
+          <RouterLink id="forgot-back-link" to="/" class="auth-back-link">
             <ArrowLeft :size="14" />
             Zpět na přihlášení
           </RouterLink>

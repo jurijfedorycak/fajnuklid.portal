@@ -20,7 +20,7 @@ const displayName = computed(() => user.value?.display_name || user.value?.email
 const activeIco = computed(() => user.value?.active_ico || '')
 
 const clientNavItems = [
-  { name: 'Přehled',      route: '/',          icon: LayoutDashboard },
+  { name: 'Přehled',      route: '/prehled',   icon: LayoutDashboard },
   { name: 'Faktury',      route: '/faktury',   icon: FileText },
   { name: 'Personál',     route: '/personal',  icon: Users },
   { name: 'Smlouva',      route: '/smlouva',   icon: FileSignature },
@@ -75,7 +75,7 @@ const bottomItems = [
 ]
 
 function isActive(r) {
-  if (r === '/') return route.path === '/'
+  if (r === '/prehled') return route.path === '/prehled'
   return route.path.startsWith(r)
 }
 
@@ -86,7 +86,7 @@ function navigate(r) {
 
 async function handleLogout() {
   await logout()
-  router.push('/login')
+  router.push('/')
 }
 
 function slugify(name) {

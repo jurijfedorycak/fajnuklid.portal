@@ -43,7 +43,7 @@ async function handleLogin() {
   try {
     const result = await login(email.value, password.value)
     if (result.success) {
-      router.push(isAdmin.value ? '/admin/clients' : '/')
+      router.push(isAdmin.value ? '/admin/clients' : '/prehled')
     } else {
       error.value = result.message || 'Neplatné přihlašovací údaje'
       await nextTick()

@@ -3,7 +3,7 @@ import { useAuth } from '../stores/auth'
 
 const routes = [
   {
-    path: '/login',
+    path: '/',
     name: 'Login',
     component: () => import('../views/LoginView.vue'),
     meta: { public: true },
@@ -21,103 +21,103 @@ const routes = [
     meta: { public: true },
   },
   {
-    path: '/',
+    path: '/_app',
     component: () => import('../layouts/AppLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
-        path: '',
+        path: '/prehled',
         name: 'Dashboard',
         component: () => import('../views/DashboardView.vue'),
       },
       {
-        path: 'faktury',
+        path: '/faktury',
         name: 'Invoices',
         component: () => import('../views/InvoicesView.vue'),
       },
       {
-        path: 'personal',
+        path: '/personal',
         name: 'Personnel',
         component: () => import('../views/PersonnelView.vue'),
       },
       {
-        path: 'smlouva',
+        path: '/smlouva',
         name: 'Contract',
         component: () => import('../views/ContractView.vue'),
       },
       {
-        path: 'dochazka',
+        path: '/dochazka',
         name: 'Attendance',
         component: () => import('../views/AttendanceView.vue'),
       },
       {
-        path: 'zadosti',
+        path: '/zadosti',
         name: 'Requests',
         component: () => import('../views/RequestsView.vue'),
       },
       {
-        path: 'zadosti/nova',
+        path: '/zadosti/nova',
         name: 'NewRequest',
         component: () => import('../views/NewRequestView.vue'),
       },
       {
-        path: 'zadosti/vytvoreno/:id',
+        path: '/zadosti/vytvoreno/:id',
         name: 'RequestCreated',
         component: () => import('../views/RequestCreatedView.vue'),
       },
       {
-        path: 'zadosti/:id',
+        path: '/zadosti/:id',
         name: 'RequestDetail',
         component: () => import('../views/RequestDetailView.vue'),
       },
       {
-        path: 'kontakt',
+        path: '/kontakt',
         name: 'Contact',
         component: () => import('../views/ContactView.vue'),
       },
       {
-        path: 'nastaveni',
+        path: '/nastaveni',
         name: 'Settings',
         component: () => import('../views/SettingsView.vue'),
       },
       {
-        path: 'admin/clients',
+        path: '/admin/clients',
         name: 'Admin',
         component: () => import('../views/AdminView.vue'),
         meta: { requiresAdmin: true },
       },
       {
-        path: 'admin/clients/:id',
+        path: '/admin/clients/:id',
         name: 'AdminClientEdit',
         component: () => import('../views/AdminClientEditView.vue'),
         meta: { requiresAdmin: true },
       },
       {
-        path: 'admin/employees',
+        path: '/admin/employees',
         name: 'AdminEmployees',
         component: () => import('../views/AdminEmployeesView.vue'),
         meta: { requiresAdmin: true },
       },
       {
-        path: 'admin/staff-contacts',
+        path: '/admin/staff-contacts',
         name: 'AdminStaffContacts',
         component: () => import('../views/AdminStaffContactsView.vue'),
         meta: { requiresAdmin: true },
       },
       {
-        path: 'admin/zadosti',
+        path: '/admin/zadosti',
         name: 'AdminRequests',
         component: () => import('../views/AdminRequestsView.vue'),
         meta: { requiresAdmin: true },
       },
       {
-        path: 'admin/zadosti/:id',
+        path: '/admin/zadosti/:id',
         name: 'AdminRequestDetail',
         component: () => import('../views/AdminRequestDetailView.vue'),
         meta: { requiresAdmin: true },
       },
       {
-        path: 'admin/design-tokens',
+        path: '/admin/design-tokens',
         name: 'AdminDesignTokens',
         component: () => import('../views/AdminDesignTokensView.vue'),
         meta: { requiresAdmin: true },
@@ -135,23 +135,23 @@ const router = createRouter({
 router.beforeEach((to) => {
   const { isAuthenticated, isAdmin } = useAuth()
 
-  // Check if route requires authentication
   if (!to.meta.public && !isAuthenticated.value) {
     return { name: 'Login' }
   }
 
-  // Check if route requires admin
+  if (to.name === 'Login' && isAuthenticated.value) {
+    return { name: isAdmin.value ? 'Admin' : 'Dashboard' }
+  }
+
   if (to.meta.requiresAdmin && !isAdmin.value) {
     return { name: 'Dashboard' }
   }
 
-  // Block admin from client-only routes
   const clientOnlyRoutes = ['Dashboard', 'Invoices', 'Personnel', 'Contract', 'Attendance', 'Contact', 'Requests', 'NewRequest', 'RequestCreated', 'RequestDetail']
   if (isAdmin.value && clientOnlyRoutes.includes(to.name)) {
     return { name: 'Admin' }
   }
 
-  // Redirect old admin routes to new English routes
   if (to.path === '/admin') {
     return { path: '/admin/clients' }
   }
