@@ -139,6 +139,64 @@ class IDokladServiceTest extends TestCase
         $this->assertEquals(2, $result['synced']);
     }
 
+    public function testSyncInvoicesForCompanySurfacesApiErrorDetails(): void
+    {
+        $this->companyRepoMock->method('findById')->willReturn([
+            'id' => 1,
+            'registration_number' => '12345678',
+        ]);
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getAllInvoicesByIco')->willReturn([]);
+        $this->clientMock->method('getLastError')->willReturn([
+            'context' => 'API call',
+            'method' => 'GET',
+            'url' => 'https://api.idoklad.cz/v3/IssuedInvoices?filter=...',
+            'http_code' => 401,
+            'curl_error' => '',
+            'response_body' => '{"error":"invalid_token"}',
+            'timestamp' => '2026-04-21T10:00:00+00:00',
+        ]);
+
+        $result = $this->service->syncInvoicesForCompany(1);
+
+        $this->assertFalse($result['success']);
+        $this->assertEquals(0, $result['synced']);
+        $this->assertArrayHasKey('error_details', $result);
+        $this->assertEquals(401, $result['error_details']['http_code']);
+        $this->assertStringContainsString('401', $result['message']);
+    }
+
+    public function testSyncInvoicesForCompanyReportsRowErrorsWithoutAbortingOthers(): void
+    {
+        $this->companyRepoMock->method('findById')->willReturn([
+            'id' => 1,
+            'registration_number' => '12345678',
+        ]);
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getAllInvoicesByIco')->willReturn([
+            ['Id' => 1, 'DocumentNumber' => 'INV-001', 'IsPaid' => false, 'DateOfMaturity' => '2025-01-01'],
+            ['Id' => 2, 'DocumentNumber' => 'INV-002', 'IsPaid' => true, 'DateOfMaturity' => '2024-01-01'],
+        ]);
+        $this->clientMock->method('getLastError')->willReturn(null);
+        $this->invoiceRepoMock
+            ->expects($this->exactly(2))
+            ->method('upsertFromIdoklad')
+            ->willReturnCallback(function (array $mapped): int {
+                if (($mapped['idoklad_id'] ?? null) === 1) {
+                    throw new \PDOException('SQLSTATE[23000]: Integrity constraint violation');
+                }
+                return 1;
+            });
+
+        $result = $this->service->syncInvoicesForCompany(1);
+
+        $this->assertFalse($result['success']);
+        $this->assertEquals(1, $result['synced']);
+        $this->assertCount(1, $result['error_details']['row_errors']);
+        $this->assertEquals(1, $result['error_details']['row_errors'][0]['idoklad_id']);
+        $this->assertStringContainsString('Integrity constraint', $result['error_details']['row_errors'][0]['message']);
+    }
+
     // syncAllEnabledCompanies tests
 
     public function testSyncAllEnabledCompaniesReturnsFailureWhenNotConfigured(): void

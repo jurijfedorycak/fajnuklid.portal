@@ -9,6 +9,7 @@ import {
   Lock, Phone, Mail, FileSignature, Clock, ChevronDown, ChevronUp,
   Eye, EyeOff, Upload, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight,
   Globe, Shield, Copy, Loader2, HelpCircle, Lightbulb, Search, X, KeyRound,
+  RefreshCw, XCircle,
 } from 'lucide-vue-next'
 
 const route  = useRoute()
@@ -285,6 +286,74 @@ function removeLogin(id) { form.logins = form.logins.filter(l => l.id !== id) }
 
 function addIco() {
   form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrEnabled: false, idokladSyncEnabled: false, billingModel: 'hourly', contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], expanded: true })
+}
+
+// ── iDoklad manual sync ───────────────────────────────────────────────────────
+// Admin-only trigger; backend fetches invoices from iDoklad read-only and caches
+// them in the local DB. Full error details surface into ico.idokladSyncResult
+// so the admin can copy them for the developer.
+const idokladCopyNotice = ref(null)
+
+async function runIdokladSync(ico) {
+  if (!ico.companyId) {
+    ico.idokladSyncResult = {
+      ok: false,
+      message: 'Nejprve uložte IČO, poté můžete spustit synchronizaci.',
+      details: null,
+    }
+    return
+  }
+  if (ico.idokladSyncRunning) return
+  ico.idokladSyncRunning = true
+  ico.idokladSyncResult = null
+  try {
+    const response = await adminService.syncIdokladForCompany(ico.companyId)
+    const payload = response?.data || {}
+    ico.idokladSyncResult = {
+      ok: !!response?.success,
+      message: response?.message || payload.message || '',
+      synced: payload.synced ?? 0,
+      details: payload.error_details || null,
+    }
+  } catch (err) {
+    ico.idokladSyncResult = {
+      ok: false,
+      message: err?.message || 'Síťová chyba při volání API portálu',
+      details: {
+        context: 'frontend fetch',
+        exception: err?.name || 'Error',
+        message: err?.message || String(err),
+        response: err?.response?.data || null,
+      },
+    }
+  } finally {
+    ico.idokladSyncRunning = false
+  }
+}
+
+async function copyIdokladErrorReport(ico) {
+  const res = ico.idokladSyncResult
+  if (!res) return
+  const report = {
+    ico: ico.ico,
+    officialName: ico.officialName,
+    companyId: ico.companyId,
+    triggeredAt: new Date().toISOString(),
+    message: res.message,
+    synced: res.synced ?? 0,
+    errorDetails: res.details,
+  }
+  const text = JSON.stringify(report, null, 2)
+  try {
+    if (!navigator.clipboard) throw new Error('Clipboard API není k dispozici')
+    await navigator.clipboard.writeText(text)
+    idokladCopyNotice.value = { id: ico.id, ok: true }
+  } catch {
+    idokladCopyNotice.value = { id: ico.id, ok: false }
+  }
+  setTimeout(() => {
+    if (idokladCopyNotice.value?.id === ico.id) idokladCopyNotice.value = null
+  }, 2000)
 }
 function removeIco(id) { form.icos = form.icos.filter(i => i.id !== id) }
 
@@ -1100,6 +1169,66 @@ onBeforeUnmount(() => {
                       <option value="hourly">Hodinová sazba</option>
                       <option value="fixed">Paušál</option>
                     </select>
+                  </div>
+                </div>
+
+                <!-- Manual iDoklad sync (read-only fetch from iDoklad) -->
+                <div :id="`ico-${ico.id}-idoklad-sync-panel`" class="idoklad-sync-panel">
+                  <div class="idoklad-sync-row">
+                    <div class="idoklad-sync-intro">
+                      <div class="form-label" style="margin-bottom:2px;">Manuální synchronizace faktur</div>
+                      <p class="field-hint">
+                        Jednorázově stáhne aktuální vydané faktury z iDokladu. Integrace je pouze pro čtení –
+                        do iDokladu se nikdy nic nezapisuje.
+                      </p>
+                    </div>
+                    <button
+                      :id="`ico-${ico.id}-idoklad-sync-btn`"
+                      type="button"
+                      class="btn btn-outline btn-sm"
+                      :disabled="!ico.companyId || ico.idokladSyncRunning"
+                      :title="ico.companyId ? 'Spustit synchronizaci teď' : 'Nejprve uložte klienta, poté můžete spustit synchronizaci'"
+                      @click="runIdokladSync(ico)"
+                    >
+                      <Loader2 v-if="ico.idokladSyncRunning" :size="14" class="spin" />
+                      <RefreshCw v-else :size="14" />
+                      <span>{{ ico.idokladSyncRunning ? 'Synchronizuji…' : 'Spustit synchronizaci' }}</span>
+                    </button>
+                  </div>
+
+                  <div
+                    v-if="ico.idokladSyncResult"
+                    :id="`ico-${ico.id}-idoklad-sync-result`"
+                    class="idoklad-sync-result"
+                    :class="ico.idokladSyncResult.ok ? 'is-ok' : 'is-error'"
+                  >
+                    <div class="idoklad-sync-result-header">
+                      <CheckCircle2 v-if="ico.idokladSyncResult.ok" :size="16" class="text-success" />
+                      <XCircle v-else :size="16" class="text-danger" />
+                      <span class="fw-600">
+                        {{ ico.idokladSyncResult.ok ? 'Synchronizace proběhla úspěšně' : 'Synchronizace selhala' }}
+                      </span>
+                      <span class="text-muted" style="font-size:12px;">· {{ ico.idokladSyncResult.message }}</span>
+                    </div>
+
+                    <div v-if="ico.idokladSyncResult.details" class="idoklad-sync-technical">
+                      <div class="idoklad-sync-technical-header">
+                        <span class="fw-600" style="font-size:12px;">Technické detaily (pošlete vývojáři):</span>
+                        <button
+                          :id="`ico-${ico.id}-idoklad-copy-btn`"
+                          type="button"
+                          class="btn btn-ghost btn-sm"
+                          @click="copyIdokladErrorReport(ico)"
+                        >
+                          <Copy :size="13" />
+                          <span v-if="idokladCopyNotice?.id === ico.id">
+                            {{ idokladCopyNotice.ok ? 'Zkopírováno' : 'Kopírování selhalo' }}
+                          </span>
+                          <span v-else>Kopírovat report</span>
+                        </button>
+                      </div>
+                      <pre class="idoklad-sync-trace">{{ JSON.stringify(ico.idokladSyncResult.details, null, 2) }}</pre>
+                    </div>
                   </div>
                 </div>
 
@@ -2093,6 +2222,78 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 10px;
   margin-bottom: 20px;
+}
+
+/* iDoklad manual sync panel (mobile-first) */
+.idoklad-sync-panel {
+  margin-bottom: 20px;
+  padding: 14px;
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+}
+.idoklad-sync-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.idoklad-sync-intro { flex: 1; }
+.idoklad-sync-result {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-gray-200);
+  background: white;
+}
+.idoklad-sync-result.is-ok {
+  border-color: var(--color-success);
+  background: var(--color-success-light);
+}
+.idoklad-sync-result.is-error {
+  border-color: var(--color-danger);
+  background: var(--color-danger-light);
+}
+.idoklad-sync-result-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.idoklad-sync-technical {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-gray-300);
+}
+.idoklad-sync-technical-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.idoklad-sync-trace {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-gray-800);
+  background: white;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+}
+@media (min-width: 640px) {
+  .idoklad-sync-row {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
 }
 
 /* Contract upload */

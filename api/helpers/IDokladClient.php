@@ -7,14 +7,29 @@ namespace App\Helpers;
 use App\Config\Config;
 use App\Repositories\IDokladTokenRepository;
 
+/**
+ * READ-ONLY iDoklad integration.
+ *
+ * This client never creates, modifies or deletes any entity in iDoklad.
+ * All outbound traffic is one of:
+ *   - POST /server/connect/token   (OAuth2 client_credentials, auth only)
+ *   - GET  /IssuedInvoices          (list invoices)
+ *   - GET  /IssuedInvoices/{id}/GetPdf (fetch invoice PDF)
+ *
+ * The request() helper intentionally only accepts the 'GET' verb so that any
+ * accidental attempt to mutate iDoklad state raises immediately.
+ */
 class IDokladClient
 {
     private const TOKEN_URL = 'https://identity.idoklad.cz/server/connect/token';
+
+    private const RESPONSE_BODY_LIMIT = 2000;
 
     private IDokladTokenRepository $tokenRepo;
     private string $clientId;
     private string $clientSecret;
     private string $apiUrl;
+    private ?array $lastError = null;
 
     public function __construct()
     {
@@ -27,6 +42,49 @@ class IDokladClient
     public function isConfigured(): bool
     {
         return $this->clientId !== '' && $this->clientSecret !== '';
+    }
+
+    public function getLastError(): ?array
+    {
+        return $this->lastError;
+    }
+
+    public function resetLastError(): void
+    {
+        $this->lastError = null;
+    }
+
+    private function recordError(
+        string $context,
+        string $method,
+        string $url,
+        int $httpCode,
+        string $curlError,
+        string $responseBody
+    ): void {
+        $truncated = strlen($responseBody) > self::RESPONSE_BODY_LIMIT
+            ? substr($responseBody, 0, self::RESPONSE_BODY_LIMIT) . '… [truncated]'
+            : $responseBody;
+
+        $this->lastError = [
+            'context' => $context,
+            'method' => $method,
+            'url' => $url,
+            'http_code' => $httpCode,
+            'curl_error' => $curlError,
+            'response_body' => $truncated,
+            'timestamp' => date('c'),
+        ];
+
+        error_log(sprintf(
+            'iDoklad %s failed: %s %s -> HTTP %d%s body: %s',
+            $context,
+            $method,
+            $url,
+            $httpCode,
+            $curlError !== '' ? " cURL: $curlError" : '',
+            substr($responseBody, 0, 500)
+        ));
     }
 
     private function getAccessToken(): ?string
@@ -44,6 +102,15 @@ class IDokladClient
     private function requestNewToken(): ?string
     {
         if (!$this->isConfigured()) {
+            $this->lastError = [
+                'context' => 'token request',
+                'method' => 'POST',
+                'url' => self::TOKEN_URL,
+                'http_code' => 0,
+                'curl_error' => '',
+                'response_body' => 'IDOKLAD_CLIENT_ID nebo IDOKLAD_CLIENT_SECRET nejsou v .env nastaveny.',
+                'timestamp' => date('c'),
+            ];
             return null;
         }
 
@@ -71,15 +138,17 @@ class IDokladClient
         $curlError = curl_error($ch);
         curl_close($ch);
 
+        $responseBody = is_string($response) ? $response : '';
+
         if ($curlError !== '' || $httpCode !== 200) {
-            error_log("iDoklad token request failed: HTTP $httpCode, Error: $curlError");
+            $this->recordError('token request', 'POST', self::TOKEN_URL, $httpCode, $curlError, $responseBody);
             return null;
         }
 
-        $data = json_decode($response, true);
+        $data = json_decode($responseBody, true);
 
         if (!isset($data['access_token']) || !isset($data['expires_in'])) {
-            error_log("iDoklad token response invalid: " . $response);
+            $this->recordError('token response parsing', 'POST', self::TOKEN_URL, $httpCode, '', $responseBody);
             return null;
         }
 
@@ -98,6 +167,14 @@ class IDokladClient
 
     private function request(string $method, string $endpoint, array $params = []): ?array
     {
+        // Enforce the read-only contract at runtime.
+        if ($method !== 'GET') {
+            throw new \LogicException(
+                "IDokladClient is read-only; refusing '{$method} {$endpoint}'. "
+                . 'If a write operation is ever required, add it as an explicit new method.'
+            );
+        }
+
         $token = $this->getAccessToken();
 
         if ($token === null) {
@@ -106,7 +183,7 @@ class IDokladClient
 
         $url = $this->apiUrl . $endpoint;
 
-        if ($method === 'GET' && !empty($params)) {
+        if (!empty($params)) {
             $url .= '?' . http_build_query($params);
         }
 
@@ -117,17 +194,11 @@ class IDokladClient
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => [
                 'Authorization: Bearer ' . $token,
-                'Content-Type: application/json',
                 'Accept: application/json',
             ],
             CURLOPT_TIMEOUT => 60,
             CURLOPT_SSL_VERIFYPEER => true,
         ];
-
-        if ($method === 'POST') {
-            $options[CURLOPT_POST] = true;
-            $options[CURLOPT_POSTFIELDS] = json_encode($params);
-        }
 
         curl_setopt_array($ch, $options);
 
@@ -136,23 +207,26 @@ class IDokladClient
         $curlError = curl_error($ch);
         curl_close($ch);
 
+        $responseBody = is_string($response) ? $response : '';
+
         if ($curlError !== '') {
-            error_log("iDoklad API request failed: $curlError");
+            $this->recordError('API call', $method, $url, $httpCode, $curlError, $responseBody);
             return null;
         }
 
         if ($httpCode === 401) {
-            // Token might be invalid, try to refresh
+            // Bearer was rejected — purge cached tokens so the next call re-auths from scratch.
             $this->tokenRepo->deleteAllTokens();
+            $this->recordError('API call (token rejected)', $method, $url, $httpCode, '', $responseBody);
             return null;
         }
 
         if ($httpCode < 200 || $httpCode >= 300) {
-            error_log("iDoklad API returned HTTP $httpCode: $response");
+            $this->recordError('API call', $method, $url, $httpCode, '', $responseBody);
             return null;
         }
 
-        return json_decode($response, true);
+        return json_decode($responseBody, true);
     }
 
     public function getInvoicesByIco(string $ico, int $page = 1, int $pageSize = 100): ?array
@@ -161,6 +235,15 @@ class IDokladClient
         $sanitizedIco = preg_replace('/[^0-9]/', '', $ico);
 
         if ($sanitizedIco === '') {
+            $this->lastError = [
+                'context' => 'input validation',
+                'method' => 'GET',
+                'url' => $this->apiUrl . '/IssuedInvoices',
+                'http_code' => 0,
+                'curl_error' => '',
+                'response_body' => sprintf('IČO "%s" po sanitaci neobsahuje žádné číslice.', $ico),
+                'timestamp' => date('c'),
+            ];
             return null;
         }
 
@@ -176,6 +259,7 @@ class IDokladClient
 
     public function getAllInvoicesByIco(string $ico): array
     {
+        $this->resetLastError();
         $allInvoices = [];
         $page = 1;
         $pageSize = 100;
@@ -199,6 +283,8 @@ class IDokladClient
 
     public function getInvoicePdf(int $invoiceId): ?string
     {
+        $this->resetLastError();
+
         $token = $this->getAccessToken();
 
         if ($token === null) {
@@ -226,18 +312,27 @@ class IDokladClient
         $curlError = curl_error($ch);
         curl_close($ch);
 
+        $responseBody = is_string($response) ? $response : '';
+
         if ($curlError !== '' || $httpCode !== 200) {
-            error_log("iDoklad PDF download failed: HTTP $httpCode, Error: $curlError");
+            $this->recordError('PDF download', 'GET', $url, $httpCode, $curlError, $responseBody);
             return null;
         }
 
         // Verify we got a PDF
-        if (strpos($contentType, 'application/pdf') === false && strpos($response, '%PDF') !== 0) {
-            error_log("iDoklad PDF response is not a PDF: Content-Type: $contentType");
+        if (strpos((string) $contentType, 'application/pdf') === false && strpos($responseBody, '%PDF') !== 0) {
+            $this->recordError(
+                'PDF download (unexpected content-type)',
+                'GET',
+                $url,
+                $httpCode,
+                '',
+                'Content-Type: ' . (string) $contentType
+            );
             return null;
         }
 
-        return $response;
+        return $responseBody;
     }
 
     public function getInvoiceById(int $invoiceId): ?array

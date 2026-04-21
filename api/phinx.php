@@ -12,11 +12,21 @@ require_once __DIR__ . '/vendor/autoload.php';
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
 $dotenv->safeLoad();
 
-$dbHost = getenv('DB_HOST');
-$dbName = getenv('DB_DATABASE');
-$dbUser = getenv('DB_USERNAME');
-$dbPass = getenv('DB_PASSWORD');
-$dbPort = getenv('DB_PORT');
+// Local dev loads config via phpdotenv into $_ENV (getenv stays empty because
+// createImmutable doesn't call putenv). GitHub CI sets real process env vars,
+// which populate getenv but not $_ENV (PHP CLI variables_order defaults to
+// GPCS). Check both so Phinx works in either environment — and coerce to
+// ?string so its adapter typehints don't blow up on bool(false).
+$phinxEnv = static function (string $key): ?string {
+    $value = $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key);
+    return ($value === false || $value === '') ? null : (string) $value;
+};
+
+$dbHost = $phinxEnv('DB_HOST');
+$dbName = $phinxEnv('DB_DATABASE');
+$dbUser = $phinxEnv('DB_USERNAME');
+$dbPass = $phinxEnv('DB_PASSWORD');
+$dbPort = $phinxEnv('DB_PORT');
 
 return [
     'paths' => [

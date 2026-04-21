@@ -65,6 +65,11 @@ export const adminService = {
     return response.data
   },
 
+  async syncIdokladForCompany(companyId) {
+    const response = await apiClient.post(`/admin/companies/${companyId}/idoklad-sync`)
+    return response.data
+  },
+
   // Employees
   async getEmployees(page = 1, perPage = 20, search = null) {
     const params = { page, per_page: perPage }

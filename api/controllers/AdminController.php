@@ -18,6 +18,7 @@ use App\Repositories\UserRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\ClientContactRepository;
 use App\Repositories\StaffContactRepository;
+use App\Services\IDokladService;
 use App\Services\MaintenanceRequestService;
 use App\Services\R2StorageService;
 use App\Helpers\PasswordHelper;
@@ -38,6 +39,7 @@ class AdminController extends Controller
     private ClientContactRepository $clientContactRepo;
     private StaffContactRepository $staffContactRepo;
     private MaintenanceRequestService $maintenanceRequestService;
+    private IDokladService $idokladService;
     private R2StorageService $storage;
 
     public function __construct()
@@ -54,7 +56,58 @@ class AdminController extends Controller
         $this->clientContactRepo = new ClientContactRepository();
         $this->staffContactRepo = new StaffContactRepository();
         $this->maintenanceRequestService = new MaintenanceRequestService();
+        $this->idokladService = new IDokladService();
         $this->storage = new R2StorageService();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // iDoklad manual sync (admin-triggered, read-only fetch from iDoklad)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    public function syncIdokladForCompany(Request $request): void
+    {
+        $companyId = (int) $request->param('id');
+        $company = $this->companyRepo->findById($companyId);
+
+        if (!$company) {
+            throw new NotFoundException('Firma nebyla nalezena');
+        }
+
+        try {
+            $result = $this->idokladService->syncInvoicesForCompany($companyId);
+        } catch (\Throwable $e) {
+            Response::json([
+                'success' => false,
+                'message' => 'Výjimka při synchronizaci',
+                'data' => [
+                    'synced' => 0,
+                    'error_details' => [
+                        'context' => 'service exception',
+                        'exception' => $e::class,
+                        'message' => $e->getMessage(),
+                        'file' => $e->getFile() . ':' . $e->getLine(),
+                        'trace' => $this->trimmedTrace($e),
+                    ],
+                ],
+            ], 200);
+            return;
+        }
+
+        Response::json([
+            'success' => (bool) $result['success'],
+            'message' => $result['message'] ?? '',
+            'data' => $result,
+        ], 200);
+    }
+
+    private function trimmedTrace(\Throwable $e): array
+    {
+        $frames = array_slice($e->getTrace(), 0, 10);
+        return array_map(static function (array $frame): string {
+            $fn = ($frame['class'] ?? '') . ($frame['type'] ?? '') . ($frame['function'] ?? '');
+            $loc = ($frame['file'] ?? '?') . ':' . ($frame['line'] ?? '?');
+            return $fn . ' at ' . $loc;
+        }, $frames);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

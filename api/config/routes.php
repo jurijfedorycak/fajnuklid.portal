@@ -86,6 +86,9 @@ $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class],
     $router->put('/clients/{id}', 'AdminController@updateClient');
     $router->delete('/clients/{id}', 'AdminController@deleteClient');
 
+    // Manual iDoklad sync for a single company (read-only fetch; admin-only trigger)
+    $router->post('/companies/{id}/idoklad-sync', 'AdminController@syncIdokladForCompany');
+
     // Employees
     $router->get('/employees', 'AdminController@listEmployees');
     $router->get('/employees/{id}', 'AdminController@getEmployee');

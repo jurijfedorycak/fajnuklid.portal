@@ -5,10 +5,37 @@ declare(strict_types=1);
 namespace Tests\Unit\Helpers;
 
 use App\Helpers\IDokladClient;
+use App\Repositories\IDokladTokenRepository;
 use Tests\TestCase;
 
 class IDokladClientTest extends TestCase
 {
+    /**
+     * Build an IDokladClient without invoking the real constructor so we don't
+     * need a DB connection for pure unit tests. Stubs the token repository.
+     */
+    private function buildClient(string $apiUrl = 'https://api.idoklad.cz/v3'): IDokladClient
+    {
+        $ref = new \ReflectionClass(IDokladClient::class);
+        /** @var IDokladClient $client */
+        $client = $ref->newInstanceWithoutConstructor();
+
+        $props = [
+            'tokenRepo' => $this->createMock(IDokladTokenRepository::class),
+            'clientId' => 'test-client',
+            'clientSecret' => 'test-secret',
+            'apiUrl' => $apiUrl,
+            'lastError' => null,
+        ];
+        foreach ($props as $name => $value) {
+            $prop = $ref->getProperty($name);
+            $prop->setAccessible(true);
+            $prop->setValue($client, $value);
+        }
+
+        return $client;
+    }
+
     // calculatePaymentStatus tests
 
     public function testCalculatePaymentStatusReturnsPaidWhenIsPaidTrue(): void
@@ -260,5 +287,57 @@ class IDokladClientTest extends TestCase
         $result = IDokladClient::mapIdokladInvoice($idokladInvoice, 1);
 
         $this->assertEquals('paid', $result['payment_status']);
+    }
+
+    // Error capture + read-only contract
+
+    public function testLastErrorStartsNull(): void
+    {
+        $client = $this->buildClient();
+
+        $this->assertNull($client->getLastError());
+    }
+
+    public function testResetLastErrorClearsState(): void
+    {
+        $client = $this->buildClient();
+
+        $ref = new \ReflectionClass($client);
+        $prop = $ref->getProperty('lastError');
+        $prop->setAccessible(true);
+        $prop->setValue($client, ['context' => 'test']);
+
+        $this->assertNotNull($client->getLastError());
+
+        $client->resetLastError();
+
+        $this->assertNull($client->getLastError());
+    }
+
+    public function testGetInvoicesByIcoRecordsErrorWhenIcoEmpty(): void
+    {
+        $client = $this->buildClient();
+
+        $result = $client->getInvoicesByIco('abc-only-letters');
+
+        $this->assertNull($result);
+        $error = $client->getLastError();
+        $this->assertNotNull($error);
+        $this->assertEquals('input validation', $error['context']);
+        $this->assertStringContainsString('abc-only-letters', $error['response_body']);
+    }
+
+    public function testReadOnlyContractRejectsNonGetRequests(): void
+    {
+        $client = $this->buildClient();
+
+        $ref = new \ReflectionClass($client);
+        $request = $ref->getMethod('request');
+        $request->setAccessible(true);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessageMatches('/read-only/');
+
+        $request->invoke($client, 'POST', '/IssuedInvoices', ['foo' => 'bar']);
     }
 }

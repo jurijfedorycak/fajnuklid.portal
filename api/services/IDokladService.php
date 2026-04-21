@@ -56,7 +56,18 @@ class IDokladService
             ];
         }
 
+        $this->client->resetLastError();
         $invoices = $this->client->getAllInvoicesByIco($ico);
+        $apiError = $this->client->getLastError();
+
+        if ($apiError !== null) {
+            return [
+                'success' => false,
+                'message' => 'Volání iDoklad API selhalo (HTTP ' . (int) $apiError['http_code'] . ')',
+                'synced' => 0,
+                'error_details' => $apiError,
+            ];
+        }
 
         if (empty($invoices)) {
             return [
@@ -67,11 +78,38 @@ class IDokladService
         }
 
         $syncedCount = 0;
+        $rowErrors = [];
 
         foreach ($invoices as $idokladInvoice) {
             $mapped = IDokladClient::mapIdokladInvoice($idokladInvoice, $companyId);
-            $this->invoiceRepo->upsertFromIdoklad($mapped);
-            $syncedCount++;
+            try {
+                $this->invoiceRepo->upsertFromIdoklad($mapped);
+                $syncedCount++;
+            } catch (\Throwable $e) {
+                $rowErrors[] = [
+                    'idoklad_id' => $mapped['idoklad_id'] ?? null,
+                    'document_number' => $mapped['document_number'] ?? null,
+                    'exception' => $e::class,
+                    'message' => $e->getMessage(),
+                ];
+            }
+        }
+
+        if (!empty($rowErrors)) {
+            return [
+                'success' => false,
+                'message' => sprintf(
+                    'Synchronizováno %d z %d faktur; %d selhalo při zápisu do DB',
+                    $syncedCount,
+                    count($invoices),
+                    count($rowErrors)
+                ),
+                'synced' => $syncedCount,
+                'error_details' => [
+                    'context' => 'DB upsert',
+                    'row_errors' => $rowErrors,
+                ],
+            ];
         }
 
         return [
