@@ -93,18 +93,4 @@ class InvoiceController extends Controller
         Response::pdf($pdfContent, $filename);
     }
 
-    public function sync(Request $request): void
-    {
-        $user = $request->getUser();
-        $userId = $user['id'];
-
-        if (!$this->idokladService->isConfigured()) {
-            Response::error('iDoklad není nakonfigurován', 503);
-            return;
-        }
-
-        $result = $this->idokladService->syncInvoicesForUser($userId);
-
-        Response::success($result);
-    }
 }

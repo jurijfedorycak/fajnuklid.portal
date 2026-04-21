@@ -1,10 +1,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { Download, FileText, Loader2, RefreshCw, Sparkles } from 'lucide-vue-next'
+import { Download, FileText, Loader2, Sparkles } from 'lucide-vue-next'
 import { invoiceService } from '../api'
 
 const loading = ref(true)
-const syncing = ref(false)
 const downloadingPdf = ref(null)
 const error = ref(null)
 const invoices = ref([])
@@ -48,23 +47,6 @@ async function switchIco(ico) {
   if (ico === activeIco.value) return
   activeIco.value = ico
   await loadInvoices(ico)
-}
-
-async function syncInvoices() {
-  if (syncing.value || !isConfigured.value) return
-  syncing.value = true
-  try {
-    const response = await invoiceService.syncInvoices()
-    if (response.success) {
-      await loadInvoices(activeIco.value)
-    } else {
-      error.value = response.message || 'Synchronizace selhala'
-    }
-  } catch (err) {
-    error.value = err.message || 'Synchronizace selhala'
-  } finally {
-    syncing.value = false
-  }
 }
 
 const filtered = computed(() => {
@@ -167,19 +149,6 @@ async function downloadPdf(inv) {
         </div>
 
         <div id="invoices-actions" class="invoices-actions">
-          <!-- Sync button -->
-          <button
-            v-if="isConfigured"
-            id="invoices-sync-btn"
-            class="btn btn-outline"
-            :disabled="syncing"
-            @click="syncInvoices"
-            title="Synchronizovat faktury"
-          >
-            <RefreshCw :size="16" :class="{ spin: syncing }" />
-            <span>{{ syncing ? 'Synchronizuji...' : 'Synchronizovat' }}</span>
-          </button>
-
           <!-- IČO tabs (multi-IČO) -->
           <div id="invoices-ico-tabs" class="ico-tabs" v-if="icos.length > 1">
             <button

@@ -81,20 +81,45 @@ class IDokladService
         ];
     }
 
-    public function syncInvoicesForUser(int $userId): array
+    public function syncAllEnabledCompanies(): array
     {
-        $companies = $this->companyRepo->findByUserId($userId);
+        if (!$this->client->isConfigured()) {
+            return [
+                'success' => false,
+                'message' => 'iDoklad není nakonfigurován',
+                'total_synced' => 0,
+                'companies' => [],
+            ];
+        }
+
+        $companies = $this->companyRepo->findAllWithIdokladSyncEnabled();
         $totalSynced = 0;
         $results = [];
 
         foreach ($companies as $company) {
-            $result = $this->syncInvoicesForCompany((int) $company['id']);
+            $companyId = (int) $company['id'];
+            try {
+                $result = $this->syncInvoicesForCompany($companyId);
+            } catch (\Throwable $e) {
+                error_log(sprintf(
+                    'iDoklad sync failed for company %d (%s): %s',
+                    $companyId,
+                    $company['registration_number'] ?? '',
+                    $e->getMessage()
+                ));
+                $result = [
+                    'success' => false,
+                    'message' => 'Výjimka při synchronizaci: ' . $e->getMessage(),
+                    'synced' => 0,
+                ];
+            }
             $totalSynced += $result['synced'];
             $results[] = [
-                'company_id' => $company['id'],
+                'company_id' => $companyId,
                 'company_name' => $company['name'],
                 'ico' => $company['registration_number'],
                 'synced' => $result['synced'],
+                'success' => $result['success'],
                 'message' => $result['message'],
             ];
         }
@@ -102,6 +127,7 @@ class IDokladService
         return [
             'success' => true,
             'total_synced' => $totalSynced,
+            'company_count' => count($companies),
             'companies' => $results,
         ];
     }

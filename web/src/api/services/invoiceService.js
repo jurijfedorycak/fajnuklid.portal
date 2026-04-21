@@ -13,11 +13,6 @@ export const invoiceService = {
     })
     return response.data
   },
-
-  async syncInvoices() {
-    const response = await apiClient.post('/invoices/sync')
-    return response.data
-  },
 }
 
 export default invoiceService

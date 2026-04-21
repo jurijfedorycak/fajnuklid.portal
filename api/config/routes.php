@@ -20,6 +20,10 @@ $router->post('/auth/login', 'AuthController@login');
 // carried on the URL itself — see StorageController::serveFile for the security model.
 $router->get('/storage/file', 'StorageController@serveFile');
 
+// Cron-triggered nightly sync of iDoklad invoices. Authenticated by shared token
+// (IDOKLAD_CRON_TOKEN env) passed via X-Cron-Token header (preferred) or ?token=.
+$router->post('/cron/idoklad-sync', 'CronController@syncIdoklad');
+
 // Protected routes - require authentication
 $router->group(['middleware' => [AuthMiddleware::class]], function (Router $router) {
     // Auth
@@ -42,10 +46,9 @@ $router->group(['middleware' => [AuthMiddleware::class]], function (Router $rout
     // Attendance - cleaning calendar
     $router->get('/attendance', 'AttendanceController@index');
 
-    // Invoices - client invoices
+    // Invoices - client invoices (read-only; sync is admin/cron-driven)
     $router->get('/invoices', 'InvoiceController@index');
     $router->get('/invoices/{id}/pdf', 'InvoiceController@downloadPdf');
-    $router->post('/invoices/sync', 'InvoiceController@sync');
 
     // Settings - user preferences
     $router->get('/settings', 'SettingsController@index');

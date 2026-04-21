@@ -173,6 +173,7 @@ class AdminController extends Controller
                 'ico' => $company['registration_number'] ?? '',
                 'officialName' => $company['name'] ?? '',
                 'freshqrEnabled' => false,
+                'idokladSyncEnabled' => (bool) ($company['idoklad_sync_enabled'] ?? false),
                 'billingModel' => 'hourly',
                 'contractUploaded' => !empty($contractPath),
                 'contractFile' => $this->storage->resolveProxyUrl($contractPath),
@@ -313,6 +314,7 @@ class AdminController extends Controller
                     'contract_pdf_path' => is_string($incomingContract)
                         ? ($this->storage->extractKey($incomingContract) ?: null)
                         : null,
+                    'idoklad_sync_enabled' => (bool) ($icoData['idoklad_sync_enabled'] ?? false),
                 ]);
 
                 $companyIds[] = $companyId;
@@ -515,6 +517,12 @@ class AdminController extends Controller
                     continue;
                 }
                 $companyId = $icoToCompanyId[$ico];
+
+                if (array_key_exists('idoklad_sync_enabled', $icoData)) {
+                    $this->companyRepo->update($companyId, [
+                        'idoklad_sync_enabled' => (bool) $icoData['idoklad_sync_enabled'],
+                    ]);
+                }
 
                 $this->locationRepo->deleteByCompanyId($companyId);
 

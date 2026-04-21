@@ -28,6 +28,7 @@ class CompanyRepository
                 c.contract_start_date,
                 c.contract_end_date,
                 c.contract_pdf_path,
+                c.idoklad_sync_enabled,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -53,6 +54,7 @@ class CompanyRepository
                 c.contract_start_date,
                 c.contract_end_date,
                 c.contract_pdf_path,
+                c.idoklad_sync_enabled,
                 c.created_at,
                 c.updated_at
             FROM companies c
@@ -76,6 +78,7 @@ class CompanyRepository
                 contract_start_date,
                 contract_end_date,
                 contract_pdf_path,
+                idoklad_sync_enabled,
                 created_at,
                 updated_at
             FROM companies
@@ -99,6 +102,7 @@ class CompanyRepository
                 c.contract_start_date,
                 c.contract_end_date,
                 c.contract_pdf_path,
+                c.idoklad_sync_enabled,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -122,6 +126,7 @@ class CompanyRepository
                 c.contract_start_date,
                 c.contract_end_date,
                 c.contract_pdf_path,
+                c.idoklad_sync_enabled,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -189,6 +194,7 @@ class CompanyRepository
                 contract_start_date,
                 contract_end_date,
                 contract_pdf_path,
+                idoklad_sync_enabled,
                 created_at,
                 updated_at
             ) VALUES (
@@ -199,6 +205,7 @@ class CompanyRepository
                 :contract_start_date,
                 :contract_end_date,
                 :contract_pdf_path,
+                :idoklad_sync_enabled,
                 NOW(),
                 NOW()
             )
@@ -211,7 +218,8 @@ class CompanyRepository
             'address' => $data['address'] ?? null,
             'contract_start_date' => $data['contract_start_date'] ?? null,
             'contract_end_date' => $data['contract_end_date'] ?? null,
-            'contract_pdf_path' => $data['contract_pdf_path'] ?? null
+            'contract_pdf_path' => $data['contract_pdf_path'] ?? null,
+            'idoklad_sync_enabled' => (int) (bool) ($data['idoklad_sync_enabled'] ?? false),
         ]);
 
         return (int) $this->db->lastInsertId();
@@ -224,7 +232,8 @@ class CompanyRepository
 
         $allowedFields = [
             'client_id', 'registration_number', 'name', 'address',
-            'contract_start_date', 'contract_end_date', 'contract_pdf_path'
+            'contract_start_date', 'contract_end_date', 'contract_pdf_path',
+            'idoklad_sync_enabled',
         ];
 
         foreach ($allowedFields as $field) {
@@ -284,6 +293,7 @@ class CompanyRepository
                 c.contract_start_date,
                 c.contract_end_date,
                 c.contract_pdf_path,
+                c.idoklad_sync_enabled,
                 c.created_at,
                 c.updated_at
             FROM companies c
@@ -292,6 +302,23 @@ class CompanyRepository
             ORDER BY c.name ASC
         ');
         $stmt->execute(['user_id' => $userId]);
+
+        return $stmt->fetchAll();
+    }
+
+    public function findAllWithIdokladSyncEnabled(): array
+    {
+        $stmt = $this->db->query("
+            SELECT
+                c.id,
+                c.client_id,
+                c.registration_number,
+                c.name
+            FROM companies c
+            WHERE c.idoklad_sync_enabled = 1
+              AND c.registration_number <> ''
+            ORDER BY c.name ASC
+        ");
 
         return $stmt->fetchAll();
     }

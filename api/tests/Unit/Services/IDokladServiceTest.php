@@ -139,11 +139,24 @@ class IDokladServiceTest extends TestCase
         $this->assertEquals(2, $result['synced']);
     }
 
-    // syncInvoicesForUser tests
+    // syncAllEnabledCompanies tests
 
-    public function testSyncInvoicesForUserSyncsMultipleCompanies(): void
+    public function testSyncAllEnabledCompaniesReturnsFailureWhenNotConfigured(): void
     {
-        $this->companyRepoMock->method('findByUserId')->willReturn([
+        $this->clientMock->method('isConfigured')->willReturn(false);
+        $this->companyRepoMock->expects($this->never())->method('findAllWithIdokladSyncEnabled');
+
+        $result = $this->service->syncAllEnabledCompanies();
+
+        $this->assertFalse($result['success']);
+        $this->assertEquals('iDoklad není nakonfigurován', $result['message']);
+        $this->assertEquals(0, $result['total_synced']);
+        $this->assertSame([], $result['companies']);
+    }
+
+    public function testSyncAllEnabledCompaniesSyncsOnlyEnabledCompanies(): void
+    {
+        $this->companyRepoMock->method('findAllWithIdokladSyncEnabled')->willReturn([
             ['id' => 1, 'name' => 'Company A', 'registration_number' => '12345678'],
             ['id' => 2, 'name' => 'Company B', 'registration_number' => '87654321'],
         ]);
@@ -158,22 +171,61 @@ class IDokladServiceTest extends TestCase
         ]);
         $this->invoiceRepoMock->method('upsertFromIdoklad');
 
-        $result = $this->service->syncInvoicesForUser(1);
+        $result = $this->service->syncAllEnabledCompanies();
 
         $this->assertTrue($result['success']);
         $this->assertEquals(2, $result['total_synced']);
+        $this->assertEquals(2, $result['company_count']);
         $this->assertCount(2, $result['companies']);
+        $this->assertTrue($result['companies'][0]['success']);
+        $this->assertEquals('12345678', $result['companies'][0]['ico']);
     }
 
-    public function testSyncInvoicesForUserHandlesNoCompanies(): void
+    public function testSyncAllEnabledCompaniesHandlesNoEnabledCompanies(): void
     {
-        $this->companyRepoMock->method('findByUserId')->willReturn([]);
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->companyRepoMock->method('findAllWithIdokladSyncEnabled')->willReturn([]);
 
-        $result = $this->service->syncInvoicesForUser(1);
+        $result = $this->service->syncAllEnabledCompanies();
 
         $this->assertTrue($result['success']);
         $this->assertEquals(0, $result['total_synced']);
+        $this->assertEquals(0, $result['company_count']);
         $this->assertCount(0, $result['companies']);
+    }
+
+    public function testSyncAllEnabledCompaniesIsolatesPerCompanyFailures(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->companyRepoMock->method('findAllWithIdokladSyncEnabled')->willReturn([
+            ['id' => 1, 'name' => 'Company A', 'registration_number' => '12345678'],
+            ['id' => 2, 'name' => 'Company B', 'registration_number' => '87654321'],
+        ]);
+        // Company 1 blows up mid-sync; Company 2 succeeds.
+        $this->companyRepoMock->method('findById')
+            ->willReturnOnConsecutiveCalls(
+                ['id' => 1, 'registration_number' => '12345678'],
+                ['id' => 2, 'registration_number' => '87654321'],
+            );
+        $this->clientMock->method('getAllInvoicesByIco')
+            ->willReturnCallback(function (string $ico) {
+                if ($ico === '12345678') {
+                    throw new \RuntimeException('iDoklad exploded');
+                }
+                return [
+                    ['Id' => 2, 'DocumentNumber' => 'INV-2', 'IsPaid' => true, 'DateOfMaturity' => '2024-06-01'],
+                ];
+            });
+        $this->invoiceRepoMock->method('upsertFromIdoklad');
+
+        $result = $this->service->syncAllEnabledCompanies();
+
+        $this->assertTrue($result['success']);
+        $this->assertEquals(1, $result['total_synced']);
+        $this->assertCount(2, $result['companies']);
+        $this->assertFalse($result['companies'][0]['success']);
+        $this->assertStringContainsString('iDoklad exploded', $result['companies'][0]['message']);
+        $this->assertTrue($result['companies'][1]['success']);
     }
 
     // getInvoicesForUser tests

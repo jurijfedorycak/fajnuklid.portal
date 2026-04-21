@@ -284,7 +284,7 @@ function addLogin() {
 function removeLogin(id) { form.logins = form.logins.filter(l => l.id !== id) }
 
 function addIco() {
-  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrEnabled: false, billingModel: 'hourly', contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], expanded: true })
+  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrEnabled: false, idokladSyncEnabled: false, billingModel: 'hourly', contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], expanded: true })
 }
 function removeIco(id) { form.icos = form.icos.filter(i => i.id !== id) }
 
@@ -491,6 +491,7 @@ async function save() {
         ico: i.ico,
         official_name: i.officialName,
         freshqr_enabled: i.freshqrEnabled,
+        idoklad_sync_enabled: i.idokladSyncEnabled,
         billing_model: i.billingModel,
         contract_file: i.contractFile,
         objects: i.objects.map(o => ({
@@ -583,6 +584,7 @@ function serializeForm() {
       ico: i.ico,
       officialName: i.officialName,
       freshqrEnabled: i.freshqrEnabled,
+      idokladSyncEnabled: i.idokladSyncEnabled,
       billingModel: i.billingModel,
       contractFile: i.contractFile,
       contractUploaded: i.contractUploaded,
@@ -1045,7 +1047,7 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <!-- FreshQR + billing model -->
+                <!-- FreshQR + billing model + iDoklad sync -->
                 <div class="ico-toggles-row">
                   <div class="toggle-field">
                     <div>
@@ -1065,6 +1067,27 @@ onBeforeUnmount(() => {
                     </button>
                     <span :class="ico.freshqrEnabled ? 'text-success' : 'text-muted'" style="font-size:13px; font-weight:500;">
                       {{ ico.freshqrEnabled ? 'Zapnuto' : 'Vypnuto' }}
+                    </span>
+                  </div>
+
+                  <div class="toggle-field">
+                    <div>
+                      <div class="form-label">Synchronizace iDokladu</div>
+                      <p class="field-hint">Noční cron stáhne vydané faktury podle IČO.</p>
+                    </div>
+                    <button
+                      :id="`ico-${ico.id}-idoklad-toggle`"
+                      class="toggle-btn"
+                      :class="{ 'toggle-on': ico.idokladSyncEnabled }"
+                      role="switch"
+                      :aria-checked="ico.idokladSyncEnabled"
+                      aria-label="Synchronizace iDokladu"
+                      @click="ico.idokladSyncEnabled = !ico.idokladSyncEnabled"
+                    >
+                      <span class="toggle-knob" aria-hidden="true" />
+                    </button>
+                    <span :class="ico.idokladSyncEnabled ? 'text-success' : 'text-muted'" style="font-size:13px; font-weight:500;">
+                      {{ ico.idokladSyncEnabled ? 'Zapnuto' : 'Vypnuto' }}
                     </span>
                   </div>
 

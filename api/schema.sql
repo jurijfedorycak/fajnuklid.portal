@@ -112,6 +112,7 @@ CREATE TABLE `companies` (
     `contract_start_date` DATE NULL,
     `contract_end_date` DATE NULL,
     `contract_pdf_path` VARCHAR(500) NULL,
+    `idoklad_sync_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'When true, nightly cron pulls issued invoices from iDoklad for this company',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
