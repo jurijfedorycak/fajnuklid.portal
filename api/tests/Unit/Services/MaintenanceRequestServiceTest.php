@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services;
 
+use App\Config\Config;
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
 use App\Repositories\CompanyRepository;
 use App\Repositories\MaintenanceRequestRepository;
+use App\Services\MailerService;
 use App\Services\MaintenanceRequestService;
 use PHPUnit\Framework\MockObject\MockObject;
 use Tests\TestCase;
@@ -26,6 +28,26 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->companyRepoMock = $this->createMock(CompanyRepository::class);
 
         $this->service = new MaintenanceRequestService($this->repoMock, $this->companyRepoMock);
+    }
+
+    protected function tearDown(): void
+    {
+        $this->resetConfig();
+        parent::tearDown();
+    }
+
+    private function setConfigValues(array $values): void
+    {
+        $ref = new \ReflectionClass(Config::class);
+        $ref->getProperty('config')->setValue(null, $values);
+        $ref->getProperty('loaded')->setValue(null, true);
+    }
+
+    private function resetConfig(): void
+    {
+        $ref = new \ReflectionClass(Config::class);
+        $ref->getProperty('config')->setValue(null, []);
+        $ref->getProperty('loaded')->setValue(null, false);
     }
 
     private function makeRow(array $overrides = []): array
@@ -437,5 +459,134 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->repoMock->expects($this->once())->method('softDelete')->with(1);
 
         $this->service->adminDelete(1);
+    }
+
+    // create — notifications
+
+    private function setupSuccessfulCreate(array $rowOverrides = []): void
+    {
+        $this->companyRepoMock->method('findById')->willReturn([
+            'id' => 7, 'client_id' => 5, 'name' => 'Acme', 'registration_number' => '12345678',
+        ]);
+        $this->repoMock->method('create')->willReturn(42);
+        $this->repoMock->method('findByIdForClient')
+            ->willReturn($this->makeRow(array_merge(['id' => 42], $rowOverrides)));
+        $this->stubAttachmentsAndActivity();
+    }
+
+    public function testCreateNotifiesEachAdminFromConfig(): void
+    {
+        $this->setConfigValues(['ADMIN_EMAILS' => 'jurij.fedorycak@fajnuklid.cz,vaseuklidovka@fajnuklid.cz']);
+        $this->setupSuccessfulCreate();
+
+        $calls = [];
+        $mailer = $this->createMock(MailerService::class);
+        $mailer->expects($this->exactly(2))
+            ->method('send')
+            ->willReturnCallback(function ($to, $subject, $body) use (&$calls) {
+                $calls[] = ['to' => $to, 'subject' => $subject];
+                return true;
+            });
+
+        $service = new MaintenanceRequestService($this->repoMock, $this->companyRepoMock, $mailer);
+        $service->create(5, 10, [
+            'title' => 'Broken AC',
+            'category' => 'reklamace',
+            'description' => 'It does not cool',
+            'companyId' => 7,
+        ], true);
+
+        $recipients = array_column($calls, 'to');
+        $this->assertNotContains('user@example.com', $recipients, 'Request author must not receive email');
+        $this->assertContains('jurij.fedorycak@fajnuklid.cz', $recipients);
+        $this->assertContains('vaseuklidovka@fajnuklid.cz', $recipients);
+
+        foreach ($calls as $call) {
+            $this->assertStringStartsWith('Nový požadavek: ', $call['subject']);
+        }
+    }
+
+    public function testCreateDoesNotSendEmailToAuthorEvenWhenListedAsAdmin(): void
+    {
+        $this->setConfigValues(['ADMIN_EMAILS' => 'User@Example.com,admin@fajnuklid.cz']);
+        $this->setupSuccessfulCreate();
+
+        $recipients = [];
+        $mailer = $this->createMock(MailerService::class);
+        $mailer->expects($this->once())
+            ->method('send')
+            ->willReturnCallback(function ($to) use (&$recipients) {
+                $recipients[] = $to;
+                return true;
+            });
+
+        $service = new MaintenanceRequestService($this->repoMock, $this->companyRepoMock, $mailer);
+        $service->create(5, 10, [
+            'title' => 'Broken AC',
+            'category' => 'reklamace',
+            'description' => 'It does not cool',
+            'companyId' => 7,
+        ], true);
+
+        $this->assertSame(['admin@fajnuklid.cz'], $recipients);
+    }
+
+    public function testCreateFiltersInvalidAdminEmails(): void
+    {
+        $this->setConfigValues(['ADMIN_EMAILS' => 'not-an-email, ,admin@fajnuklid.cz']);
+        $this->setupSuccessfulCreate();
+
+        $recipients = [];
+        $mailer = $this->createMock(MailerService::class);
+        $mailer->method('send')->willReturnCallback(function ($to) use (&$recipients) {
+            $recipients[] = $to;
+            return true;
+        });
+
+        $service = new MaintenanceRequestService($this->repoMock, $this->companyRepoMock, $mailer);
+        $service->create(5, 10, [
+            'title' => 'Broken AC',
+            'category' => 'reklamace',
+            'description' => 'It does not cool',
+            'companyId' => 7,
+        ], true);
+
+        $this->assertSame(['admin@fajnuklid.cz'], $recipients);
+    }
+
+    public function testCreateSendsNoEmailsWhenNoAdminsConfigured(): void
+    {
+        $this->setConfigValues(['ADMIN_EMAILS' => '']);
+        $this->setupSuccessfulCreate();
+
+        $mailer = $this->createMock(MailerService::class);
+        $mailer->expects($this->never())->method('send');
+
+        $service = new MaintenanceRequestService($this->repoMock, $this->companyRepoMock, $mailer);
+        $service->create(5, 10, [
+            'title' => 'Broken AC',
+            'category' => 'reklamace',
+            'description' => 'It does not cool',
+            'companyId' => 7,
+        ], true);
+    }
+
+    public function testCreateMailerFailureDoesNotAbortRequestCreation(): void
+    {
+        $this->setConfigValues(['ADMIN_EMAILS' => 'admin@fajnuklid.cz']);
+        $this->setupSuccessfulCreate();
+
+        $mailer = $this->createMock(MailerService::class);
+        $mailer->method('send')->willThrowException(new \RuntimeException('SMTP down'));
+
+        $service = new MaintenanceRequestService($this->repoMock, $this->companyRepoMock, $mailer);
+        $result = $service->create(5, 10, [
+            'title' => 'Broken AC',
+            'category' => 'reklamace',
+            'description' => 'It does not cool',
+            'companyId' => 7,
+        ], true);
+
+        $this->assertSame(42, $result['id']);
     }
 }

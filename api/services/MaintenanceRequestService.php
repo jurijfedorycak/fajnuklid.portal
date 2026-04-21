@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Config\Config;
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
 use App\Repositories\CompanyRepository;
@@ -498,35 +499,51 @@ class MaintenanceRequestService
         $categoryLabel = $payload['category'] ? ($categoryLabels[$payload['category']] ?? $payload['category']) : '—';
         $createdAt = (new \DateTime($payload['createdAt']))->format('d.m.Y H:i');
 
-        $clientEmail = $payload['createdBy'] ?? null;
+        $authorEmail = $payload['createdBy'] ?? null;
         $title = htmlspecialchars($payload['title'], ENT_QUOTES, 'UTF-8');
         $description = nl2br(htmlspecialchars($payload['description'] ?? '', ENT_QUOTES, 'UTF-8'));
         $companyName = htmlspecialchars((string) ($company['name'] ?? ''), ENT_QUOTES, 'UTF-8');
         $companyIco = htmlspecialchars((string) ($company['registration_number'] ?? ''), ENT_QUOTES, 'UTF-8');
-
-        $clientHtml = "<p>Děkujeme, Váš požadavek jsme přijali. Co nejdříve se Vám ozveme.</p>"
-            . "<h3>{$title}</h3>"
-            . "<p><strong>Kategorie:</strong> {$categoryLabel}<br>"
-            . "<strong>Vytvořeno:</strong> {$createdAt}<br>"
-            . "<strong>Protistrana:</strong> {$companyName} ({$companyIco})</p>"
-            . "<p>{$description}</p>";
 
         $internalHtml = "<p>Nový požadavek od klienta.</p>"
             . "<h3>{$title}</h3>"
             . "<p><strong>Kategorie:</strong> {$categoryLabel}<br>"
             . "<strong>Vytvořeno:</strong> {$createdAt}<br>"
             . "<strong>Protistrana:</strong> {$companyName} ({$companyIco})<br>"
-            . "<strong>Autor:</strong> " . htmlspecialchars((string) $clientEmail, ENT_QUOTES, 'UTF-8') . "</p>"
+            . "<strong>Autor:</strong> " . htmlspecialchars((string) $authorEmail, ENT_QUOTES, 'UTF-8') . "</p>"
             . "<p>{$description}</p>";
 
+        $adminEmails = $this->resolveAdminRecipients($authorEmail);
+        if (empty($adminEmails)) {
+            error_log('Maintenance request notification skipped: no admin recipients configured (ADMIN_EMAILS).');
+            return;
+        }
+
         try {
-            if ($clientEmail) {
-                $mailer->send($clientEmail, 'Přijali jsme Váš požadavek', $clientHtml);
+            $subject = 'Nový požadavek: ' . $payload['title'];
+            foreach ($adminEmails as $adminEmail) {
+                $mailer->send($adminEmail, $subject, $internalHtml);
             }
-            $mailer->send('jurij.fedorycak@fajnuklid.cz', 'Nový požadavek: ' . $payload['title'], $internalHtml);
-            $mailer->send('vaseuklidovka@fajnuklid.cz', 'Nový požadavek: ' . $payload['title'], $internalHtml);
         } catch (\Throwable $e) {
             error_log('Maintenance request notification failed: ' . $e->getMessage());
         }
+    }
+
+    private function resolveAdminRecipients(?string $authorEmail): array
+    {
+        $normalize = static fn (string $email): string => strtolower(trim($email));
+
+        $unique = [];
+        foreach (Config::getArray('ADMIN_EMAILS') as $email) {
+            $email = trim($email);
+            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                continue;
+            }
+            if ($authorEmail !== null && $normalize($email) === $normalize($authorEmail)) {
+                continue;
+            }
+            $unique[$normalize($email)] = $email;
+        }
+        return array_values($unique);
     }
 }
