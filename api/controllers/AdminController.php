@@ -114,6 +114,204 @@ class AdminController extends Controller
     // CLIENTS
     // ─────────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Collect all validation errors for the client edit/create payload upfront, so the
+     * frontend can show each problem on the exact row it belongs to instead of failing
+     * halfway through a DB transaction with a generic message.
+     *
+     * Error keys use dot-paths that mirror the FE form shape:
+     *   display_name                 — top-level
+     *   client_id                    — top-level (create only)
+     *   logins.<i>.email
+     *   icos.<i>.ico
+     *   icos.<i>.official_name
+     *   icos.<i>.objects.<j>.name
+     *   contacts.<i>.email
+     *   contacts.<i>.ico_id
+     *
+     * @return array<string, array<int, string>>
+     */
+    /**
+     * Turn a MySQL unique-constraint violation into a user-facing ValidationException on the
+     * given error path. Any other PDOException is returned as-is so the caller can rethrow.
+     *
+     * Needed because the pre-insert uniqueness check in validateClientPayload has a TOCTOU
+     * window — a concurrent admin can claim the same client_id/IČO/e-mail between validation
+     * and the insert. Without this, the race surfaces as a bare 500.
+     */
+    private function reclassifyUniqueViolation(\PDOException $e, string $errorPath, string $message): \Throwable
+    {
+        if ($e->getCode() === '23000') {
+            return new ValidationException('Zkontrolujte prosím vyplněné údaje', [
+                $errorPath => [$message],
+            ]);
+        }
+        return $e;
+    }
+
+    private function validateClientPayload(array $payload, ?int $updatingClientDbId): array
+    {
+        $errors = [];
+        $isCreate = $updatingClientDbId === null;
+
+        $displayName = isset($payload['display_name']) ? trim((string) $payload['display_name']) : '';
+        if ($isCreate && $displayName === '') {
+            $errors['display_name'][] = 'Název pro portál je povinný';
+        }
+        if ($displayName !== '' && mb_strlen($displayName) > 255) {
+            $errors['display_name'][] = 'Název může mít nejvýše 255 znaků';
+        }
+
+        // client_id is immutable after creation — only validate on create path.
+        if ($isCreate) {
+            $clientId = isset($payload['client_id']) ? trim((string) $payload['client_id']) : '';
+            if ($clientId === '') {
+                $errors['client_id'][] = 'ID klienta je povinné';
+            } elseif (mb_strlen($clientId) > 50) {
+                $errors['client_id'][] = 'ID klienta může mít nejvýše 50 znaků';
+            } elseif (!preg_match('/^[A-Za-z0-9_-]+$/', $clientId)) {
+                $errors['client_id'][] = 'ID smí obsahovat pouze písmena, čísla, pomlčky a podtržítka';
+            } elseif ($this->clientRepo->existsByClientId($clientId)) {
+                $errors['client_id'][] = 'Toto ID už používá jiný klient — zvolte prosím jiné';
+            }
+        }
+
+        // Pre-load existing companies for the current client so updateClient uniqueness
+        // checks can exclude IČOs that already belong to this client (no false positive),
+        // and can reject attempts to add new IČOs (update path doesn't persist new companies).
+        $ownIcoSet = [];
+        $ownLoginEmailSet = [];
+        if (!$isCreate) {
+            foreach ($this->companyRepo->findByClientId($updatingClientDbId) as $company) {
+                $ownIcoSet[$company['registration_number']] = true;
+                foreach ($this->companyUserRepo->findByCompanyId((int) $company['id']) as $link) {
+                    $user = $this->userRepo->findById((int) $link['user_id']);
+                    if ($user && !empty($user['email'])) {
+                        $ownLoginEmailSet[mb_strtolower($user['email'])] = true;
+                    }
+                }
+            }
+        }
+
+        // IČOs — per-row validation with in-form duplicate detection
+        $icos = is_array($payload['icos'] ?? null) ? $payload['icos'] : [];
+        $seenIcoRow = [];
+        foreach ($icos as $i => $icoData) {
+            $path = "icos.{$i}";
+            if (!is_array($icoData)) {
+                continue;
+            }
+            $ico = isset($icoData['ico']) ? trim((string) $icoData['ico']) : '';
+            $officialName = isset($icoData['official_name']) ? trim((string) $icoData['official_name']) : '';
+
+            $hasAnyContent = $ico !== '' || $officialName !== ''
+                || !empty($icoData['objects']) || !empty($icoData['contract_file']);
+
+            if ($ico === '') {
+                if ($hasAnyContent) {
+                    $errors["{$path}.ico"][] = 'IČO je povinné';
+                }
+            } elseif (!preg_match('/^\d{8}$/', $ico)) {
+                $errors["{$path}.ico"][] = 'IČO musí mít přesně 8 číslic';
+            } else {
+                $isOwnIco = !$isCreate && isset($ownIcoSet[$ico]);
+
+                if (isset($seenIcoRow[$ico])) {
+                    $errors["{$path}.ico"][] = 'Toto IČO už máte ve formuláři (řádek ' . ($seenIcoRow[$ico] + 1) . ')';
+                } elseif (!$isCreate && !$isOwnIco) {
+                    // Update path only touches existing companies — new rows would be
+                    // silently dropped, so reject upfront with a clear message.
+                    $errors["{$path}.ico"][] = 'Přidávání nových IČO při úpravě zatím není podporováno — kontaktujte vývojáře';
+                } elseif ($isCreate && $this->companyRepo->existsByRegistrationNumber($ico)) {
+                    $errors["{$path}.ico"][] = "IČO {$ico} už patří jinému klientovi — zkontrolujte, zda jste ho nepřeklepli";
+                }
+                $seenIcoRow[$ico] = $i;
+            }
+
+            $objects = is_array($icoData['objects'] ?? null) ? $icoData['objects'] : [];
+            foreach ($objects as $j => $obj) {
+                if (!is_array($obj)) {
+                    continue;
+                }
+                $objName = isset($obj['name']) ? trim((string) $obj['name']) : '';
+                $objAddress = isset($obj['address']) ? trim((string) $obj['address']) : '';
+                $hasAnyObjContent = $objName !== '' || $objAddress !== ''
+                    || ($obj['lat'] ?? null) !== null || ($obj['lng'] ?? null) !== null;
+                if ($objName === '' && $hasAnyObjContent) {
+                    $errors["{$path}.objects.{$j}.name"][] = 'Název provozovny je povinný';
+                }
+            }
+        }
+
+        $logins = is_array($payload['logins'] ?? null) ? $payload['logins'] : [];
+        $seenEmailRow = [];
+        foreach ($logins as $i => $loginData) {
+            $path = "logins.{$i}";
+            if (!is_array($loginData)) {
+                continue;
+            }
+            $email = isset($loginData['email']) ? trim((string) $loginData['email']) : '';
+            $restriction = $loginData['restriction'] ?? 'all';
+            $allowedIcos = is_array($loginData['allowed_icos'] ?? null) ? $loginData['allowed_icos'] : [];
+
+            // Empty rows are valid on create (treated as "didn't finish") — but flagged once
+            // the user typed anything, otherwise silently skipped at save time.
+            $hasAnyContent = $email !== '' || !empty($loginData['temp_pass'])
+                || ($restriction === 'icos' && !empty($allowedIcos));
+
+            if ($email === '') {
+                if ($hasAnyContent) {
+                    $errors["{$path}.email"][] = 'E-mail je povinný';
+                }
+            } elseif (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                $errors["{$path}.email"][] = 'E-mail není ve správném formátu (např. jmeno@firma.cz)';
+            } else {
+                $emailLower = mb_strtolower($email);
+                if (isset($seenEmailRow[$emailLower])) {
+                    $errors["{$path}.email"][] = 'Tento e-mail už máte ve formuláři (řádek ' . ($seenEmailRow[$emailLower] + 1) . ')';
+                } elseif (!$isCreate && !isset($ownLoginEmailSet[$emailLower])) {
+                    // Update path only toggles portal_enabled on existing users — new rows
+                    // would be silently dropped, so reject upfront with a clear message.
+                    $errors["{$path}.email"][] = 'Přidávání nových přihlašovacích účtů při úpravě zatím není podporováno — kontaktujte vývojáře';
+                } elseif ($isCreate && $this->userRepo->existsByEmail($email)) {
+                    $errors["{$path}.email"][] = 'Tento e-mail už v systému existuje — pro nový přístup zvolte jiný';
+                }
+                $seenEmailRow[$emailLower] = $i;
+            }
+
+            if ($restriction === 'icos' && empty($allowedIcos)) {
+                $errors["{$path}.allowed_icos"][] = 'Vyberte alespoň jedno IČO, ke kterému bude účet mít přístup';
+            }
+        }
+
+        $contacts = is_array($payload['contacts'] ?? null) ? $payload['contacts'] : [];
+        foreach ($contacts as $i => $contactData) {
+            $path = "contacts.{$i}";
+            if (!is_array($contactData)) {
+                continue;
+            }
+            $name = isset($contactData['name']) ? trim((string) $contactData['name']) : '';
+            $email = isset($contactData['email']) ? trim((string) $contactData['email']) : '';
+            $phone = isset($contactData['phone']) ? trim((string) $contactData['phone']) : '';
+            $role = isset($contactData['role']) ? trim((string) $contactData['role']) : '';
+            $scope = $contactData['scope'] ?? 'global';
+            $icoId = $contactData['ico_id'] ?? null;
+
+            $hasAnyContent = $name !== '' || $email !== '' || $phone !== '' || $role !== '';
+            if ($hasAnyContent && $name === '') {
+                $errors["{$path}.name"][] = 'Jméno kontaktní osoby je povinné';
+            }
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                $errors["{$path}.email"][] = 'E-mail není ve správném formátu';
+            }
+            if ($name !== '' && $scope === 'icos' && ($icoId === null || $icoId === '')) {
+                $errors["{$path}.ico_id"][] = 'Vyberte IČO, ke kterému kontakt patří';
+            }
+        }
+
+        return $errors;
+    }
+
     public function listClients(Request $request): void
     {
         $pagination = $this->getPagination($request);
@@ -311,80 +509,76 @@ class AdminController extends Controller
 
     public function createClient(Request $request): void
     {
-        $data = $this->validate($request->all(), [
-            'client_id' => 'required|string|max:50',
-            'display_name' => 'required|string|max:255',
-        ]);
-
-        // Check if client_id already exists
-        if ($this->clientRepo->existsByClientId($data['client_id'])) {
-            throw new ValidationException('ID klienta již existuje', [
-                'client_id' => ['Toto ID klienta je již použito'],
-            ]);
+        $payload = $request->all();
+        $errors = $this->validateClientPayload($payload, null);
+        if (!empty($errors)) {
+            throw new ValidationException('Zkontrolujte prosím vyplněné údaje', $errors);
         }
+
+        $data = [
+            'client_id' => trim((string) ($payload['client_id'] ?? '')),
+            'display_name' => trim((string) ($payload['display_name'] ?? '')),
+        ];
 
         $db = \App\Config\Database::getConnection();
         $db->beginTransaction();
 
         try {
-            // 1. Create the client
-            $clientDbId = $this->clientRepo->create($data);
-
-            // 2. Create companies (ICOs)
-            $icos = $request->input('icos', []);
-            if (!is_array($icos)) {
-                $icos = [];
+            try {
+                $clientDbId = $this->clientRepo->create($data);
+            } catch (\PDOException $e) {
+                // Racing admin may have claimed the same client_id between validation and insert.
+                throw $this->reclassifyUniqueViolation($e, 'client_id', 'Toto ID už používá jiný klient — zvolte prosím jiné');
             }
+
+            $icos = is_array($payload['icos'] ?? null) ? $payload['icos'] : [];
 
             $companyIds = [];
             $icoToCompanyId = [];
 
-            foreach ($icos as $icoData) {
+            foreach ($icos as $i => $icoData) {
                 if (!is_array($icoData)) {
                     continue;
                 }
-                $ico = $icoData['ico'] ?? '';
-                $officialName = $icoData['official_name'] ?? '';
+                $ico = trim((string) ($icoData['ico'] ?? ''));
+                $officialName = trim((string) ($icoData['official_name'] ?? ''));
 
                 if ($ico === '') {
                     continue;
                 }
 
-                // Check if ICO already exists
-                if ($this->companyRepo->existsByRegistrationNumber($ico)) {
-                    throw new ValidationException('IČO již existuje', [
-                        'ico' => ["IČO {$ico} je již použito u jiného klienta"],
-                    ]);
-                }
-
                 $incomingContract = $icoData['contract_file'] ?? null;
-                $companyId = $this->companyRepo->create([
-                    'client_id' => $clientDbId,
-                    'registration_number' => $ico,
-                    'name' => $officialName ?: $data['display_name'],
-                    // FE echoes the resolved URL; persist the bare R2 key so the URL
-                    // can be regenerated fresh on every read.
-                    'contract_pdf_path' => is_string($incomingContract)
-                        ? ($this->storage->extractKey($incomingContract) ?: null)
-                        : null,
-                    'idoklad_sync_enabled' => (bool) ($icoData['idoklad_sync_enabled'] ?? false),
-                ]);
+                try {
+                    $companyId = $this->companyRepo->create([
+                        'client_id' => $clientDbId,
+                        'registration_number' => $ico,
+                        'name' => $officialName ?: $data['display_name'],
+                        // FE echoes the resolved URL; persist the bare R2 key so the URL
+                        // can be regenerated fresh on every read.
+                        'contract_pdf_path' => is_string($incomingContract)
+                            ? ($this->storage->extractKey($incomingContract) ?: null)
+                            : null,
+                        'idoklad_sync_enabled' => (bool) ($icoData['idoklad_sync_enabled'] ?? false),
+                    ]);
+                } catch (\PDOException $e) {
+                    throw $this->reclassifyUniqueViolation(
+                        $e,
+                        "icos.{$i}.ico",
+                        "IČO {$ico} už patří jinému klientovi — zkontrolujte, zda jste ho nepřeklepli"
+                    );
+                }
 
                 $companyIds[] = $companyId;
                 $icoToCompanyId[$ico] = $companyId;
 
-                // Create locations (objects) for this company
-                $objects = $icoData['objects'] ?? [];
-                if (!is_array($objects)) {
-                    $objects = [];
-                }
+                $objects = is_array($icoData['objects'] ?? null) ? $icoData['objects'] : [];
                 foreach ($objects as $obj) {
                     if (!is_array($obj)) {
                         continue;
                     }
                     $this->locationRepo->create([
                         'company_id' => $companyId,
-                        'name' => $obj['name'] ?? '',
+                        'name' => trim((string) ($obj['name'] ?? '')),
                         'address' => $obj['address'] ?? null,
                         'latitude' => $obj['lat'] ?? null,
                         'longitude' => $obj['lng'] ?? null,
@@ -392,52 +586,45 @@ class AdminController extends Controller
                 }
             }
 
-            // 3. Create login accounts and link to companies
-            $logins = $request->input('logins', []);
-            if (!is_array($logins)) {
-                $logins = [];
-            }
+            $logins = is_array($payload['logins'] ?? null) ? $payload['logins'] : [];
+            $active = $payload['active'] ?? true;
 
-            $active = $request->input('active', true);
-
-            foreach ($logins as $loginData) {
+            foreach ($logins as $i => $loginData) {
                 if (!is_array($loginData)) {
                     continue;
                 }
-                $email = $loginData['email'] ?? '';
-                $tempPass = $loginData['temp_pass'] ?? '';
+                $email = trim((string) ($loginData['email'] ?? ''));
+                $tempPass = (string) ($loginData['temp_pass'] ?? '');
 
                 if ($email === '') {
                     continue;
                 }
 
-                // Check if email already exists
-                if ($this->userRepo->existsByEmail($email)) {
-                    throw new ValidationException('E-mail již existuje', [
-                        'email' => ["E-mail {$email} je již použit"],
+                $passwordHash = PasswordHelper::hash($tempPass !== '' ? $tempPass : bin2hex(random_bytes(16)));
+
+                try {
+                    $userId = $this->userRepo->create([
+                        'email' => $email,
+                        'password_hash' => $passwordHash,
+                        'portal_enabled' => (bool) $active,
                     ]);
+                } catch (\PDOException $e) {
+                    throw $this->reclassifyUniqueViolation(
+                        $e,
+                        "logins.{$i}.email",
+                        'Tento e-mail už v systému existuje — pro nový přístup zvolte jiný'
+                    );
                 }
-
-                // Hash the password
-                $passwordHash = PasswordHelper::hash($tempPass ?: bin2hex(random_bytes(16)));
-
-                $userId = $this->userRepo->create([
-                    'email' => $email,
-                    'password_hash' => $passwordHash,
-                    'portal_enabled' => (bool) $active,
-                ]);
 
                 // Link user to all companies (or specific ones based on restriction)
                 $restriction = $loginData['restriction'] ?? 'all';
-                $allowedIcos = $loginData['allowed_icos'] ?? [];
+                $allowedIcos = is_array($loginData['allowed_icos'] ?? null) ? $loginData['allowed_icos'] : [];
 
                 if ($restriction === 'all') {
-                    // Link to all companies
                     foreach ($companyIds as $companyId) {
                         $this->companyUserRepo->create($companyId, $userId);
                     }
                 } else {
-                    // Link to specific ICOs
                     foreach ($allowedIcos as $ico) {
                         if (isset($icoToCompanyId[$ico])) {
                             $this->companyUserRepo->create($icoToCompanyId[$ico], $userId);
@@ -447,17 +634,18 @@ class AdminController extends Controller
             }
 
             // 4. Create contacts and link to companies
-            $contacts = $request->input('contacts', []);
-            if (!is_array($contacts)) {
-                $contacts = [];
-            }
+            $contacts = is_array($payload['contacts'] ?? null) ? $payload['contacts'] : [];
 
             foreach ($contacts as $contactData) {
                 if (!is_array($contactData)) {
                     continue;
                 }
+                $name = trim((string) ($contactData['name'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
                 $contactId = $this->clientContactRepo->create([
-                    'name' => $contactData['name'] ?? '',
+                    'name' => $name,
                     'position' => $contactData['role'] ?? null,
                     'phone' => $contactData['phone'] ?? null,
                     'email' => $contactData['email'] ?? null,
@@ -465,12 +653,10 @@ class AdminController extends Controller
 
                 $scope = $contactData['scope'] ?? 'global';
                 if ($scope === 'global') {
-                    // Link to all companies
                     foreach ($companyIds as $cid) {
                         $this->companyContactRepo->create($cid, $contactId);
                     }
                 } else {
-                    // Link to specific ICO
                     $icoId = $contactData['ico_id'] ?? null;
                     if ($icoId !== null && in_array((int) $icoId, $companyIds, true)) {
                         $this->companyContactRepo->create((int) $icoId, $contactId);
@@ -539,15 +725,24 @@ class AdminController extends Controller
 
         $id = (int) $client['id'];
 
-        $data = $this->validate($request->all(), [
-            'display_name' => 'string|max:255',
-        ]);
+        $payload = $request->all();
+        $errors = $this->validateClientPayload($payload, $id);
+        if (!empty($errors)) {
+            throw new ValidationException('Zkontrolujte prosím vyplněné údaje', $errors);
+        }
+
+        $data = [];
+        if (array_key_exists('display_name', $payload) && is_string($payload['display_name'])) {
+            $data['display_name'] = trim($payload['display_name']);
+        }
 
         $db = \App\Config\Database::getConnection();
         $db->beginTransaction();
 
         try {
-            $this->clientRepo->update($id, $data);
+            if (!empty($data)) {
+                $this->clientRepo->update($id, $data);
+            }
 
             $companies = $this->companyRepo->findByClientId($id);
             $companyIds = array_map('intval', array_column($companies, 'id'));
@@ -611,8 +806,12 @@ class AdminController extends Controller
                 if (!is_array($contactData)) {
                     continue;
                 }
+                $name = trim((string) ($contactData['name'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
                 $contactId = $this->clientContactRepo->create([
-                    'name' => $contactData['name'] ?? '',
+                    'name' => $name,
                     'position' => $contactData['role'] ?? null,
                     'phone' => $contactData['phone'] ?? null,
                     'email' => $contactData['email'] ?? null,
@@ -789,15 +988,24 @@ class AdminController extends Controller
 
     public function createEmployee(Request $request): void
     {
-        $data = $this->validate($request->all(), [
-            'first_name' => 'required|string|max:100',
-            'last_name' => 'required|string|max:100',
-            'email' => 'email|max:255',
-            'phone' => 'string|max:20',
-            'personal_id' => 'string|max:50',
-            'position' => 'string|max:100',
-        ]);
+        $payload = $request->all();
+        $errors = $this->validateEmployeeFields($payload, null);
+        if (!empty($errors)) {
+            throw new ValidationException('Zkontrolujte prosím vyplněné údaje', $errors);
+        }
 
+        $data = [
+            'first_name' => trim((string) ($payload['first_name'] ?? '')),
+            'last_name' => trim((string) ($payload['last_name'] ?? '')),
+            'email' => isset($payload['email']) && trim((string) $payload['email']) !== '' ? trim((string) $payload['email']) : null,
+            'phone' => isset($payload['phone']) && trim((string) $payload['phone']) !== '' ? trim((string) $payload['phone']) : null,
+            'personal_id' => isset($payload['personal_id']) && trim((string) $payload['personal_id']) !== '' ? trim((string) $payload['personal_id']) : null,
+            'position' => isset($payload['position']) && trim((string) $payload['position']) !== '' ? trim((string) $payload['position']) : null,
+        ];
+
+        // employees.email has no UNIQUE constraint in schema — uniqueness is app-level only,
+        // so there's no PDOException to catch here. A racing duplicate would slip through;
+        // accepted because cross-request employee creation is rare and low-stakes.
         $employeeId = $this->employeeRepo->create($data);
         $employee = $this->employeeRepo->findById($employeeId);
 
@@ -820,6 +1028,11 @@ class AdminController extends Controller
         }
 
         $data = $request->all();
+
+        $errors = $this->validateEmployeeFields($data, $id);
+        if (!empty($errors)) {
+            throw new ValidationException('Zkontrolujte prosím vyplněné údaje', $errors);
+        }
 
         // Filter allowed fields
         $allowedFields = [
@@ -853,6 +1066,66 @@ class AdminController extends Controller
         Response::success($updated, 'Zaměstnanec byl aktualizován');
     }
 
+    /**
+     * Validate a single-employee payload (create or update).
+     *
+     * @param array<string, int>|null $emailOwners Optional precomputed map of lowercased
+     *     email → owning employee id. If provided, skips the per-row existsByEmail query.
+     *     Used by bulk saves to avoid an N-query pattern.
+     * @return array<string, array<int, string>>
+     */
+    private function validateEmployeeFields(array $data, ?int $updatingId, ?array $emailOwners = null): array
+    {
+        $errors = [];
+
+        $firstName = isset($data['first_name']) ? trim((string) $data['first_name']) : '';
+        $lastName = isset($data['last_name']) ? trim((string) $data['last_name']) : '';
+
+        if ($firstName === '') {
+            $errors['first_name'][] = 'Jméno je povinné';
+        } elseif (mb_strlen($firstName) > 100) {
+            $errors['first_name'][] = 'Jméno může mít nejvýše 100 znaků';
+        }
+
+        if ($lastName === '') {
+            $errors['last_name'][] = 'Příjmení je povinné';
+        } elseif (mb_strlen($lastName) > 100) {
+            $errors['last_name'][] = 'Příjmení může mít nejvýše 100 znaků';
+        }
+
+        if (array_key_exists('email', $data) && is_string($data['email'])) {
+            $email = trim($data['email']);
+            if ($email !== '') {
+                if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                    $errors['email'][] = 'E-mail není ve správném formátu (např. jmeno@firma.cz)';
+                } elseif (mb_strlen($email) > 255) {
+                    $errors['email'][] = 'E-mail může mít nejvýše 255 znaků';
+                } else {
+                    $conflict = $emailOwners !== null
+                        ? ($emailOwners[mb_strtolower($email)] ?? null)
+                        : ($this->employeeRepo->existsByEmail($email, $updatingId) ? -1 : null);
+                    if ($conflict !== null && $conflict !== $updatingId) {
+                        $errors['email'][] = 'Tento e-mail už používá jiný zaměstnanec';
+                    }
+                }
+            }
+        }
+
+        if (array_key_exists('phone', $data) && is_string($data['phone']) && mb_strlen(trim($data['phone'])) > 20) {
+            $errors['phone'][] = 'Telefon může mít nejvýše 20 znaků';
+        }
+
+        if (array_key_exists('personal_id', $data) && is_string($data['personal_id']) && mb_strlen(trim($data['personal_id'])) > 50) {
+            $errors['personal_id'][] = 'Osobní ID může mít nejvýše 50 znaků';
+        }
+
+        if (array_key_exists('position', $data) && is_string($data['position']) && mb_strlen(trim($data['position'])) > 100) {
+            $errors['position'][] = 'Pozice může mít nejvýše 100 znaků';
+        }
+
+        return $errors;
+    }
+
     public function deleteEmployee(Request $request): void
     {
         $id = (int) $request->param('id');
@@ -869,6 +1142,10 @@ class AdminController extends Controller
 
     /**
      * Bulk save employees (create or update multiple).
+     *
+     * All validation happens upfront (before any DB writes) so that a single bad row
+     * doesn't leave us half-saved. Errors use dot-paths (e.g., "2.email") so the FE
+     * can highlight the exact row that failed.
      */
     public function saveEmployees(Request $request): void
     {
@@ -878,25 +1155,28 @@ class AdminController extends Controller
             throw new ValidationException('Nebyla poskytnuta žádná data zaměstnanců');
         }
 
-        // Map camelCase from frontend to snake_case for database
+        // Normalize camelCase → snake_case first so validation sees a consistent shape.
         $mappedEmployees = [];
         foreach ($employees as $emp) {
+            if (!is_array($emp)) {
+                continue;
+            }
             $incomingPhoto = $emp['photoUrl'] ?? $emp['photo_url'] ?? null;
             $incomingContract = $emp['contractFile'] ?? $emp['contract_file'] ?? null;
             $mapped = [
-                'first_name' => $emp['firstName'] ?? $emp['first_name'] ?? '',
-                'last_name' => $emp['lastName'] ?? $emp['last_name'] ?? '',
+                'first_name' => isset($emp['firstName']) ? (string) $emp['firstName']
+                    : (isset($emp['first_name']) ? (string) $emp['first_name'] : ''),
+                'last_name' => isset($emp['lastName']) ? (string) $emp['lastName']
+                    : (isset($emp['last_name']) ? (string) $emp['last_name'] : ''),
                 'email' => $emp['email'] ?? null,
                 'phone' => $emp['phone'] ?? null,
                 'personal_id' => $emp['personalId'] ?? $emp['personal_id'] ?? null,
                 'position' => $emp['role'] ?? $emp['position'] ?? null,
-                // Normalize file fields — FE may echo resolved URLs; we persist the bare key.
                 'photo_url' => is_string($incomingPhoto) ? ($this->storage->extractKey($incomingPhoto) ?: null) : null,
                 'tenure_text' => $emp['tenureText'] ?? $emp['tenure_text'] ?? null,
                 'bio' => $emp['bio'] ?? null,
                 'hobbies' => $emp['hobbies'] ?? null,
                 'contract_file' => is_string($incomingContract) ? ($this->storage->extractKey($incomingContract) ?: null) : null,
-                // Explicitly cast boolean fields to ensure proper database values
                 'show_name' => (bool) ($emp['showName'] ?? $emp['show_name'] ?? true),
                 'show_photo' => (bool) ($emp['showPhoto'] ?? $emp['show_photo'] ?? true),
                 'show_phone' => (bool) ($emp['showPhone'] ?? $emp['show_phone'] ?? false),
@@ -908,18 +1188,64 @@ class AdminController extends Controller
                 'show_bio' => (bool) ($emp['showBio'] ?? $emp['show_bio'] ?? false),
             ];
 
-            // Include ID if it exists (for updates)
-            if (isset($emp['id']) && $emp['id'] > 0) {
+            if (isset($emp['id']) && is_numeric($emp['id']) && (int) $emp['id'] > 0) {
                 $mapped['id'] = (int) $emp['id'];
-            }
-
-            // Validate required fields
-            if (empty($mapped['first_name']) || empty($mapped['last_name'])) {
-                throw new ValidationException('Jméno a příjmení jsou povinné');
             }
 
             $mappedEmployees[] = $mapped;
         }
+
+        // Batch lookup of existing employees that own any of the submitted emails, so we
+        // avoid N queries in the per-row loop.
+        $submittedEmails = [];
+        foreach ($mappedEmployees as $emp) {
+            $email = isset($emp['email']) ? trim((string) $emp['email']) : '';
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false) {
+                $submittedEmails[] = $email;
+            }
+        }
+        $emailOwners = $this->employeeRepo->findIdsByEmails($submittedEmails);
+
+        // Per-row validation — collect all errors with dot-path keys
+        $errors = [];
+        $seenEmailRow = [];
+
+        foreach ($mappedEmployees as $i => $emp) {
+            $rowErrors = $this->validateEmployeeFields($emp, $emp['id'] ?? null, $emailOwners);
+
+            // Cross-row duplicate e-mail detection inside the same payload
+            $email = isset($emp['email']) ? trim((string) $emp['email']) : '';
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false) {
+                $key = mb_strtolower($email);
+                if (isset($seenEmailRow[$key])) {
+                    $rowErrors['email'][] = 'Tento e-mail už máte v seznamu (řádek ' . ($seenEmailRow[$key] + 1) . ')';
+                } else {
+                    $seenEmailRow[$key] = $i;
+                }
+            }
+
+            foreach ($rowErrors as $field => $messages) {
+                $errors["{$i}.{$field}"] = $messages;
+            }
+        }
+
+        if (!empty($errors)) {
+            throw new ValidationException('Zkontrolujte prosím vyplněné údaje', $errors);
+        }
+
+        // Trim strings once validation passed so we don't persist leading/trailing whitespace.
+        foreach ($mappedEmployees as &$emp) {
+            foreach (['first_name', 'last_name', 'email', 'phone', 'personal_id', 'position',
+                      'tenure_text', 'bio', 'hobbies'] as $f) {
+                if (isset($emp[$f]) && is_string($emp[$f])) {
+                    $emp[$f] = trim($emp[$f]);
+                    if ($emp[$f] === '' && $f !== 'first_name' && $f !== 'last_name') {
+                        $emp[$f] = null;
+                    }
+                }
+            }
+        }
+        unset($emp);
 
         $savedIds = $this->employeeRepo->saveAll($mappedEmployees);
 

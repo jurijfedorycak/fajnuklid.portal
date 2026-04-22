@@ -23,16 +23,23 @@ apiClient.interceptors.request.use(
   }
 )
 
-// Response interceptor - handle 401 → redirect to login
+// Response interceptor - only wipe auth on a *token* 401, not any 401.
+// A 401 from /auth/me or /auth/login means our stored token is bad and the session
+// should be cleared. A 401 from some other endpoint could be a genuine permission
+// response for a logged-in user (e.g. backend legacy code using AuthException for
+// "no client assigned") — clearing auth there causes a login-redirect loop.
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('auth_token')
-      localStorage.removeItem('auth_user')
-      // Only redirect if not already on login page
-      if (window.location.pathname !== '/') {
-        window.location.assign('/')
+      const url = error.config?.url || ''
+      const isTokenEndpoint = url.includes('/auth/me') || url.includes('/auth/login')
+      if (isTokenEndpoint) {
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('auth_user')
+        if (window.location.pathname !== '/') {
+          window.location.assign('/')
+        }
       }
     }
     return Promise.reject(error)

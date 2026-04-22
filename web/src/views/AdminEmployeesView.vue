@@ -4,6 +4,7 @@ import { onBeforeRouteLeave } from 'vue-router'
 import {
   Users, Plus, Search, Trash2, Upload, FileText, Download,
   ChevronDown, ChevronUp, Eye, EyeOff, User, Save, CheckCircle2, Loader2, Lightbulb, X,
+  AlertTriangle,
 } from 'lucide-vue-next'
 import { adminService } from '../api'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
@@ -113,7 +114,20 @@ const stats = computed(() => ({
 function validateEmployee(emp) {
   const errors = {}
   if (!emp.firstName?.trim()) errors.firstName = 'Jméno je povinné'
+  else if (emp.firstName.trim().length > 100) errors.firstName = 'Jméno může mít nejvýše 100 znaků'
   if (!emp.lastName?.trim()) errors.lastName = 'Příjmení je povinné'
+  else if (emp.lastName.trim().length > 100) errors.lastName = 'Příjmení může mít nejvýše 100 znaků'
+
+  if (emp.phone && emp.phone.length > 20) {
+    errors.phone = 'Telefon může mít nejvýše 20 znaků'
+  }
+  if (emp.personalId && emp.personalId.length > 50) {
+    errors.personalId = 'Osobní ID může mít nejvýše 50 znaků'
+  }
+  if (emp.role && emp.role.length > 100) {
+    errors.role = 'Pozice může mít nejvýše 100 znaků'
+  }
+
   return errors
 }
 
@@ -137,6 +151,50 @@ function clearFieldError(empId, field) {
     if (Object.keys(errors).length === 0) {
       validationErrors.value.delete(empId)
     }
+  }
+}
+
+// Backend emits errors keyed like "2.email" / "2.first_name" (dot-path of
+// rowIndex.snake_case_field). Map those into our camelCase local fields and
+// attach to the matching row by index.
+const SERVER_FIELD_MAP = {
+  first_name: 'firstName',
+  last_name: 'lastName',
+  phone: 'phone',
+  personal_id: 'personalId',
+  position: 'role',
+  tenure_text: 'tenureText',
+  bio: 'bio',
+  hobbies: 'hobbies',
+  photo_url: 'photo',
+  contract_file: 'contractFile',
+}
+
+const unmatchedServerErrors = ref([])
+
+function mapServerErrors(errors) {
+  validationErrors.value.clear()
+  unmatchedServerErrors.value = []
+  if (!errors || typeof errors !== 'object') return
+  for (const [key, messages] of Object.entries(errors)) {
+    const msg = Array.isArray(messages) ? messages[0] : String(messages)
+    const match = key.match(/^(\d+)\.(.+)$/)
+    if (!match) {
+      unmatchedServerErrors.value.push(msg)
+      continue
+    }
+    const idx = +match[1]
+    const serverField = match[2]
+    const field = SERVER_FIELD_MAP[serverField] || serverField
+    const emp = employees.value[idx]
+    if (!emp) {
+      unmatchedServerErrors.value.push(msg)
+      continue
+    }
+    const existing = validationErrors.value.get(emp.id) || {}
+    existing[field] = msg
+    validationErrors.value.set(emp.id, existing)
+    emp.expanded = true
   }
 }
 
@@ -296,12 +354,21 @@ async function removeContract(emp) {
   }
 }
 
+async function scrollToFirstErrorRow() {
+  await nextTick()
+  const firstInvalid = employees.value.find(e => validationErrors.value.has(e.id))
+  if (!firstInvalid) return
+  const el = document.getElementById(`emp-card-${firstInvalid.id}`)
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 async function save() {
   saveError.value = null
 
   if (!validateAll()) {
     const firstInvalid = employees.value.find(e => validationErrors.value.has(e.id))
     if (firstInvalid) firstInvalid.expanded = true
+    await scrollToFirstErrorRow()
     return
   }
 
@@ -328,14 +395,26 @@ async function save() {
       showTenure: e.showTenure,
       showBio: e.showBio,
     })))
-    if (response.success) {
+    if (response?.success) {
       saved.value = true
       setTimeout(() => { saved.value = false }, 3000)
+    } else if (response?.errors) {
+      mapServerErrors(response.errors)
+      await scrollToFirstErrorRow()
     } else {
-      saveError.value = response.message || 'Uložení se nezdařilo'
+      saveError.value = response?.message || 'Uložení se nezdařilo'
     }
   } catch (err) {
-    saveError.value = err.message || 'Uložení se nezdařilo'
+    // Axios throws on 4xx/5xx. ValidationException (422) carries per-row errors
+    // in response.data.errors keyed like "2.email" — surface those inline.
+    const data = err?.response?.data
+    if (data?.errors && typeof data.errors === 'object') {
+      mapServerErrors(data.errors)
+      await scrollToFirstErrorRow()
+      saveError.value = null
+    } else {
+      saveError.value = data?.message || err?.message || 'Uložení se nezdařilo'
+    }
   } finally {
     saving.value = false
   }
@@ -506,6 +585,19 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
+      <!-- Other server errors the FE doesn't have a specific row binding for -->
+      <div v-if="unmatchedServerErrors.length > 0" id="emp-generic-errors" class="alert alert-danger emp-save-error" role="alert">
+        <div>
+          <strong>Další chyby ze serveru:</strong>
+          <ul class="emp-generic-error-list">
+            <li v-for="(msg, idx) in unmatchedServerErrors" :key="idx">{{ msg }}</li>
+          </ul>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" aria-label="Zavřít chybu" @click="unmatchedServerErrors = []">
+          <X :size="14" aria-hidden="true" />
+        </button>
+      </div>
+
       <div id="emp-toolbar" class="table-toolbar">
         <h2 id="emp-list-title" class="card-title emp-list-title">Seznam zaměstnanců</h2>
         <div id="emp-search-wrap" class="search-wrap">
@@ -558,7 +650,14 @@ onBeforeUnmount(() => {
 
       <!-- Employee cards -->
       <div id="emp-list" class="emp-list" role="list" aria-label="Seznam zaměstnanců">
-        <div v-for="emp in filtered" :key="emp.id" :id="`emp-card-${emp.id}`" class="emp-card" role="listitem">
+        <div
+          v-for="emp in filtered"
+          :key="emp.id"
+          :id="`emp-card-${emp.id}`"
+          class="emp-card"
+          :class="{ 'card-has-error': validationErrors.has(emp.id) }"
+          role="listitem"
+        >
 
           <!-- Collapsed header (keyboard accessible) -->
           <div
@@ -583,6 +682,14 @@ onBeforeUnmount(() => {
               <span class="emp-role text-muted">{{ emp.role || '—' }}</span>
             </div>
             <div :id="`emp-badges-${emp.id}`" class="emp-header-badges">
+              <span
+                v-if="validationErrors.has(emp.id)"
+                class="badge badge-danger badge-sm"
+                :title="Object.values(validationErrors.get(emp.id)).join(', ')"
+              >
+                <AlertTriangle :size="11" aria-hidden="true" />
+                <span class="badge-text">Chyba</span>
+              </span>
               <span v-if="emp.showInPortal" class="badge badge-success badge-sm">
                 <Eye :size="11" aria-hidden="true" />
                 <span class="badge-text">V portálu</span>
@@ -642,7 +749,7 @@ onBeforeUnmount(() => {
                   @input="clearFieldError(emp.id, 'firstName')"
                 />
                 <p v-if="validationErrors.get(emp.id)?.firstName" :id="`emp-${emp.id}-firstName-error`" class="field-error" role="alert">
-                  {{ validationErrors.get(emp.id).firstName }}
+                  <AlertTriangle :size="12" aria-hidden="true" /> {{ validationErrors.get(emp.id).firstName }}
                 </p>
               </div>
               <div class="form-group">
@@ -659,12 +766,25 @@ onBeforeUnmount(() => {
                   @input="clearFieldError(emp.id, 'lastName')"
                 />
                 <p v-if="validationErrors.get(emp.id)?.lastName" :id="`emp-${emp.id}-lastName-error`" class="field-error" role="alert">
-                  {{ validationErrors.get(emp.id).lastName }}
+                  <AlertTriangle :size="12" aria-hidden="true" /> {{ validationErrors.get(emp.id).lastName }}
                 </p>
               </div>
               <div class="form-group">
                 <label :for="`emp-${emp.id}-role`" class="form-label">Pozice / Role</label>
-                <input :id="`emp-${emp.id}-role`" v-model="emp.role" type="text" class="form-input" placeholder="Vedoucí týmu, Úklidový pracovník…" />
+                <input
+                  :id="`emp-${emp.id}-role`"
+                  v-model="emp.role"
+                  type="text"
+                  class="form-input"
+                  :class="{ 'input-error': validationErrors.get(emp.id)?.role }"
+                  placeholder="Vedoucí týmu, Úklidový pracovník…"
+                  :aria-invalid="!!validationErrors.get(emp.id)?.role"
+                  :aria-describedby="validationErrors.get(emp.id)?.role ? `emp-${emp.id}-role-error` : undefined"
+                  @input="clearFieldError(emp.id, 'role')"
+                />
+                <p v-if="validationErrors.get(emp.id)?.role" :id="`emp-${emp.id}-role-error`" class="field-error" role="alert">
+                  <AlertTriangle :size="12" aria-hidden="true" /> {{ validationErrors.get(emp.id).role }}
+                </p>
               </div>
               <div class="form-group">
                 <label :for="`emp-${emp.id}-phone`" class="form-label">Telefon</label>
@@ -673,10 +793,16 @@ onBeforeUnmount(() => {
                   v-model="emp.phone"
                   type="tel"
                   class="form-input"
+                  :class="{ 'input-error': validationErrors.get(emp.id)?.phone }"
                   placeholder="+420 7xx xxx xxx"
-                  :aria-describedby="`emp-${emp.id}-phone-hint`"
+                  :aria-invalid="!!validationErrors.get(emp.id)?.phone"
+                  :aria-describedby="validationErrors.get(emp.id)?.phone ? `emp-${emp.id}-phone-error` : `emp-${emp.id}-phone-hint`"
+                  @input="clearFieldError(emp.id, 'phone')"
                 />
-                <p :id="`emp-${emp.id}-phone-hint`" class="field-hint">Zobrazení v portálu nastavte níže v GDPR sekci.</p>
+                <p v-if="validationErrors.get(emp.id)?.phone" :id="`emp-${emp.id}-phone-error`" class="field-error" role="alert">
+                  <AlertTriangle :size="12" aria-hidden="true" /> {{ validationErrors.get(emp.id).phone }}
+                </p>
+                <p v-else :id="`emp-${emp.id}-phone-hint`" class="field-hint">Zobrazení v portálu nastavte níže v GDPR sekci.</p>
               </div>
               <div class="form-group">
                 <label :for="`emp-${emp.id}-personal-id`" class="form-label">Osobní ID</label>
@@ -685,10 +811,16 @@ onBeforeUnmount(() => {
                   v-model="emp.personalId"
                   type="text"
                   class="form-input"
+                  :class="{ 'input-error': validationErrors.get(emp.id)?.personalId }"
                   placeholder="např. EMP-00123"
-                  :aria-describedby="`emp-${emp.id}-personal-id-hint`"
+                  :aria-invalid="!!validationErrors.get(emp.id)?.personalId"
+                  :aria-describedby="validationErrors.get(emp.id)?.personalId ? `emp-${emp.id}-personal-id-error` : `emp-${emp.id}-personal-id-hint`"
+                  @input="clearFieldError(emp.id, 'personalId')"
                 />
-                <p :id="`emp-${emp.id}-personal-id-hint`" class="field-hint">Identifikátor pro propojení s docházkovým systémem.</p>
+                <p v-if="validationErrors.get(emp.id)?.personalId" :id="`emp-${emp.id}-personal-id-error`" class="field-error" role="alert">
+                  <AlertTriangle :size="12" aria-hidden="true" /> {{ validationErrors.get(emp.id).personalId }}
+                </p>
+                <p v-else :id="`emp-${emp.id}-personal-id-hint`" class="field-hint">Identifikátor pro propojení s docházkovým systémem.</p>
               </div>
               <div class="form-group">
                 <label :for="`emp-${emp.id}-tenure`" class="form-label">Délka spolupráce</label>
@@ -1073,9 +1205,15 @@ onBeforeUnmount(() => {
 /* Save error */
 .emp-save-error {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
+}
+.emp-generic-error-list {
+  margin: 4px 0 0 16px;
+  padding: 0;
+  font-size: 13px;
 }
 
 /* Toolbar */
@@ -1188,6 +1326,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: white;
 }
+/* .card-has-error + .badge-danger live in style.css (shared). */
 
 .emp-card-header {
   display: flex;
@@ -1273,20 +1412,7 @@ onBeforeUnmount(() => {
   margin-top: 4px;
 }
 
-/* Validation error */
-.input-error {
-  border-color: var(--color-danger);
-}
-.input-error:focus {
-  border-color: var(--color-danger);
-  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.15);
-}
-.field-error {
-  color: var(--color-danger);
-  font-size: 12px;
-  margin-top: 4px;
-}
-
+/* .input-error, .field-error, .card-has-error live in style.css (shared). */
 .form-textarea { resize: vertical; min-height: 72px; }
 
 /* Upload sections */

@@ -102,6 +102,12 @@ function closePreview() {
 }
 
 // ── Validation ────────────────────────────────────────────────────────────────
+// Flat map keyed by error path. Path conventions mirror the backend:
+//   display_name, client_id                — top-level
+//   logins.<i>.email, logins.<i>.allowed_icos
+//   icos.<i>.ico, icos.<i>.official_name
+//   icos.<i>.objects.<j>.name
+//   contacts.<i>.name, contacts.<i>.email, contacts.<i>.ico_id
 const validationErrors = reactive({})
 
 function clearFieldError(field) {
@@ -112,47 +118,204 @@ function clearFieldError(field) {
 
 function clearAllErrors() {
   Object.keys(validationErrors).forEach(key => delete validationErrors[key])
+  unmatchedServerErrors.value = []
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+// Section → error path prefix lookup (for auto-scrolling to the first failing section).
+// No staff.<i>. entry because staff rows only carry assigned-objects IDs — nothing the
+// validator flags as invalid.
+const ERROR_PATH_SECTIONS = [
+  { prefix: /^(display_name|client_id)$/, section: 'sec-basic' },
+  { prefix: /^logins\./,                  section: 'sec-logins' },
+  { prefix: /^icos\./,                    section: 'sec-icos' },
+  { prefix: /^contacts\./,                section: 'sec-contacts' },
+]
+
+function sectionForPath(path) {
+  for (const { prefix, section } of ERROR_PATH_SECTIONS) {
+    if (prefix.test(path)) return section
+  }
+  return 'sec-basic'
+}
+
+function expandRowsForErrors() {
+  // Make sure every row with an error is expanded so the user can see it.
+  for (const path of Object.keys(validationErrors)) {
+    const loginMatch = path.match(/^logins\.(\d+)\./)
+    if (loginMatch) {
+      const row = form.logins[+loginMatch[1]]
+      if (row) row.expanded = true
+      continue
+    }
+    const icoMatch = path.match(/^icos\.(\d+)\./)
+    if (icoMatch) {
+      const row = form.icos[+icoMatch[1]]
+      if (row) row.expanded = true
+      const objMatch = path.match(/^icos\.\d+\.objects\.(\d+)\./)
+      if (objMatch && row?.objects) {
+        const obj = row.objects[+objMatch[1]]
+        if (obj) obj.expanded = true
+      }
+      continue
+    }
+    const contactMatch = path.match(/^contacts\.(\d+)\./)
+    if (contactMatch) {
+      const row = form.contacts[+contactMatch[1]]
+      if (row) row.expanded = true
+    }
+  }
+}
+
+function scrollToFirstError() {
+  const firstPath = Object.keys(validationErrors)[0]
+  if (!firstPath) return
+  const section = sectionForPath(firstPath)
+  scrollToSection(section)
 }
 
 function validateForm() {
   clearAllErrors()
-  let isValid = true
 
-  // Validate displayName (required)
-  if (!form.displayName?.trim()) {
-    validationErrors.displayName = 'Název pro portál je povinný'
-    isValid = false
+  const displayName = form.displayName?.trim() || ''
+  if (!displayName) {
+    validationErrors['display_name'] = 'Název pro portál je povinný'
+  } else if (displayName.length > 255) {
+    validationErrors['display_name'] = 'Název může mít nejvýše 255 znaků'
   }
 
-  // Validate clientId (required for new clients)
-  if (isNew.value && !form.clientId?.trim()) {
-    validationErrors.clientId = 'ID klienta je povinné'
-    isValid = false
-  } else if (form.clientId && !/^[A-Za-z0-9_-]+$/.test(form.clientId)) {
-    validationErrors.clientId = 'ID může obsahovat pouze písmena, čísla, pomlčky a podtržítka'
-    isValid = false
+  if (isNew.value) {
+    const clientId = form.clientId?.trim() || ''
+    if (!clientId) {
+      validationErrors['client_id'] = 'ID klienta je povinné'
+    } else if (clientId.length > 50) {
+      validationErrors['client_id'] = 'ID klienta může mít nejvýše 50 znaků'
+    } else if (!/^[A-Za-z0-9_-]+$/.test(clientId)) {
+      validationErrors['client_id'] = 'ID smí obsahovat pouze písmena, čísla, pomlčky a podtržítka'
+    }
   }
 
-  // Note: Logins, IČOs, staff, and contacts are optional - no validation required
-  // Server will validate format if values are provided
+  // Logins: email required + format + in-form uniqueness
+  const seenEmails = new Map()
+  form.logins.forEach((login, i) => {
+    const email = (login.email || '').trim()
+    const hasAnyContent = email || login.tempPass || (login.restriction === 'icos' && login.allowedIcos?.length > 0)
+    if (!email) {
+      if (hasAnyContent) {
+        validationErrors[`logins.${i}.email`] = 'E-mail je povinný'
+      }
+      return
+    }
+    if (!EMAIL_RE.test(email)) {
+      validationErrors[`logins.${i}.email`] = 'E-mail není ve správném formátu (např. jmeno@firma.cz)'
+      return
+    }
+    const key = email.toLowerCase()
+    if (seenEmails.has(key)) {
+      validationErrors[`logins.${i}.email`] = `Tento e-mail už máte ve formuláři (řádek ${seenEmails.get(key) + 1})`
+    } else {
+      seenEmails.set(key, i)
+    }
+    if (login.restriction === 'icos' && (!login.allowedIcos || login.allowedIcos.length === 0)) {
+      validationErrors[`logins.${i}.allowed_icos`] = 'Vyberte alespoň jedno IČO, ke kterému bude účet mít přístup'
+    }
+  })
 
-  return isValid
+  // IČOs: format + uniqueness + per-object name
+  const seenIcos = new Map()
+  form.icos.forEach((ico, i) => {
+    const icoNum = (ico.ico || '').trim()
+    const hasAnyContent = icoNum || ico.officialName?.trim() || ico.objects?.length > 0 || ico.contractFile
+    if (!icoNum) {
+      if (hasAnyContent) {
+        validationErrors[`icos.${i}.ico`] = 'IČO je povinné'
+      }
+    } else {
+      if (!/^\d{8}$/.test(icoNum)) {
+        validationErrors[`icos.${i}.ico`] = 'IČO musí mít přesně 8 číslic'
+      } else if (seenIcos.has(icoNum)) {
+        validationErrors[`icos.${i}.ico`] = `Toto IČO už máte ve formuláři (řádek ${seenIcos.get(icoNum) + 1})`
+      } else {
+        seenIcos.set(icoNum, i)
+      }
+    }
+    ;(ico.objects || []).forEach((obj, j) => {
+      const name = (obj.name || '').trim()
+      const addr = (obj.address || '').trim()
+      const hasObjContent = name || addr || obj.lat != null || obj.lng != null
+      if (!name && hasObjContent) {
+        validationErrors[`icos.${i}.objects.${j}.name`] = 'Název provozovny je povinný'
+      }
+    })
+  })
+
+  // Contacts: email format if provided, name required if row touched, IČO required when scope=icos
+  form.contacts.forEach((contact, i) => {
+    const name = (contact.name || '').trim()
+    const email = (contact.email || '').trim()
+    const phone = (contact.phone || '').trim()
+    const role = (contact.role || '').trim()
+    const hasAnyContent = name || email || phone || role
+    if (hasAnyContent && !name) {
+      validationErrors[`contacts.${i}.name`] = 'Jméno kontaktní osoby je povinné'
+    }
+    if (email && !EMAIL_RE.test(email)) {
+      validationErrors[`contacts.${i}.email`] = 'E-mail není ve správném formátu'
+    }
+    if (name && contact.scope === 'icos' && (contact.icoId === null || contact.icoId === undefined)) {
+      validationErrors[`contacts.${i}.ico_id`] = 'Vyberte IČO, ke kterému kontakt patří'
+    }
+  })
+
+  return Object.keys(validationErrors).length === 0
 }
+
+// Paths the template has a display site for. Anything not matching ends up in the
+// generic "other errors" list in the summary banner — so BE-side additions (e.g., a
+// new `logins.<i>.temp_pass` rule) surface to the admin instead of vanishing silently.
+const KNOWN_ERROR_PATH_RE = /^(display_name|client_id|logins\.\d+\.(email|allowed_icos)|icos\.\d+\.(ico|official_name|objects\.\d+\.name)|contacts\.\d+\.(name|email|ico_id))$/
+
+const unmatchedServerErrors = ref([])
 
 function mapServerErrors(errors) {
-  // Map server field names to our field names
-  const fieldMap = {
-    'client_id': 'clientId',
-    'display_name': 'displayName',
+  unmatchedServerErrors.value = []
+  if (!errors || typeof errors !== 'object') return
+  for (const [field, messages] of Object.entries(errors)) {
+    const msg = Array.isArray(messages) ? messages[0] : String(messages)
+    if (KNOWN_ERROR_PATH_RE.test(field)) {
+      validationErrors[field] = msg
+    } else {
+      unmatchedServerErrors.value.push({ path: field, message: msg })
+    }
   }
-
-  Object.entries(errors).forEach(([field, messages]) => {
-    const mappedField = fieldMap[field] || field
-    validationErrors[mappedField] = Array.isArray(messages) ? messages[0] : messages
-  })
 }
 
-const hasErrors = computed(() => Object.keys(validationErrors).length > 0)
+const hasErrors = computed(() =>
+  Object.keys(validationErrors).length > 0 || unmatchedServerErrors.value.length > 0
+)
+
+// Precomputed set of row-prefixes ("icos.3.", "logins.0.", "contacts.2.") that have at
+// least one error. Lets card headers do an O(1) lookup via `errorPrefixes.has(prefix)`
+// instead of re-scanning every path in the template on each render.
+const errorPrefixes = computed(() => {
+  const out = new Set()
+  for (const path of Object.keys(validationErrors)) {
+    const m = path.match(/^(logins\.\d+|icos\.\d+|icos\.\d+\.objects\.\d+|contacts\.\d+)\./)
+    if (m) out.add(m[1] + '.')
+  }
+  return out
+})
+
+// Czech grammar: 1 chybu, 2–4 chyby, 5+ chyb (numbers that end in 2–4 but not 12–14 follow
+// the "chyby" form in standard Czech, but the summary only needs to distinguish these three
+// ranges for the counts we actually see).
+const errorCountLabel = computed(() => {
+  const n = Object.keys(validationErrors).length + unmatchedServerErrors.value.length
+  if (n === 1) return 'Formulář obsahuje 1 chybu'
+  if (n >= 2 && n <= 4) return `Formulář obsahuje ${n} chyby`
+  return `Formulář obsahuje ${n} chyb`
+})
 
 // ── Section nav ───────────────────────────────────────────────────────────────
 const sections = [
@@ -536,10 +699,10 @@ const vMap = {
 async function save() {
   error.value = null
 
-  // Client-side validation
   if (!validateForm()) {
-    // Scroll to first error
-    scrollToSection('sec-basic')
+    expandRowsForErrors()
+    await nextTick()
+    scrollToFirstError()
     return
   }
 
@@ -584,31 +747,39 @@ async function save() {
       })),
     }
 
-    let response
-    if (isNew.value) {
-      response = await adminService.createClient(payload)
-    } else {
-      response = await adminService.updateClient(route.params.id, payload)
-    }
+    const response = isNew.value
+      ? await adminService.createClient(payload)
+      : await adminService.updateClient(route.params.id, payload)
 
-    if (response.success) {
+    if (response?.success) {
       clearAllErrors()
       saved.value = true
       setTimeout(() => { saved.value = false }, 3000)
       if (isNew.value && response.data?.client_id) {
         router.replace(`/admin/clients/${response.data.client_id}`)
       }
+    } else if (response?.errors) {
+      mapServerErrors(response.errors)
+      expandRowsForErrors()
+      await nextTick()
+      scrollToFirstError()
     } else {
-      // Handle server validation errors
-      if (response.errors) {
-        mapServerErrors(response.errors)
-        scrollToSection('sec-basic')
-      } else {
-        error.value = response.message || 'Uložení se nezdařilo'
-      }
+      error.value = response?.message || 'Uložení se nezdařilo'
     }
   } catch (err) {
-    error.value = err.message || 'Uložení se nezdařilo'
+    // Axios throws on 4xx/5xx — ValidationException (422) carries structured errors
+    // in response.data.errors that the FE must surface per-field, not as a generic
+    // "Request failed with status code 422" banner.
+    const data = err?.response?.data
+    if (data?.errors && typeof data.errors === 'object') {
+      mapServerErrors(data.errors)
+      expandRowsForErrors()
+      await nextTick()
+      scrollToFirstError()
+      error.value = null
+    } else {
+      error.value = data?.message || err?.message || 'Uložení se nezdařilo'
+    }
   } finally {
     saving.value = false
   }
@@ -619,7 +790,7 @@ function generateClientId() {
   const timestamp = Date.now().toString(36).slice(-4).toUpperCase()
   const random = Math.floor(Math.random() * 900 + 100)
   form.clientId = `CLI-${timestamp}${random}`
-  clearFieldError('clientId')
+  clearFieldError('client_id')
 }
 
 function copyId() {
@@ -814,14 +985,14 @@ onBeforeUnmount(() => {
                 v-model="form.displayName"
                 type="text"
                 class="form-input"
-                :class="{ 'input-error': validationErrors.displayName }"
+                :class="{ 'input-error': validationErrors['display_name'] }"
                 placeholder="Firma s.r.o."
-                :aria-invalid="!!validationErrors.displayName"
-                :aria-describedby="validationErrors.displayName ? 'error-displayName' : 'hint-displayName'"
-                @input="clearFieldError('displayName')"
+                :aria-invalid="!!validationErrors['display_name']"
+                :aria-describedby="validationErrors['display_name'] ? 'error-displayName' : 'hint-displayName'"
+                @input="clearFieldError('display_name')"
               />
-              <p v-if="validationErrors.displayName" id="error-displayName" class="field-error" role="alert">
-                <AlertTriangle :size="12" /> {{ validationErrors.displayName }}
+              <p v-if="validationErrors['display_name']" id="error-displayName" class="field-error" role="alert">
+                <AlertTriangle :size="12" /> {{ validationErrors['display_name'] }}
               </p>
               <p v-else id="hint-displayName" class="field-hint">Zobrazuje se klientovi v záhlaví portálu.</p>
             </div>
@@ -838,12 +1009,12 @@ onBeforeUnmount(() => {
                   v-model="form.clientId"
                   type="text"
                   class="form-input"
-                  :class="{ 'input-error': validationErrors.clientId }"
+                  :class="{ 'input-error': validationErrors['client_id'] }"
                   placeholder="CLI-XXX"
                   :disabled="!isNew"
-                  :aria-invalid="!!validationErrors.clientId"
-                  :aria-describedby="validationErrors.clientId ? 'error-clientId' : 'hint-clientId'"
-                  @input="clearFieldError('clientId')"
+                  :aria-invalid="!!validationErrors['client_id']"
+                  :aria-describedby="validationErrors['client_id'] ? 'error-clientId' : 'hint-clientId'"
+                  @input="clearFieldError('client_id')"
                 />
                 <button v-if="isNew" class="btn btn-ghost btn-sm" @click="generateClientId" title="Vygenerovat">
                   <Copy :size="14" />
@@ -852,9 +1023,9 @@ onBeforeUnmount(() => {
                   <Copy :size="14" />
                 </button>
               </div>
-              <div v-if="validationErrors.clientId" id="error-clientId" class="field-error-wrap" role="alert">
+              <div v-if="validationErrors['client_id']" id="error-clientId" class="field-error-wrap" role="alert">
                 <p class="field-error">
-                  <AlertTriangle :size="12" /> {{ validationErrors.clientId }}
+                  <AlertTriangle :size="12" /> {{ validationErrors['client_id'] }}
                 </p>
                 <button v-if="isNew" type="button" class="btn btn-outline btn-sm" @click="generateClientId">
                   <Copy :size="12" /> Vygenerovat nové ID
@@ -915,13 +1086,24 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="login-cards">
-            <div v-for="(login, index) in form.logins" :key="login.id" class="card login-card">
+            <div
+              v-for="(login, index) in form.logins"
+              :key="login.id"
+              class="card login-card"
+              :class="{ 'card-has-error': validationErrors[`logins.${index}.email`] || validationErrors[`logins.${index}.allowed_icos`] }"
+            >
 
               <!-- Login header (collapsible) -->
               <div :id="`login-card-header-${index}`" class="login-card-header" @click="login.expanded = !login.expanded" :aria-expanded="login.expanded">
                 <div class="login-title-wrap">
                   <Lock :size="16" class="text-mid" />
                   <span class="login-card-email">{{ login.email || '(Nový účet)' }}</span>
+                  <AlertTriangle
+                    v-if="validationErrors[`logins.${index}.email`] || validationErrors[`logins.${index}.allowed_icos`]"
+                    :size="14"
+                    class="text-danger"
+                    :title="validationErrors[`logins.${index}.email`] || validationErrors[`logins.${index}.allowed_icos`]"
+                  />
                 </div>
                 <div class="login-header-right">
                   <span v-if="login.restriction === 'all'" class="badge badge-info" style="font-size:11px;">Všechna IČO</span>
@@ -938,11 +1120,29 @@ onBeforeUnmount(() => {
 
                 <!-- Email -->
                 <div class="form-group">
-                  <label class="form-label">E-mail *</label>
+                  <label class="form-label" :for="`login-email-${index}`">E-mail *</label>
                   <div class="input-with-btn">
                     <Mail :size="15" class="text-mid" style="flex-shrink:0;" />
-                    <input :id="`login-email-${index}`" v-model="login.email" type="email" class="form-input" placeholder="email@firma.cz" />
+                    <input
+                      :id="`login-email-${index}`"
+                      v-model="login.email"
+                      type="email"
+                      class="form-input"
+                      :class="{ 'input-error': validationErrors[`logins.${index}.email`] }"
+                      placeholder="email@firma.cz"
+                      :aria-invalid="!!validationErrors[`logins.${index}.email`]"
+                      :aria-describedby="validationErrors[`logins.${index}.email`] ? `login-email-${index}-error` : undefined"
+                      @input="clearFieldError(`logins.${index}.email`)"
+                    />
                   </div>
+                  <p
+                    v-if="validationErrors[`logins.${index}.email`]"
+                    :id="`login-email-${index}-error`"
+                    class="field-error"
+                    role="alert"
+                  >
+                    <AlertTriangle :size="12" /> {{ validationErrors[`logins.${index}.email`] }}
+                  </p>
                 </div>
 
                 <!-- Initial password (new client only) -->
@@ -1036,7 +1236,7 @@ onBeforeUnmount(() => {
                       :key="ico.id"
                       class="ico-checkbox-item"
                       :class="{ checked: login.allowedIcos.includes(ico.ico) }"
-                      @click="toggleIcoRestriction(login, ico.ico)"
+                      @click="() => { toggleIcoRestriction(login, ico.ico); clearFieldError(`logins.${index}.allowed_icos`) }"
                     >
                       <span class="ico-cb-box">
                         <CheckCircle2 v-if="login.allowedIcos.includes(ico.ico)" :size="14" />
@@ -1048,6 +1248,13 @@ onBeforeUnmount(() => {
                     </label>
                     <p v-if="form.icos.length === 0" class="field-hint">Nejprve přidejte IČO v sekci níže.</p>
                   </div>
+                  <p
+                    v-if="validationErrors[`logins.${index}.allowed_icos`]"
+                    class="field-error"
+                    role="alert"
+                  >
+                    <AlertTriangle :size="12" /> {{ validationErrors[`logins.${index}.allowed_icos`] }}
+                  </p>
                 </div>
               </div><!-- /login-card-body -->
             </div>
@@ -1081,7 +1288,12 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="ico-cards">
-            <div v-for="(ico, icoIndex) in form.icos" :key="ico.id" class="card ico-card">
+            <div
+              v-for="(ico, icoIndex) in form.icos"
+              :key="ico.id"
+              class="card ico-card"
+              :class="{ 'card-has-error': errorPrefixes.has(`icos.${icoIndex}.`) }"
+            >
 
               <!-- IČO header (collapsible) -->
               <div class="ico-card-header" @click="ico.expanded = !ico.expanded">
@@ -1091,6 +1303,12 @@ onBeforeUnmount(() => {
                     <span class="ico-card-name">{{ ico.officialName || '(Nové IČO)' }}</span>
                     <span class="ico-card-num">{{ ico.ico }}</span>
                   </div>
+                  <AlertTriangle
+                    v-if="errorPrefixes.has(`icos.${icoIndex}.`)"
+                    :size="14"
+                    class="text-danger"
+                    title="Tento řádek obsahuje chybu"
+                  />
                 </div>
                 <div class="ico-header-right">
                   <span class="badge badge-info" style="font-size:11px;">{{ ico.objects.length }} provozovny</span>
@@ -1107,11 +1325,32 @@ onBeforeUnmount(() => {
                 <!-- Basic IČO fields -->
                 <div class="field-grid-2" style="margin-bottom:20px;">
                   <div class="form-group">
-                    <label class="form-label">IČO *</label>
-                    <input :id="`ico-number-${icoIndex}`" v-model="ico.ico" type="text" class="form-input" placeholder="12345678" maxlength="8" />
+                    <label class="form-label" :for="`ico-number-${icoIndex}`">IČO *</label>
+                    <input
+                      :id="`ico-number-${icoIndex}`"
+                      v-model="ico.ico"
+                      type="text"
+                      inputmode="numeric"
+                      class="form-input"
+                      :class="{ 'input-error': validationErrors[`icos.${icoIndex}.ico`] }"
+                      placeholder="12345678"
+                      maxlength="8"
+                      :aria-invalid="!!validationErrors[`icos.${icoIndex}.ico`]"
+                      :aria-describedby="validationErrors[`icos.${icoIndex}.ico`] ? `ico-number-${icoIndex}-error` : undefined"
+                      @input="clearFieldError(`icos.${icoIndex}.ico`)"
+                    />
+                    <p
+                      v-if="validationErrors[`icos.${icoIndex}.ico`]"
+                      :id="`ico-number-${icoIndex}-error`"
+                      class="field-error"
+                      role="alert"
+                    >
+                      <AlertTriangle :size="12" /> {{ validationErrors[`icos.${icoIndex}.ico`] }}
+                    </p>
+                    <p v-else class="field-hint">8 číslic bez mezer.</p>
                   </div>
                   <div class="form-group">
-                    <label class="form-label">Oficiální název firmy</label>
+                    <label class="form-label" :for="`ico-name-${icoIndex}`">Oficiální název firmy</label>
                     <input :id="`ico-name-${icoIndex}`" v-model="ico.officialName" type="text" class="form-input" placeholder="Firma s.r.o." />
                   </div>
                 </div>
@@ -1289,12 +1528,23 @@ onBeforeUnmount(() => {
                   </div>
 
                   <div class="object-cards">
-                    <div v-for="obj in ico.objects" :key="obj.id" class="object-card">
+                    <div
+                      v-for="(obj, objIndex) in ico.objects"
+                      :key="obj.id"
+                      class="object-card"
+                      :class="{ 'card-has-error': validationErrors[`icos.${icoIndex}.objects.${objIndex}.name`] }"
+                    >
 
                       <div class="obj-card-header" @click="obj.expanded = !obj.expanded">
                         <MapPin :size="14" class="text-mid" />
                         <span class="obj-name">{{ obj.name || '(Nová provozovna)' }}</span>
                         <span class="obj-address">{{ obj.address }}</span>
+                        <AlertTriangle
+                          v-if="validationErrors[`icos.${icoIndex}.objects.${objIndex}.name`]"
+                          :size="13"
+                          class="text-danger"
+                          :title="validationErrors[`icos.${icoIndex}.objects.${objIndex}.name`]"
+                        />
                         <button class="btn btn-ghost btn-sm danger-hover" @click.stop="removeObject(ico, obj.id)">
                           <Trash2 :size="13" />
                         </button>
@@ -1305,8 +1555,24 @@ onBeforeUnmount(() => {
                       <div v-if="obj.expanded" class="obj-card-body">
                         <div class="field-grid-2">
                           <div class="form-group">
-                            <label class="form-label">Název provozovny *</label>
-                            <input v-model="obj.name" type="text" class="form-input" placeholder="Kanceláře / Sklad / Recepce..." />
+                            <label class="form-label" :for="`obj-name-${icoIndex}-${objIndex}`">Název provozovny *</label>
+                            <input
+                              :id="`obj-name-${icoIndex}-${objIndex}`"
+                              v-model="obj.name"
+                              type="text"
+                              class="form-input"
+                              :class="{ 'input-error': validationErrors[`icos.${icoIndex}.objects.${objIndex}.name`] }"
+                              placeholder="Kanceláře / Sklad / Recepce..."
+                              :aria-invalid="!!validationErrors[`icos.${icoIndex}.objects.${objIndex}.name`]"
+                              @input="clearFieldError(`icos.${icoIndex}.objects.${objIndex}.name`)"
+                            />
+                            <p
+                              v-if="validationErrors[`icos.${icoIndex}.objects.${objIndex}.name`]"
+                              class="field-error"
+                              role="alert"
+                            >
+                              <AlertTriangle :size="12" /> {{ validationErrors[`icos.${icoIndex}.objects.${objIndex}.name`] }}
+                            </p>
                           </div>
                           <div class="form-group">
                             <label class="form-label">Adresa</label>
@@ -1474,7 +1740,12 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="contact-cards">
-            <div v-for="(contact, contactIndex) in form.contacts" :key="contact.id" class="card contact-card">
+            <div
+              v-for="(contact, contactIndex) in form.contacts"
+              :key="contact.id"
+              class="card contact-card"
+              :class="{ 'card-has-error': errorPrefixes.has(`contacts.${contactIndex}.`) }"
+            >
 
               <!-- Contact header (collapsible) -->
               <div :id="`contact-card-header-${contactIndex}`" class="contact-card-header" role="button" tabindex="0" @click="contact.expanded = !contact.expanded" @keydown.enter="contact.expanded = !contact.expanded" @keydown.space.prevent="contact.expanded = !contact.expanded" :aria-expanded="contact.expanded" :aria-controls="`contact-card-body-${contactIndex}`">
@@ -1484,6 +1755,12 @@ onBeforeUnmount(() => {
                     <span class="contact-card-name">{{ contact.name || '(Nový kontakt)' }}</span>
                     <span v-if="contact.role" class="contact-card-role">{{ contact.role }}</span>
                   </div>
+                  <AlertTriangle
+                    v-if="errorPrefixes.has(`contacts.${contactIndex}.`)"
+                    :size="14"
+                    class="text-danger"
+                    title="Tento kontakt obsahuje chybu"
+                  />
                 </div>
                 <div class="contact-header-right">
                   <span v-if="contact.scope === 'global'" class="badge badge-info" style="font-size:11px;">Celý účet</span>
@@ -1503,20 +1780,42 @@ onBeforeUnmount(() => {
                 <!-- Basic fields -->
                 <div class="field-grid-2">
                   <div class="form-group">
-                    <label class="form-label">Jméno</label>
-                    <input :id="`contact-name-${contactIndex}`" v-model="contact.name" type="text" class="form-input" placeholder="Jméno Příjmení" />
+                    <label class="form-label" :for="`contact-name-${contactIndex}`">Jméno</label>
+                    <input
+                      :id="`contact-name-${contactIndex}`"
+                      v-model="contact.name"
+                      type="text"
+                      class="form-input"
+                      :class="{ 'input-error': validationErrors[`contacts.${contactIndex}.name`] }"
+                      placeholder="Jméno Příjmení"
+                      @input="clearFieldError(`contacts.${contactIndex}.name`)"
+                    />
+                    <p v-if="validationErrors[`contacts.${contactIndex}.name`]" class="field-error" role="alert">
+                      <AlertTriangle :size="12" /> {{ validationErrors[`contacts.${contactIndex}.name`] }}
+                    </p>
                   </div>
                   <div class="form-group">
-                    <label class="form-label">Pozice ve firmě</label>
+                    <label class="form-label" :for="`contact-role-${contactIndex}`">Pozice ve firmě</label>
                     <input :id="`contact-role-${contactIndex}`" v-model="contact.role" type="text" class="form-input" placeholder="Facility Manager, Ekonomka…" />
                   </div>
                   <div class="form-group">
-                    <label class="form-label">Telefon</label>
+                    <label class="form-label" :for="`contact-phone-${contactIndex}`">Telefon</label>
                     <input :id="`contact-phone-${contactIndex}`" v-model="contact.phone" type="tel" class="form-input" placeholder="+420 7xx xxx xxx" />
                   </div>
                   <div class="form-group">
-                    <label class="form-label">E-mail</label>
-                    <input :id="`contact-email-${contactIndex}`" v-model="contact.email" type="email" class="form-input" placeholder="jan@firma.cz" />
+                    <label class="form-label" :for="`contact-email-${contactIndex}`">E-mail</label>
+                    <input
+                      :id="`contact-email-${contactIndex}`"
+                      v-model="contact.email"
+                      type="email"
+                      class="form-input"
+                      :class="{ 'input-error': validationErrors[`contacts.${contactIndex}.email`] }"
+                      placeholder="jan@firma.cz"
+                      @input="clearFieldError(`contacts.${contactIndex}.email`)"
+                    />
+                    <p v-if="validationErrors[`contacts.${contactIndex}.email`]" class="field-error" role="alert">
+                      <AlertTriangle :size="12" /> {{ validationErrors[`contacts.${contactIndex}.email`] }}
+                    </p>
                   </div>
                 </div>
 
@@ -1534,13 +1833,22 @@ onBeforeUnmount(() => {
                     </label>
                   </div>
                   <div v-if="contact.scope === 'icos'" class="form-group" style="margin-top:10px;">
-                    <label class="form-label">IČO / Firma</label>
-                    <select :id="`contact-ico-${contactIndex}`" v-model="contact.icoId" class="form-input">
+                    <label class="form-label" :for="`contact-ico-${contactIndex}`">IČO / Firma</label>
+                    <select
+                      :id="`contact-ico-${contactIndex}`"
+                      v-model="contact.icoId"
+                      class="form-input"
+                      :class="{ 'input-error': validationErrors[`contacts.${contactIndex}.ico_id`] }"
+                      @change="clearFieldError(`contacts.${contactIndex}.ico_id`)"
+                    >
                       <option :value="null">– vyberte –</option>
                       <option v-for="ico in form.icos" :key="ico.id" :value="ico.id">
                         {{ ico.officialName }} ({{ ico.ico }})
                       </option>
                     </select>
+                    <p v-if="validationErrors[`contacts.${contactIndex}.ico_id`]" class="field-error" role="alert">
+                      <AlertTriangle :size="12" /> {{ validationErrors[`contacts.${contactIndex}.ico_id`] }}
+                    </p>
                   </div>
                 </div>
               </div><!-- /contact-card-body -->
@@ -1551,9 +1859,23 @@ onBeforeUnmount(() => {
         <!-- Validation errors summary -->
         <div v-if="hasErrors" id="validation-errors-summary" class="validation-summary" role="alert">
           <AlertTriangle :size="18" />
-          <div>
-            <strong>Formulář obsahuje chyby</strong>
-            <p>Opravte prosím označená pole před uložením.</p>
+          <div class="validation-summary-body">
+            <strong>{{ errorCountLabel }}</strong>
+            <p>Opravte prosím označená pole před uložením. Sekce s chybami jsou rozbalené a problémová pole zvýrazněná červeně.</p>
+            <ul v-if="unmatchedServerErrors.length > 0" id="validation-summary-unmatched" class="validation-summary-unmatched">
+              <li v-for="(item, idx) in unmatchedServerErrors" :key="idx">
+                <code>{{ item.path }}</code>: {{ item.message }}
+              </li>
+            </ul>
+            <button
+              v-if="Object.keys(validationErrors).length > 0"
+              id="validation-summary-scroll"
+              type="button"
+              class="btn btn-outline btn-sm"
+              @click="scrollToFirstError"
+            >
+              Přejít na první chybu
+            </button>
           </div>
         </div>
 
@@ -1936,7 +2258,7 @@ onBeforeUnmount(() => {
   margin-top: 4px;
 }
 
-/* Validation errors */
+/* .field-error, .input-error, .card-has-error live in style.css (shared). */
 .field-error-wrap {
   display: flex;
   flex-direction: column;
@@ -1945,25 +2267,6 @@ onBeforeUnmount(() => {
 }
 .field-error-wrap .btn {
   align-self: flex-start;
-}
-
-.field-error {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--color-danger);
-  margin: 0;
-  font-weight: 500;
-}
-
-.input-error {
-  border-color: var(--color-danger) !important;
-  background-color: var(--color-danger-light, #fef2f2);
-}
-.input-error:focus {
-  border-color: var(--color-danger) !important;
-  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.15);
 }
 
 .form-textarea { resize: vertical; min-height: 72px; }
@@ -2609,7 +2912,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   gap: 12px;
   padding: 14px 18px;
-  background: var(--color-danger-light, #fef2f2);
+  background: var(--color-danger-light);
   border: 1px solid var(--color-danger);
   border-radius: var(--radius-md);
   color: var(--color-danger);
@@ -2622,9 +2925,24 @@ onBeforeUnmount(() => {
 }
 .validation-summary p {
   font-size: 13px;
-  margin: 0;
+  margin: 0 0 10px 0;
   opacity: 0.9;
 }
+.validation-summary-body { flex: 1; min-width: 0; }
+.validation-summary-unmatched {
+  margin: 6px 0 10px 18px;
+  padding: 0;
+  font-size: 12px;
+}
+.validation-summary-unmatched code {
+  background: rgba(255,255,255,0.5);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+}
+
+/* .card-has-error lives in style.css (shared). */
+.card-has-error .text-danger { flex-shrink: 0; }
 
 /* Bottom save bar */
 .bottom-save-bar {

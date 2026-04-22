@@ -420,4 +420,30 @@ class EmployeeRepository
 
         return (int) $stmt->fetchColumn() > 0;
     }
+
+    /**
+     * Return a map of lowercased email → owning employee id for the given set of emails.
+     * Used by bulk validation so we can check N rows with a single query instead of N.
+     *
+     * @param string[] $emails
+     * @return array<string, int>
+     */
+    public function findIdsByEmails(array $emails): array
+    {
+        $emails = array_values(array_filter(array_map('strval', $emails), fn($e) => $e !== ''));
+        if (empty($emails)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($emails), '?'));
+        $sql = "SELECT id, email FROM employees WHERE email IN ({$placeholders}) AND deleted_at IS NULL";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($emails);
+
+        $map = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $map[mb_strtolower((string) $row['email'])] = (int) $row['id'];
+        }
+        return $map;
+    }
 }

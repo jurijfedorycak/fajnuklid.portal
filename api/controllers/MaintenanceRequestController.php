@@ -7,7 +7,7 @@ namespace App\Controllers;
 use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
-use App\Exceptions\AuthException;
+use App\Exceptions\ApiException;
 use App\Repositories\CompanyRepository;
 use App\Services\MaintenanceRequestService;
 
@@ -47,7 +47,16 @@ class MaintenanceRequestController extends Controller
      */
     public function index(Request $request): void
     {
-        $clientId = $this->resolveClientId($request);
+        // Users without a client assignment legitimately have zero requests. Return an
+        // empty list instead of failing — the dashboard widget calls this on every load,
+        // and throwing would force the FE to handle an error for a genuinely valid state.
+        $userId = (int) $request->getUserId();
+        $clientId = $this->service->resolveClientIdForUser($userId);
+        if ($clientId === null) {
+            Response::success([]);
+            return;
+        }
+
         $status = $request->query('status');
         if ($status === 'all') {
             $status = null;
@@ -160,13 +169,20 @@ class MaintenanceRequestController extends Controller
         Response::created($data, 'Příloha byla nahrána');
     }
 
+    /**
+     * Used by methods that always need a client context (show/create/confirm/…).
+     * Returns HTTP 403 rather than 401 when missing — the user IS authenticated,
+     * they just lack a client assignment. The FE axios interceptor treats 401
+     * as "session dead" and wipes the token, so misusing 401 here was causing
+     * a redirect loop after login.
+     */
     private function resolveClientId(Request $request): int
     {
         $userId = (int) $request->getUserId();
         $clientId = $this->service->resolveClientIdForUser($userId);
 
         if ($clientId === null) {
-            throw new AuthException('Váš účet není přiřazen k žádnému klientovi.');
+            throw new ApiException('Váš účet není přiřazen k žádnému klientovi.', 403);
         }
 
         return $clientId;

@@ -287,6 +287,32 @@ input, select, textarea {
   opacity: 1;
 }
 
+/* Inline validation errors — shared across every form in the app */
+.input-error {
+  border-color: var(--color-danger) !important;
+  background-color: var(--color-danger-light);
+}
+.input-error:focus {
+  border-color: var(--color-danger) !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+.field-error {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-danger);
+  margin: 4px 0 0;
+  font-weight: 500;
+}
+
+/* Row/card containers flash red when any contained field has an error, so users
+   can spot the offending card even while it's collapsed. */
+.card-has-error {
+  border-color: var(--color-danger) !important;
+  box-shadow: 0 0 0 2px var(--color-danger-light);
+}
+
 /* Badge */
 .badge {
   display: inline-flex;
