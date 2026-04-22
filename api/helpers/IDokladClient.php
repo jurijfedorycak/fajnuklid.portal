@@ -25,6 +25,9 @@ class IDokladClient
 
     private const RESPONSE_BODY_LIMIT = 2000;
 
+    // Invoices issued before this date are not synced from iDoklad.
+    public const SYNC_FROM_DATE = '2026-01-01';
+
     private IDokladTokenRepository $tokenRepo;
     private string $clientId;
     private string $clientSecret;
@@ -248,7 +251,7 @@ class IDokladClient
         }
 
         $params = [
-            'filter' => "PartnerIdentificationNumber~eq~'" . $sanitizedIco . "'",
+            'filter' => "(PartnerIdentificationNumber~eq~'" . $sanitizedIco . "')~and~(DateOfIssue~gte~'" . self::SYNC_FROM_DATE . "')",
             'page' => $page,
             'pageSize' => $pageSize,
             'sort' => 'DateOfIssue~desc',
