@@ -785,14 +785,6 @@ async function save() {
   }
 }
 
-function generateClientId() {
-  // Generate more unique ID with timestamp component
-  const timestamp = Date.now().toString(36).slice(-4).toUpperCase()
-  const random = Math.floor(Math.random() * 900 + 100)
-  form.clientId = `CLI-${timestamp}${random}`
-  clearFieldError('client_id')
-}
-
 function copyId() {
   navigator.clipboard?.writeText(form.clientId)
 }
@@ -1016,21 +1008,13 @@ onBeforeUnmount(() => {
                   :aria-describedby="validationErrors['client_id'] ? 'error-clientId' : 'hint-clientId'"
                   @input="clearFieldError('client_id')"
                 />
-                <button v-if="isNew" class="btn btn-ghost btn-sm" @click="generateClientId" title="Vygenerovat">
-                  <Copy :size="14" />
-                </button>
-                <button v-else class="btn btn-ghost btn-sm" @click="copyId" title="Kopírovat">
+                <button v-if="!isNew" class="btn btn-ghost btn-sm" @click="copyId" title="Kopírovat">
                   <Copy :size="14" />
                 </button>
               </div>
-              <div v-if="validationErrors['client_id']" id="error-clientId" class="field-error-wrap" role="alert">
-                <p class="field-error">
-                  <AlertTriangle :size="12" /> {{ validationErrors['client_id'] }}
-                </p>
-                <button v-if="isNew" type="button" class="btn btn-outline btn-sm" @click="generateClientId">
-                  <Copy :size="12" /> Vygenerovat nové ID
-                </button>
-              </div>
+              <p v-if="validationErrors['client_id']" id="error-clientId" class="field-error" role="alert">
+                <AlertTriangle :size="12" /> {{ validationErrors['client_id'] }}
+              </p>
               <p v-else id="hint-clientId" class="field-hint">Unikátní identifikátor, nelze změnit po vytvoření.</p>
             </div>
           </div>
@@ -2259,16 +2243,6 @@ onBeforeUnmount(() => {
 }
 
 /* .field-error, .input-error, .card-has-error live in style.css (shared). */
-.field-error-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
-}
-.field-error-wrap .btn {
-  align-self: flex-start;
-}
-
 .form-textarea { resize: vertical; min-height: 72px; }
 
 .input-with-btn {
