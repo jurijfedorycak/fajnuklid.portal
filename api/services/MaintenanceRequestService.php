@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Config\Config;
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
 use App\Repositories\CompanyRepository;
@@ -16,6 +15,8 @@ class MaintenanceRequestService
     public const OPEN_STATUSES = ['prijato', 'resi_se', 'ceka_na_potvrzeni'];
     public const CATEGORIES = ['reklamace', 'mimoradna_prace', 'jine'];
     public const LOCATION_TYPES = ['office', 'common', 'custom'];
+
+    private const NOTIFICATION_RECIPIENT = 'jurij.fedorycak@fajnuklid.cz';
 
     public const ATTACHMENT_MAX_PER_REQUEST = 5;
     public const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
@@ -496,10 +497,14 @@ class MaintenanceRequestService
             'mimoradna_prace' => 'Mimořádná práce',
             'jine' => 'Jiné',
         ];
+        $authorEmail = $payload['createdBy'] ?? null;
+        if ($authorEmail !== null && strtolower(trim($authorEmail)) === self::NOTIFICATION_RECIPIENT) {
+            return;
+        }
+
         $categoryLabel = $payload['category'] ? ($categoryLabels[$payload['category']] ?? $payload['category']) : '—';
         $createdAt = (new \DateTime($payload['createdAt']))->format('d.m.Y H:i');
 
-        $authorEmail = $payload['createdBy'] ?? null;
         $title = htmlspecialchars($payload['title'], ENT_QUOTES, 'UTF-8');
         $description = nl2br(htmlspecialchars($payload['description'] ?? '', ENT_QUOTES, 'UTF-8'));
         $companyName = htmlspecialchars((string) ($company['name'] ?? ''), ENT_QUOTES, 'UTF-8');
@@ -513,37 +518,11 @@ class MaintenanceRequestService
             . "<strong>Autor:</strong> " . htmlspecialchars((string) $authorEmail, ENT_QUOTES, 'UTF-8') . "</p>"
             . "<p>{$description}</p>";
 
-        $adminEmails = $this->resolveAdminRecipients($authorEmail);
-        if (empty($adminEmails)) {
-            error_log('Maintenance request notification skipped: no admin recipients configured (ADMIN_EMAILS).');
-            return;
-        }
-
         try {
             $subject = 'Nový požadavek: ' . $payload['title'];
-            foreach ($adminEmails as $adminEmail) {
-                $mailer->send($adminEmail, $subject, $internalHtml);
-            }
+            $mailer->send(self::NOTIFICATION_RECIPIENT, $subject, $internalHtml);
         } catch (\Throwable $e) {
             error_log('Maintenance request notification failed: ' . $e->getMessage());
         }
-    }
-
-    private function resolveAdminRecipients(?string $authorEmail): array
-    {
-        $normalize = static fn (string $email): string => strtolower(trim($email));
-
-        $unique = [];
-        foreach (Config::getArray('ADMIN_EMAILS') as $email) {
-            $email = trim($email);
-            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                continue;
-            }
-            if ($authorEmail !== null && $normalize($email) === $normalize($authorEmail)) {
-                continue;
-            }
-            $unique[$normalize($email)] = $email;
-        }
-        return array_values($unique);
     }
 }
