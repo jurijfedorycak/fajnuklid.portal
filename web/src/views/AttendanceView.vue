@@ -9,6 +9,7 @@ const router = useRouter()
 // State
 const loading = ref(true)
 const error = ref(null)
+const upstreamError = ref(null)
 const cleaningDays = ref([])
 const freshqrActive = ref(false)
 const requestsByDay = ref({})
@@ -35,6 +36,7 @@ async function fetchAttendance() {
     if (response.success) {
       cleaningDays.value = response.data.cleaningDays || []
       freshqrActive.value = response.data.freshqrActive || false
+      upstreamError.value = response.data.error || null
     } else {
       error.value = response.message || 'Nepodařilo se načíst data'
     }
@@ -196,6 +198,11 @@ function goToRequest(id) {
 
     <!-- Active FreshQR content -->
     <template v-if="freshqrActive">
+
+    <!-- Upstream (FreshQR) transient failure banner — calendar still renders -->
+    <div v-if="upstreamError" id="attendance-upstream-error" class="alert alert-warning">
+      {{ upstreamError }}
+    </div>
 
     <!-- Legend -->
     <div class="legend card">

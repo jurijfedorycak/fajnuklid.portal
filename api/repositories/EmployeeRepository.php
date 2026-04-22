@@ -167,6 +167,24 @@ class EmployeeRepository
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * Return every non-empty personal_id from the employees table (soft-deleted rows
+     * excluded). Used by FreshQRService to gate which attendance records to expose:
+     * the FreshQR employee.personal_number must match one of these values.
+     */
+    public function getAllPersonalIds(): array
+    {
+        $stmt = $this->db->query("
+            SELECT DISTINCT personal_id
+            FROM employees
+            WHERE personal_id IS NOT NULL
+              AND personal_id <> ''
+              AND deleted_at IS NULL
+        ");
+
+        return array_map('strval', array_column($stmt->fetchAll(), 'personal_id'));
+    }
+
     public function findByLocation(int $locationId): array
     {
         $stmt = $this->db->prepare('

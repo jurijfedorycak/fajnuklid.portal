@@ -7,49 +7,52 @@ namespace App\Controllers;
 use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
-use App\Repositories\LocationRepository;
+use App\Services\FreshQRService;
 
 class AttendanceController extends Controller
 {
-    private LocationRepository $locationRepo;
+    private FreshQRService $freshqr;
 
     public function __construct()
     {
-        $this->locationRepo = new LocationRepository();
+        $this->freshqr = new FreshQRService();
     }
 
     public function index(Request $request): void
     {
         $user = $request->getUser();
-        $userId = $user['id'];
+        $userId = (int) $user['id'];
 
-        // Get user's locations
-        $locations = $this->locationRepo->findByUserId($userId);
-        $locationIds = array_column($locations, 'id');
+        $year = self::clampYear((int) ($request->query('year') ?? date('Y')));
+        $month = self::clampMonth((int) ($request->query('month') ?? date('m')));
 
-        // Determine if FreshQR is active (for now, assume active if user has locations)
-        $freshqrActive = !empty($locationIds);
-
-        // Get year/month from query params or use current
-        $year = (int) ($request->query('year') ?? date('Y'));
-        $month = (int) ($request->query('month') ?? date('m'));
-
-        // TODO: Fetch cleaning visits from external API
-        // For now, return empty array - will be populated from external API
-        $cleaningDays = [];
+        $result = $this->freshqr->getCleaningDaysForUser($userId, $year, $month);
 
         Response::success([
-            'freshqrActive' => $freshqrActive,
-            'cleaningDays' => $cleaningDays,
+            'freshqrActive' => $result['active'],
+            'cleaningDays' => $result['cleaningDays'],
+            'error' => $result['error'] ?? null,
             'year' => $year,
             'month' => $month,
-            'locations' => array_map(function ($l) {
-                return [
-                    'id' => $l['id'],
-                    'name' => $l['name'],
-                    'company_name' => $l['company_name'] ?? null,
-                ];
-            }, $locations),
         ]);
+    }
+
+    private static function clampYear(int $year): int
+    {
+        $current = (int) date('Y');
+        // Fajnuklid rolled out FreshQR in 2023; values outside this window are
+        // either bogus query params or bookmarked-from-future calendar views.
+        if ($year < 2023 || $year > $current + 1) {
+            return $current;
+        }
+        return $year;
+    }
+
+    private static function clampMonth(int $month): int
+    {
+        if ($month < 1 || $month > 12) {
+            return (int) date('m');
+        }
+        return $month;
     }
 }
