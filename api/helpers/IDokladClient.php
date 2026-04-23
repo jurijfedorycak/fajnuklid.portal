@@ -244,7 +244,7 @@ class IDokladClient
             'pageSize' => 10,
         ]);
         if ($filterResponse !== null) {
-            $id = $this->findContactIdMatching($filterResponse['Items'] ?? [], $sanitizedIco);
+            $id = $this->findContactIdMatching(self::extractItems($filterResponse), $sanitizedIco);
             if ($id !== null) {
                 return $id;
             }
@@ -256,6 +256,8 @@ class IDokladClient
 
         $page = 1;
         $pageSize = 100;
+        $totalScanned = 0;
+        $sampleKeys = null;
         do {
             $response = $this->request('GET', '/Contacts', [
                 'page' => $page,
@@ -265,32 +267,72 @@ class IDokladClient
                 return null;
             }
 
-            $id = $this->findContactIdMatching($response['Items'] ?? [], $sanitizedIco);
+            $items = self::extractItems($response);
+            $totalScanned += count($items);
+            if ($sampleKeys === null && !empty($items) && is_array($items[0])) {
+                $sampleKeys = array_keys($items[0]);
+            }
+
+            $id = $this->findContactIdMatching($items, $sanitizedIco);
             if ($id !== null) {
                 return $id;
             }
 
-            $totalPages = $response['TotalPages'] ?? 1;
+            $totalPages = self::extractTotalPages($response);
             $page++;
         } while ($page <= $totalPages && $page <= 10);
 
-        // Exhausted the scan — distinguish this from "contact exists but has zero
-        // invoices in the sync window" so operators see a clear actionable error.
+        // Scan found nothing. Log sample response keys so we can tell "contact truly
+        // missing" apart from "we're reading the wrong field of the response envelope".
+        error_log(sprintf(
+            'iDoklad contact scan: IČO %s not matched across %d contacts. Sample item keys: %s',
+            $sanitizedIco,
+            $totalScanned,
+            $sampleKeys === null ? '(no items)' : implode(',', $sampleKeys)
+        ));
+
         $this->lastError = [
             'context' => 'contact lookup',
             'method' => 'GET',
             'url' => $this->apiUrl . '/Contacts',
             'http_code' => 0,
             'curl_error' => '',
-            'response_body' => sprintf('V iDokladu nebyl nalezen kontakt s IČO "%s".', $sanitizedIco),
+            'response_body' => sprintf(
+                'V iDokladu nebyl nalezen kontakt s IČO "%s" (prohledáno %d kontaktů).',
+                $sanitizedIco,
+                $totalScanned
+            ),
             'timestamp' => date('c'),
         ];
         return null;
     }
 
+    /**
+     * iDoklad v3 wraps paginated responses in `{Data: {Items, TotalPages, ...}}`,
+     * but some endpoints return the page envelope at the top level. Accept both.
+     */
+    private static function extractItems(array $response): array
+    {
+        if (isset($response['Data']) && is_array($response['Data']) && isset($response['Data']['Items'])) {
+            return is_array($response['Data']['Items']) ? $response['Data']['Items'] : [];
+        }
+        return isset($response['Items']) && is_array($response['Items']) ? $response['Items'] : [];
+    }
+
+    private static function extractTotalPages(array $response): int
+    {
+        if (isset($response['Data']) && is_array($response['Data']) && isset($response['Data']['TotalPages'])) {
+            return (int) $response['Data']['TotalPages'];
+        }
+        return (int) ($response['TotalPages'] ?? 1);
+    }
+
     private function findContactIdMatching(array $items, string $sanitizedIco): ?int
     {
         foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
             $contactIco = preg_replace('/[^0-9]/', '', (string) ($item['IdentificationNumber'] ?? ''));
             if ($contactIco === $sanitizedIco) {
                 $id = (int) ($item['Id'] ?? 0);
@@ -378,10 +420,8 @@ class IDokladClient
                 break;
             }
 
-            $items = $response['Items'] ?? [];
-            $allInvoices = array_merge($allInvoices, $items);
-
-            $totalPages = $response['TotalPages'] ?? 1;
+            $allInvoices = array_merge($allInvoices, self::extractItems($response));
+            $totalPages = self::extractTotalPages($response);
             $page++;
         } while ($page <= $totalPages && $page <= 10); // Max 10 pages (1000 invoices)
 

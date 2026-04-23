@@ -340,4 +340,31 @@ class IDokladClientTest extends TestCase
 
         $request->invoke($client, 'POST', '/IssuedInvoices', ['foo' => 'bar']);
     }
+
+    public function testExtractItemsHandlesDataWrappedEnvelope(): void
+    {
+        $ref = new \ReflectionClass(IDokladClient::class);
+        $method = $ref->getMethod('extractItems');
+        $method->setAccessible(true);
+
+        $wrapped = ['Data' => ['Items' => [['Id' => 1], ['Id' => 2]], 'TotalPages' => 3]];
+        $this->assertEquals([['Id' => 1], ['Id' => 2]], $method->invoke(null, $wrapped));
+
+        $flat = ['Items' => [['Id' => 9]], 'TotalPages' => 1];
+        $this->assertEquals([['Id' => 9]], $method->invoke(null, $flat));
+
+        $this->assertEquals([], $method->invoke(null, ['Data' => null]));
+        $this->assertEquals([], $method->invoke(null, []));
+    }
+
+    public function testExtractTotalPagesHandlesDataWrappedEnvelope(): void
+    {
+        $ref = new \ReflectionClass(IDokladClient::class);
+        $method = $ref->getMethod('extractTotalPages');
+        $method->setAccessible(true);
+
+        $this->assertEquals(5, $method->invoke(null, ['Data' => ['TotalPages' => 5]]));
+        $this->assertEquals(7, $method->invoke(null, ['TotalPages' => 7]));
+        $this->assertEquals(1, $method->invoke(null, []));
+    }
 }
