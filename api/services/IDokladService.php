@@ -62,9 +62,19 @@ class IDokladService
 
         if ($apiError !== null) {
             $httpCode = (int) ($apiError['http_code'] ?? 0);
-            $message = $httpCode > 0
-                ? 'Volání iDoklad API selhalo (HTTP ' . $httpCode . ')'
-                : ($apiError['response_body'] ?? 'Chyba při synchronizaci iDokladu');
+            $context = (string) ($apiError['context'] ?? '');
+            // response_body is only safe to show directly for contexts where we
+            // craft the Czech message ourselves; for everything else it may be
+            // raw API JSON / cURL output and must not be surfaced to users.
+            $safeContexts = ['input validation', 'contact lookup'];
+
+            if ($httpCode > 0) {
+                $message = 'Volání iDoklad API selhalo (HTTP ' . $httpCode . ')';
+            } elseif (in_array($context, $safeContexts, true)) {
+                $message = $apiError['response_body'] ?? 'Chyba při synchronizaci iDokladu';
+            } else {
+                $message = 'Chyba při synchronizaci iDokladu';
+            }
 
             return [
                 'success' => false,

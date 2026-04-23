@@ -180,15 +180,12 @@ class AdminController extends Controller
         // checks can exclude IČOs that already belong to this client (no false positive),
         // and can reject attempts to add new IČOs (update path doesn't persist new companies).
         $ownIcoSet = [];
-        $ownLoginEmailSet = [];
+        $ownUserIds = [];
         if (!$isCreate) {
             foreach ($this->companyRepo->findByClientId($updatingClientDbId) as $company) {
                 $ownIcoSet[$company['registration_number']] = true;
                 foreach ($this->companyUserRepo->findByCompanyId((int) $company['id']) as $link) {
-                    $user = $this->userRepo->findById((int) $link['user_id']);
-                    if ($user && !empty($user['email'])) {
-                        $ownLoginEmailSet[mb_strtolower($user['email'])] = true;
-                    }
+                    $ownUserIds[(int) $link['user_id']] = true;
                 }
             }
         }
@@ -253,10 +250,21 @@ class AdminController extends Controller
             $email = isset($loginData['email']) ? trim((string) $loginData['email']) : '';
             $restriction = $loginData['restriction'] ?? 'all';
             $allowedIcos = is_array($loginData['allowed_icos'] ?? null) ? $loginData['allowed_icos'] : [];
+            $userId = isset($loginData['user_id']) && is_numeric($loginData['user_id'])
+                ? (int) $loginData['user_id']
+                : null;
+
+            // user_id echoed from getClient identifies an existing account — it must belong
+            // to this client, otherwise someone is trying to hijack another client's login.
+            if ($userId !== null && ($isCreate || !isset($ownUserIds[$userId]))) {
+                $errors["{$path}.email"][] = 'Neznámý přihlašovací účet — obnovte stránku';
+                continue;
+            }
 
             // Empty rows are valid on create (treated as "didn't finish") — but flagged once
             // the user typed anything, otherwise silently skipped at save time.
             $hasAnyContent = $email !== '' || !empty($loginData['temp_pass'])
+                || $userId !== null
                 || ($restriction === 'icos' && !empty($allowedIcos));
 
             if ($email === '') {
@@ -269,11 +277,7 @@ class AdminController extends Controller
                 $emailLower = mb_strtolower($email);
                 if (isset($seenEmailRow[$emailLower])) {
                     $errors["{$path}.email"][] = 'Tento e-mail už máte ve formuláři (řádek ' . ($seenEmailRow[$emailLower] + 1) . ')';
-                } elseif (!$isCreate && !isset($ownLoginEmailSet[$emailLower])) {
-                    // Update path only toggles portal_enabled on existing users — new rows
-                    // would be silently dropped, so reject upfront with a clear message.
-                    $errors["{$path}.email"][] = 'Přidávání nových přihlašovacích účtů při úpravě zatím není podporováno — kontaktujte vývojáře';
-                } elseif ($isCreate && $this->userRepo->existsByEmail($email)) {
+                } elseif ($this->userRepo->existsByEmail($email, $userId)) {
                     $errors["{$path}.email"][] = 'Tento e-mail už v systému existuje — pro nový přístup zvolte jiný';
                 }
                 $seenEmailRow[$emailLower] = $i;
@@ -383,26 +387,56 @@ class AdminController extends Controller
 
         // Get companies (IČOs)
         $companies = $this->companyRepo->findByClientId($id);
+        $clientCompanyIds = array_map('intval', array_column($companies, 'id'));
+        $companyIdToIco = [];
+        foreach ($companies as $c) {
+            $companyIdToIco[(int) $c['id']] = $c['registration_number'];
+        }
 
-        // Get login accounts
-        $logins = [];
+        // Group logins by user id so a single account isn't returned once per linked company,
+        // and so we can derive the real restriction scope (all vs specific IČOs).
+        $loginsByUserId = [];
         $hasActiveLogin = false;
         foreach ($companies as $company) {
             $users = $this->companyUserRepo->findByCompanyId((int) $company['id']);
             foreach ($users as $userLink) {
-                $user = $this->userRepo->findById((int) $userLink['user_id']);
-                if ($user) {
+                $userId = (int) $userLink['user_id'];
+                if (!isset($loginsByUserId[$userId])) {
+                    $user = $this->userRepo->findById($userId);
+                    if (!$user) {
+                        continue;
+                    }
                     if ($user['portal_enabled']) {
                         $hasActiveLogin = true;
                     }
-                    $logins[] = [
-                        'email' => $user['email'],
+                    $loginsByUserId[$userId] = [
+                        'userId' => $userId,
+                        'email' => (string) $user['email'],
                         'portalEnabled' => (bool) $user['portal_enabled'],
-                        'restriction' => 'all', // TODO: implement restriction logic
-                        'allowedIcos' => [],
+                        'companyIds' => [],
                     ];
                 }
+                $loginsByUserId[$userId]['companyIds'][] = (int) $company['id'];
             }
+        }
+
+        $logins = [];
+        foreach ($loginsByUserId as $info) {
+            $linkedCompanyIds = array_values(array_unique($info['companyIds']));
+            $isAllIcos = count($linkedCompanyIds) === count($clientCompanyIds)
+                && empty(array_diff($linkedCompanyIds, $clientCompanyIds));
+            $allowedIcos = $isAllIcos ? [] : array_values(array_filter(array_map(
+                fn($cid) => $companyIdToIco[$cid] ?? null,
+                $linkedCompanyIds
+            )));
+
+            $logins[] = [
+                'userId' => $info['userId'],
+                'email' => $info['email'],
+                'portalEnabled' => $info['portalEnabled'],
+                'restriction' => $isAllIcos ? 'all' : 'icos',
+                'allowedIcos' => $allowedIcos,
+            ];
         }
 
         // Format IČOs for frontend (camelCase)
@@ -876,18 +910,12 @@ class AdminController extends Controller
                 );
             }
 
-            $active = $request->input('active');
-            if ($active !== null) {
-                $portalEnabled = (bool) $active;
-                foreach ($companyIds as $cid) {
-                    $users = $this->companyUserRepo->findByCompanyId($cid);
-                    foreach ($users as $userLink) {
-                        $this->userRepo->update((int) $userLink['user_id'], [
-                            'portal_enabled' => $portalEnabled,
-                        ]);
-                    }
-                }
-            }
+            $this->syncClientLogins(
+                $clientCompanyIds: $companyIds,
+                $icoToCompanyId: $icoToCompanyId,
+                $loginsPayload: is_array($payload['logins'] ?? null) ? $payload['logins'] : [],
+                $portalEnabled: $request->input('active') !== null ? (bool) $request->input('active') : null
+            );
 
             $db->commit();
         } catch (\Exception $e) {
