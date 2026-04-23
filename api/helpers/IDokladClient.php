@@ -478,10 +478,19 @@ class IDokladClient
 
         if ($looksLikeJson) {
             $parsed = json_decode($responseBody, true);
-            $payload = is_array($parsed) ? ($parsed['Data'] ?? $parsed) : null;
-            $fileBytes = is_array($payload)
-                ? ($payload['FileBytes'] ?? $payload['ContentData'] ?? $payload['Content'] ?? null)
-                : null;
+            // v3 /Reports/.../Pdf returns {"Data": "<base64>"} — Data is a direct string.
+            // Older shapes used {"Data": {"FileBytes": "<base64>", ...}}. Handle both.
+            $fileBytes = null;
+            if (is_array($parsed) && isset($parsed['Data'])) {
+                if (is_string($parsed['Data'])) {
+                    $fileBytes = $parsed['Data'];
+                } elseif (is_array($parsed['Data'])) {
+                    $fileBytes = $parsed['Data']['FileBytes']
+                        ?? $parsed['Data']['ContentData']
+                        ?? $parsed['Data']['Content']
+                        ?? null;
+                }
+            }
 
             if (is_string($fileBytes) && $fileBytes !== '') {
                 $decoded = base64_decode($fileBytes, true);
@@ -489,8 +498,6 @@ class IDokladClient
                     return $decoded;
                 }
             }
-
-            error_log('iDoklad PDF JSON envelope keys: ' . (is_array($payload) ? implode(',', array_keys($payload)) : 'not-an-array'));
         }
 
         $this->recordError(
