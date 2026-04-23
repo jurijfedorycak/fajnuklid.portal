@@ -9,7 +9,6 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\CompanyRepository;
 use App\Repositories\LocationRepository;
-use App\Repositories\EmployeeRepository;
 use App\Repositories\EmployeeLocationRepository;
 use App\Repositories\ClientEmployeeRepository;
 use App\Services\R2StorageService;
@@ -18,7 +17,6 @@ class PersonnelController extends Controller
 {
     private CompanyRepository $companyRepo;
     private LocationRepository $locationRepo;
-    private EmployeeRepository $employeeRepo;
     private EmployeeLocationRepository $employeeLocationRepo;
     private ClientEmployeeRepository $clientEmployeeRepo;
     private R2StorageService $storage;
@@ -27,7 +25,6 @@ class PersonnelController extends Controller
     {
         $this->companyRepo = new CompanyRepository();
         $this->locationRepo = new LocationRepository();
-        $this->employeeRepo = new EmployeeRepository();
         $this->employeeLocationRepo = new EmployeeLocationRepository();
         $this->clientEmployeeRepo = new ClientEmployeeRepository();
         $this->storage = new R2StorageService();
@@ -51,23 +48,26 @@ class PersonnelController extends Controller
                 'objects' => [],
             ];
 
-            // Get all employees assigned to the client this company belongs to.
-            // Granular per-location assignment via employee_locations is optional;
-            // if absent, every location of the company shows the full client roster.
-            $clientEmployees = $this->clientEmployeeRepo->findByClientId((int) $company['client_id']);
+            $clientId = (int) $company['client_id'];
 
-            $clientStaff = [];
+            // Client-level roster filtered by GDPR visibility flags.
+            $clientEmployees = $this->clientEmployeeRepo->findByClientId($clientId);
+            $visibleEmployees = [];
             foreach ($clientEmployees as $employee) {
                 if (!$employee['show_in_portal'] || !$employee['show_name']) {
                     continue;
                 }
-                $clientStaff[(int) $employee['employee_id']] = $this->mapEmployee($employee);
+                $visibleEmployees[(int) $employee['employee_id']] = $employee;
             }
 
-            // Get locations for this company
+            // Pinned locations per employee (prefetched to avoid N+1 inside the location loop).
+            // An employee with no pinnings shows on every location of the client; pinning narrows them.
+            $employeeLocationsMap = $this->employeeLocationRepo->getLocationIdsByClientEmployees($clientId);
+
             $locations = $this->locationRepo->findByCompanyId((int) $company['id']);
 
             foreach ($locations as $location) {
+                $locationId = (int) $location['id'];
                 $objectData = [
                     'id' => $location['id'],
                     'name' => $location['name'],
@@ -75,18 +75,11 @@ class PersonnelController extends Controller
                     'staff' => [],
                 ];
 
-                // Prefer granular employee_locations assignments when present
-                $assignments = $this->employeeLocationRepo->findByLocationId((int) $location['id']);
-                if (!empty($assignments)) {
-                    foreach ($assignments as $assignment) {
-                        $employee = $this->employeeRepo->findById((int) $assignment['employee_id']);
-                        if ($employee && $employee['show_in_portal'] && $employee['show_name']) {
-                            $objectData['staff'][] = $this->mapEmployee($employee);
-                        }
+                foreach ($visibleEmployees as $employeeId => $employee) {
+                    $pinnedLocations = $employeeLocationsMap[$employeeId] ?? [];
+                    if (empty($pinnedLocations) || in_array($locationId, $pinnedLocations, true)) {
+                        $objectData['staff'][] = $this->mapEmployee($employee);
                     }
-                } else {
-                    // Fall back to client-level employee roster
-                    $objectData['staff'] = array_values($clientStaff);
                 }
 
                 $companyData['objects'][] = $objectData;

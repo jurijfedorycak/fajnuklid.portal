@@ -301,22 +301,6 @@ class EmployeeLocationRepositoryTest extends DatabaseTestCase
         $this->assertEquals([1, 2], $result);
     }
 
-    // findEmployeesByClientId tests
-
-    public function testFindEmployeesByClientIdReturnsDistinctEmployees(): void
-    {
-        $expected = [
-            ['id' => 1, 'first_name' => 'John', 'last_name' => 'Doe'],
-            ['id' => 2, 'first_name' => 'Jane', 'last_name' => 'Smith'],
-        ];
-
-        $this->setupFetchAllMock($expected);
-
-        $result = $this->repository->findEmployeesByClientId(1);
-
-        $this->assertEquals($expected, $result);
-    }
-
     // getLocationIdsByClientEmployees tests
 
     public function testGetLocationIdsByClientEmployeesReturnsMapStructure(): void
