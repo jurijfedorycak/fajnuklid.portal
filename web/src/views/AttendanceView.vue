@@ -267,6 +267,7 @@ function goToRequest(id) {
               'day-past':    cell.isPast && !cell.hasCleaning,
               'day-future':  !cell.isPast && !cell.isToday && !cell.hasCleaning,
               'day-has-requests': cell.requestCount > 0,
+              'day-popover-open': openPopoverDate === cell.key,
             }"
             :title="cell.requestCount > 0 ? `Požadavky: ${cell.requestCount}` : (cell.hasCleaning ? (cell.note || 'Úklid proběhl') : '')"
             @click="openDayPopover(cell)"
@@ -522,6 +523,14 @@ function goToRequest(id) {
   line-height: 1;
 }
 .day-has-requests { box-shadow: inset 0 0 0 1.5px var(--color-primary); }
+
+/* Lift the day cell (and its .day-popover / badge) above sibling grid cells.
+   The hover transform creates a stacking context that traps inner content,
+   so later grid rows paint over shadows/badges/popover without this. */
+.day-cell { z-index: 0; }
+.day-cell:hover,
+.day-cell.day-popover-open,
+.day-cell.day-popover-open:hover { z-index: 30; }
 
 /* Backdrop — mobile-only tap-outside dismiss for the bottom-sheet popover */
 .day-popover-backdrop {
