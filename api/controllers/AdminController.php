@@ -911,10 +911,10 @@ class AdminController extends Controller
             }
 
             $this->syncClientLogins(
-                $clientCompanyIds: $companyIds,
-                $icoToCompanyId: $icoToCompanyId,
-                $loginsPayload: is_array($payload['logins'] ?? null) ? $payload['logins'] : [],
-                $portalEnabled: $request->input('active') !== null ? (bool) $request->input('active') : null
+                clientCompanyIds: $companyIds,
+                icoToCompanyId: $icoToCompanyId,
+                loginsPayload: is_array($payload['logins'] ?? null) ? $payload['logins'] : [],
+                portalEnabled: $request->input('active') !== null ? (bool) $request->input('active') : null
             );
 
             $db->commit();
@@ -926,6 +926,136 @@ class AdminController extends Controller
         $updated = $this->clientRepo->findById($id);
 
         Response::success($updated, 'Klient byl aktualizován');
+    }
+
+    /**
+     * Reconcile the full set of login accounts attached to a client in one pass.
+     *
+     * Rows with a `user_id` are treated as edits (email, password, portal_enabled,
+     * company scope). Rows without one are created. Existing accounts not present in
+     * the payload are detached from this client's companies, and the login_accounts
+     * row is deleted only when the account has zero remaining company_users links
+     * across *all* clients — this keeps shared logins (if ever introduced) intact.
+     *
+     * $portalEnabled maps to the client-level "Aktivní" toggle, applied uniformly to
+     * every login. Per-login portal_enabled divergence isn't exposed in the admin UI,
+     * so round-tripping won't create or preserve mixed states.
+     *
+     * Caller is expected to run inside a transaction.
+     *
+     * @param int[] $clientCompanyIds
+     * @param array<string,int> $icoToCompanyId
+     * @param array<int,mixed> $loginsPayload
+     */
+    private function syncClientLogins(
+        array $clientCompanyIds,
+        array $icoToCompanyId,
+        array $loginsPayload,
+        ?bool $portalEnabled
+    ): void {
+        $currentUserIds = [];
+        foreach ($clientCompanyIds as $cid) {
+            foreach ($this->companyUserRepo->findByCompanyId($cid) as $link) {
+                $currentUserIds[(int) $link['user_id']] = true;
+            }
+        }
+
+        $keptUserIds = [];
+        foreach ($loginsPayload as $i => $loginData) {
+            if (!is_array($loginData)) {
+                continue;
+            }
+            $email = trim((string) ($loginData['email'] ?? ''));
+            if ($email === '') {
+                continue;
+            }
+
+            $userId = isset($loginData['user_id']) && is_numeric($loginData['user_id'])
+                ? (int) $loginData['user_id']
+                : null;
+            $tempPass = (string) ($loginData['temp_pass'] ?? '');
+            $restriction = $loginData['restriction'] ?? 'all';
+            $allowedIcos = is_array($loginData['allowed_icos'] ?? null) ? $loginData['allowed_icos'] : [];
+
+            $targetCompanyIds = [];
+            if ($restriction === 'all') {
+                $targetCompanyIds = $clientCompanyIds;
+            } else {
+                foreach ($allowedIcos as $ico) {
+                    if (isset($icoToCompanyId[$ico])) {
+                        $targetCompanyIds[] = $icoToCompanyId[$ico];
+                    }
+                }
+            }
+            $targetCompanyIds = array_values(array_unique(array_map('intval', $targetCompanyIds)));
+
+            // Validation rejects stale user_ids upfront; treat a miss here as a defensive
+            // fallback (should never fire) rather than silently converting to a create.
+            if ($userId !== null && !isset($currentUserIds[$userId])) {
+                throw new ValidationException('Zkontrolujte prosím vyplněné údaje', [
+                    "logins.{$i}.email" => ['Neznámý přihlašovací účet — obnovte stránku'],
+                ]);
+            }
+
+            if ($userId !== null) {
+                $userUpdate = ['email' => $email];
+                if ($tempPass !== '') {
+                    $userUpdate['password_hash'] = PasswordHelper::hash($tempPass);
+                }
+                if ($portalEnabled !== null) {
+                    $userUpdate['portal_enabled'] = $portalEnabled;
+                }
+                try {
+                    $this->userRepo->update($userId, $userUpdate);
+                } catch (\PDOException $e) {
+                    throw $this->reclassifyUniqueViolation(
+                        $e,
+                        "logins.{$i}.email",
+                        'Tento e-mail už v systému existuje — pro nový přístup zvolte jiný'
+                    );
+                }
+            } else {
+                $passwordHash = PasswordHelper::hash($tempPass !== '' ? $tempPass : bin2hex(random_bytes(16)));
+                try {
+                    $userId = $this->userRepo->create([
+                        'email' => $email,
+                        'password_hash' => $passwordHash,
+                        'portal_enabled' => $portalEnabled ?? true,
+                    ]);
+                } catch (\PDOException $e) {
+                    throw $this->reclassifyUniqueViolation(
+                        $e,
+                        "logins.{$i}.email",
+                        'Tento e-mail už v systému existuje — pro nový přístup zvolte jiný'
+                    );
+                }
+            }
+
+            // Sync company_users within this client's scope only, so a login shared with
+            // another client (if that ever becomes a thing) keeps its foreign links.
+            $currentCompaniesForUser = array_map('intval', $this->companyUserRepo->getCompanyIdsByUser($userId));
+            $ownedNow = array_values(array_intersect($currentCompaniesForUser, $clientCompanyIds));
+            foreach (array_diff($targetCompanyIds, $ownedNow) as $cid) {
+                $this->companyUserRepo->create((int) $cid, $userId);
+            }
+            foreach (array_diff($ownedNow, $targetCompanyIds) as $cid) {
+                $this->companyUserRepo->deleteByCompanyAndUser((int) $cid, $userId);
+            }
+
+            $keptUserIds[$userId] = true;
+        }
+
+        foreach (array_keys($currentUserIds) as $existingUserId) {
+            if (isset($keptUserIds[$existingUserId])) {
+                continue;
+            }
+            foreach ($clientCompanyIds as $cid) {
+                $this->companyUserRepo->deleteByCompanyAndUser((int) $cid, $existingUserId);
+            }
+            if ($this->companyUserRepo->countUserCompanies($existingUserId) === 0) {
+                $this->userRepo->delete($existingUserId);
+            }
+        }
     }
 
     public function deleteClient(Request $request): void

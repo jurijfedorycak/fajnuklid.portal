@@ -714,6 +714,7 @@ async function save() {
       notes: form.notes,
       active: form.active,
       logins: form.logins.map(l => ({
+        user_id: l.userId ?? null,
         email: l.email,
         restriction: l.restriction,
         allowed_icos: l.allowedIcos,
@@ -1129,8 +1130,8 @@ onBeforeUnmount(() => {
                   </p>
                 </div>
 
-                <!-- Initial password (new client only) -->
-                <div v-if="isNew" class="form-group" style="margin-top:12px;">
+                <!-- Initial password (new client, or login row added during edit) -->
+                <div v-if="isNew || !login.userId" class="form-group" style="margin-top:12px;">
                   <label class="form-label" :for="`login-password-${index}`">Počáteční heslo</label>
                   <div class="input-with-btn">
                     <input
