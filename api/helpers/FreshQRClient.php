@@ -158,9 +158,11 @@ class FreshQRClient
      * Fetch per-day project attendance records for the given year/month.
      *
      * FreshQR /v1/reports/projects returns one record per (employee, date,
-     * project) tuple with first_scan_time / last_scan_time / worked_hours. For
-     * the portal we only need date + project name + employee.personal_number —
-     * durations are stripped by the service layer.
+     * project) tuple with first_scan_time / last_scan_time / worked_hours. The
+     * service layer uses date + project name + employee.personal_number to
+     * build the calendar and last_scan_time to decide whether an earlier
+     * project has been superseded; nothing else crosses the wire to the
+     * client.
      *
      * Month is optional: when null, the endpoint returns the whole year. We
      * always pass it to keep payload small.

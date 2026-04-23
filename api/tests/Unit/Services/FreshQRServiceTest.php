@@ -270,6 +270,224 @@ class FreshQRServiceTest extends TestCase
         $this->assertTrue($result[0]['ongoing']);
     }
 
+    public function testBuildCleaningDaysDoesNotFlagOngoingWhenEmployeeMovedToAnotherProject(): void
+    {
+        // Bug scenario: employee cleaned client A (matching IČO) this morning,
+        // then scanned in at a different client's project. Client A must not
+        // still see "ongoing" — the cleaning is finished.
+        $records = [
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => 'Customer 12345678 HQ'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '07:00:00',
+                'last_scan_time' => '10:00:00',
+            ],
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => 'Other 99999999 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '11:30:00',
+                'last_scan_time' => '11:30:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
+
+        $this->assertCount(1, $result);
+        $this->assertEquals('2026-04-21', $result[0]['date']);
+        $this->assertFalse($result[0]['ongoing']);
+    }
+
+    public function testBuildCleaningDaysFlagsOngoingWhenEmployeeIsStillAtMatchingProject(): void
+    {
+        // Mirror of the previous test: if the latest scan is on the matching
+        // project, it IS ongoing.
+        $records = [
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => 'Other 99999999 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '07:00:00',
+                'last_scan_time' => '10:00:00',
+            ],
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => 'Customer 12345678 HQ'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '11:30:00',
+                'last_scan_time' => '11:30:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
+
+        $this->assertCount(1, $result);
+        $this->assertTrue($result[0]['ongoing']);
+    }
+
+    public function testBuildCleaningDaysFlagsOngoingWhenAnotherEmployeeIsStillAtProjectEvenIfOneMoved(): void
+    {
+        // Two employees on the matching project today. EMP001 moved on, EMP002
+        // is still there → the day is still ongoing overall.
+        $records = [
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'last_scan_time' => '09:00:00',
+            ],
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => 'Other 99999999 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'last_scan_time' => '11:00:00',
+            ],
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP002'],
+                'last_scan_time' => '10:30:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays(
+            $records,
+            ['12345678'],
+            ['EMP001' => 0, 'EMP002' => 0],
+            '2026-04-21'
+        );
+
+        $this->assertCount(1, $result);
+        $this->assertTrue($result[0]['ongoing']);
+    }
+
+    public function testBuildCleaningDaysDoesNotFlagOngoingForPastDateEvenIfLatestScan(): void
+    {
+        // Even the most-recent scan on a past date isn't "ongoing" — the whole
+        // "ongoing" concept only applies to today.
+        $records = [
+            [
+                'date' => '2026-04-20',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'last_scan_time' => '15:00:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
+
+        $this->assertCount(1, $result);
+        $this->assertFalse($result[0]['ongoing']);
+    }
+
+    public function testBuildCleaningDaysUsesFirstScanTimeWhenLastScanTimeMissing(): void
+    {
+        // If last_scan_time is absent, fall back to first_scan_time so an
+        // arrival-only record can still be compared against records that have
+        // both times.
+        $records = [
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '08:00:00',
+            ],
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => 'Other 99999999 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '12:00:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
+
+        $this->assertCount(1, $result);
+        $this->assertFalse($result[0]['ongoing']);
+    }
+
+    public function testBuildCleaningDaysRecordWithScanTimeBeatsRecordWithNoneForSameEmployee(): void
+    {
+        // Asymmetric data: the matching-project record has no scan time, the
+        // later non-matching record has one. The non-matching record wins the
+        // "latest" comparison and finishes the matching one.
+        $records = [
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+            ],
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => 'Other 99999999 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'last_scan_time' => '11:00:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
+
+        $this->assertCount(1, $result);
+        $this->assertFalse($result[0]['ongoing']);
+    }
+
+    public function testBuildCleaningDaysHandlesIsoTimestampScanTimes(): void
+    {
+        // Defensive: if FreshQR ever returns full ISO timestamps instead of
+        // HH:MM:SS, lexical comparison still sorts them chronologically as
+        // long as the format is consistent across records.
+        $records = [
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'last_scan_time' => '2026-04-21T09:00:00Z',
+            ],
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => 'Other 99999999 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'last_scan_time' => '2026-04-21T12:00:00Z',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
+
+        $this->assertCount(1, $result);
+        $this->assertFalse($result[0]['ongoing']);
+    }
+
+    public function testBuildCleaningDaysOtherEmployeeElsewhereDoesNotAffectThisEmployeesStatus(): void
+    {
+        // EMP001 is still at the matching project today. EMP002 moved on from
+        // a different project. EMP002's move must not finish EMP001's record.
+        $records = [
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'last_scan_time' => '09:00:00',
+            ],
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => 'Other 99999999 Office'],
+                'employee' => ['personal_number' => 'EMP002'],
+                'last_scan_time' => '11:00:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays(
+            $records,
+            ['12345678'],
+            ['EMP001' => 0, 'EMP002' => 0],
+            '2026-04-21'
+        );
+
+        $this->assertCount(1, $result);
+        $this->assertTrue($result[0]['ongoing']);
+    }
+
     public function testBuildCleaningDaysDeduplicatesSameDayMultipleEmployees(): void
     {
         $records = [
