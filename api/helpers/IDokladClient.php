@@ -447,7 +447,9 @@ class IDokladClient
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => [
                 'Authorization: Bearer ' . $token,
-                'Accept: application/pdf',
+                // Accept both — iDoklad v3 wraps the PDF in a JSON envelope with a
+                // base64 `FileBytes` field; older hosts return raw application/pdf.
+                'Accept: application/json, application/pdf',
             ],
             CURLOPT_TIMEOUT => 60,
             CURLOPT_SSL_VERIFYPEER => true,
@@ -455,7 +457,7 @@ class IDokladClient
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $contentType = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
         $curlError = curl_error($ch);
 
         $responseBody = is_string($response) ? $response : '';
@@ -465,20 +467,39 @@ class IDokladClient
             return null;
         }
 
-        // Verify we got a PDF
-        if (strpos((string) $contentType, 'application/pdf') === false && strpos($responseBody, '%PDF') !== 0) {
-            $this->recordError(
-                'PDF download (unexpected content-type)',
-                'GET',
-                $url,
-                $httpCode,
-                '',
-                'Content-Type: ' . (string) $contentType
-            );
-            return null;
+        if (strncmp($responseBody, '%PDF', 4) === 0) {
+            return $responseBody;
         }
 
-        return $responseBody;
+        $looksLikeJson = stripos($contentType, 'application/json') !== false
+            || (strlen($responseBody) > 0 && $responseBody[0] === '{');
+
+        if ($looksLikeJson) {
+            $parsed = json_decode($responseBody, true);
+            $payload = is_array($parsed) ? ($parsed['Data'] ?? $parsed) : null;
+            $fileBytes = is_array($payload)
+                ? ($payload['FileBytes'] ?? $payload['ContentData'] ?? $payload['Content'] ?? null)
+                : null;
+
+            if (is_string($fileBytes) && $fileBytes !== '') {
+                $decoded = base64_decode($fileBytes, true);
+                if ($decoded !== false && strncmp($decoded, '%PDF', 4) === 0) {
+                    return $decoded;
+                }
+            }
+
+            error_log('iDoklad PDF JSON envelope keys: ' . (is_array($payload) ? implode(',', array_keys($payload)) : 'not-an-array'));
+        }
+
+        $this->recordError(
+            'PDF download (unexpected content-type)',
+            'GET',
+            $url,
+            $httpCode,
+            '',
+            'Content-Type: ' . $contentType . '; body head: ' . substr($responseBody, 0, 300)
+        );
+        return null;
     }
 
     public function getInvoiceById(int $invoiceId): ?array
