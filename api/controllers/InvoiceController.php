@@ -90,9 +90,10 @@ class InvoiceController extends Controller
             if ($details !== null) {
                 error_log('Invoice PDF download failed (invoice db id ' . $id . '): ' . json_encode($details));
                 $suffix = sprintf(
-                    ' [%s HTTP %d]',
+                    ' [%s HTTP %d: %s]',
                     $details['context'] ?? 'unknown',
-                    (int) ($details['http_code'] ?? 0)
+                    (int) ($details['http_code'] ?? 0),
+                    substr((string) ($details['response_body'] ?? ''), 0, 300)
                 );
                 throw new NotFoundException('PDF není dostupné' . $suffix);
             }
