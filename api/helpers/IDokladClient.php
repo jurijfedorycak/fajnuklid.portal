@@ -232,30 +232,74 @@ class IDokladClient
      * iDoklad v3 /IssuedInvoices does not support filtering by PartnerIdentificationNumber
      * (IČO). The supported partner column is PartnerId, so we must first resolve the
      * iDoklad Contact Id from the IČO via /Contacts before we can query invoices.
+     *
+     * The server-side filter is tried first as a fast path, but we fall back to a
+     * paginated client-side scan because the IČO on a contact can be stored with
+     * whitespace / leading zeros that break strict server-side equality matching.
      */
     private function getContactIdByIco(string $sanitizedIco): ?int
     {
-        $params = [
+        $filterResponse = $this->request('GET', '/Contacts', [
             'filter' => "IdentificationNumber~eq~'" . $sanitizedIco . "'",
-            'page' => 1,
-            'pageSize' => 1,
+            'pageSize' => 10,
+        ]);
+        if ($filterResponse !== null) {
+            $id = $this->findContactIdMatching($filterResponse['Items'] ?? [], $sanitizedIco);
+            if ($id !== null) {
+                return $id;
+            }
+        } else {
+            // Fast-path failure (e.g. server rejects filter on this column) must
+            // not short-circuit the scan fallback — clear the error and continue.
+            $this->resetLastError();
+        }
+
+        $page = 1;
+        $pageSize = 100;
+        do {
+            $response = $this->request('GET', '/Contacts', [
+                'page' => $page,
+                'pageSize' => $pageSize,
+            ]);
+            if ($response === null) {
+                return null;
+            }
+
+            $id = $this->findContactIdMatching($response['Items'] ?? [], $sanitizedIco);
+            if ($id !== null) {
+                return $id;
+            }
+
+            $totalPages = $response['TotalPages'] ?? 1;
+            $page++;
+        } while ($page <= $totalPages && $page <= 10);
+
+        // Exhausted the scan — distinguish this from "contact exists but has zero
+        // invoices in the sync window" so operators see a clear actionable error.
+        $this->lastError = [
+            'context' => 'contact lookup',
+            'method' => 'GET',
+            'url' => $this->apiUrl . '/Contacts',
+            'http_code' => 0,
+            'curl_error' => '',
+            'response_body' => sprintf('V iDokladu nebyl nalezen kontakt s IČO "%s".', $sanitizedIco),
+            'timestamp' => date('c'),
         ];
+        return null;
+    }
 
-        $response = $this->request('GET', '/Contacts', $params);
-
-        if ($response === null) {
-            return null;
+    private function findContactIdMatching(array $items, string $sanitizedIco): ?int
+    {
+        foreach ($items as $item) {
+            $contactIco = preg_replace('/[^0-9]/', '', (string) ($item['IdentificationNumber'] ?? ''));
+            if ($contactIco === $sanitizedIco) {
+                $id = (int) ($item['Id'] ?? 0);
+                if ($id > 0) {
+                    return $id;
+                }
+            }
         }
-
-        $items = $response['Items'] ?? [];
-
-        if (empty($items)) {
-            return null;
-        }
-
-        $id = (int) ($items[0]['Id'] ?? 0);
-
-        return $id > 0 ? $id : null;
+        return null;
     }
 
     private function getInvoicesByPartnerId(int $partnerId, int $page = 1, int $pageSize = 100): ?array
@@ -292,12 +336,7 @@ class IDokladClient
         $partnerId = $this->getContactIdByIco($sanitizedIco);
 
         if ($partnerId === null) {
-            // Propagate hard API errors to the caller; otherwise treat "no matching
-            // contact in iDoklad" as a zero-result page so pagination terminates cleanly.
-            if ($this->lastError !== null) {
-                return null;
-            }
-            return ['Items' => [], 'TotalPages' => 0];
+            return null;
         }
 
         return $this->getInvoicesByPartnerId($partnerId, $page, $pageSize);
@@ -325,8 +364,6 @@ class IDokladClient
         $partnerId = $this->getContactIdByIco($sanitizedIco);
 
         if ($partnerId === null) {
-            // lastError is either null (no contact → no invoices) or set by the
-            // /Contacts call. Either way the caller gets an empty list.
             return [];
         }
 

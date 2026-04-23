@@ -61,9 +61,14 @@ class IDokladService
         $apiError = $this->client->getLastError();
 
         if ($apiError !== null) {
+            $httpCode = (int) ($apiError['http_code'] ?? 0);
+            $message = $httpCode > 0
+                ? 'Volání iDoklad API selhalo (HTTP ' . $httpCode . ')'
+                : ($apiError['response_body'] ?? 'Chyba při synchronizaci iDokladu');
+
             return [
                 'success' => false,
-                'message' => 'Volání iDoklad API selhalo (HTTP ' . (int) $apiError['http_code'] . ')',
+                'message' => $message,
                 'synced' => 0,
                 'error_details' => $apiError,
             ];
