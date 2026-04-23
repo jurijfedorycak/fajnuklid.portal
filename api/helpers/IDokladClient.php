@@ -139,7 +139,6 @@ class IDokladClient
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);
-        curl_close($ch);
 
         $responseBody = is_string($response) ? $response : '';
 
@@ -208,7 +207,6 @@ class IDokladClient
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);
-        curl_close($ch);
 
         $responseBody = is_string($response) ? $response : '';
 
@@ -313,7 +311,6 @@ class IDokladClient
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
         $curlError = curl_error($ch);
-        curl_close($ch);
 
         $responseBody = is_string($response) ? $response : '';
 
