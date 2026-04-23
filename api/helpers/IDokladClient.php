@@ -92,13 +92,11 @@ class IDokladClient
 
     private function getAccessToken(): ?string
     {
-        // Check for valid cached token
         $validToken = $this->tokenRepo->getValidToken();
         if ($validToken !== null) {
             return $validToken;
         }
 
-        // Request new token
         return $this->requestNewToken();
     }
 
@@ -230,9 +228,52 @@ class IDokladClient
         return json_decode($responseBody, true);
     }
 
+    /**
+     * iDoklad v3 /IssuedInvoices does not support filtering by PartnerIdentificationNumber
+     * (IČO). The supported partner column is PartnerId, so we must first resolve the
+     * iDoklad Contact Id from the IČO via /Contacts before we can query invoices.
+     */
+    private function getContactIdByIco(string $sanitizedIco): ?int
+    {
+        $params = [
+            'filter' => "IdentificationNumber~eq~'" . $sanitizedIco . "'",
+            'page' => 1,
+            'pageSize' => 1,
+        ];
+
+        $response = $this->request('GET', '/Contacts', $params);
+
+        if ($response === null) {
+            return null;
+        }
+
+        $items = $response['Items'] ?? [];
+
+        if (empty($items)) {
+            return null;
+        }
+
+        $id = (int) ($items[0]['Id'] ?? 0);
+
+        return $id > 0 ? $id : null;
+    }
+
+    private function getInvoicesByPartnerId(int $partnerId, int $page = 1, int $pageSize = 100): ?array
+    {
+        $params = [
+            'filter' => '(PartnerId~eq~' . $partnerId . ")~and~(DateOfIssue~gte~'" . self::SYNC_FROM_DATE . "')",
+            'page' => $page,
+            'pageSize' => $pageSize,
+            'sort' => 'DateOfIssue~desc',
+        ];
+
+        return $this->request('GET', '/IssuedInvoices', $params);
+    }
+
     public function getInvoicesByIco(string $ico, int $page = 1, int $pageSize = 100): ?array
     {
-        // Sanitize ICO - should be numeric only (Czech IČO is 8 digits)
+        $this->resetLastError();
+
         $sanitizedIco = preg_replace('/[^0-9]/', '', $ico);
 
         if ($sanitizedIco === '') {
@@ -248,25 +289,53 @@ class IDokladClient
             return null;
         }
 
-        $params = [
-            'filter' => "(PartnerIdentificationNumber~eq~'" . $sanitizedIco . "')~and~(DateOfIssue~gte~'" . self::SYNC_FROM_DATE . "')",
-            'page' => $page,
-            'pageSize' => $pageSize,
-            'sort' => 'DateOfIssue~desc',
-        ];
+        $partnerId = $this->getContactIdByIco($sanitizedIco);
 
-        return $this->request('GET', '/IssuedInvoices', $params);
+        if ($partnerId === null) {
+            // Propagate hard API errors to the caller; otherwise treat "no matching
+            // contact in iDoklad" as a zero-result page so pagination terminates cleanly.
+            if ($this->lastError !== null) {
+                return null;
+            }
+            return ['Items' => [], 'TotalPages' => 0];
+        }
+
+        return $this->getInvoicesByPartnerId($partnerId, $page, $pageSize);
     }
 
     public function getAllInvoicesByIco(string $ico): array
     {
         $this->resetLastError();
+
+        $sanitizedIco = preg_replace('/[^0-9]/', '', $ico);
+
+        if ($sanitizedIco === '') {
+            $this->lastError = [
+                'context' => 'input validation',
+                'method' => 'GET',
+                'url' => $this->apiUrl . '/IssuedInvoices',
+                'http_code' => 0,
+                'curl_error' => '',
+                'response_body' => sprintf('IČO "%s" po sanitaci neobsahuje žádné číslice.', $ico),
+                'timestamp' => date('c'),
+            ];
+            return [];
+        }
+
+        $partnerId = $this->getContactIdByIco($sanitizedIco);
+
+        if ($partnerId === null) {
+            // lastError is either null (no contact → no invoices) or set by the
+            // /Contacts call. Either way the caller gets an empty list.
+            return [];
+        }
+
         $allInvoices = [];
         $page = 1;
         $pageSize = 100;
 
         do {
-            $response = $this->getInvoicesByIco($ico, $page, $pageSize);
+            $response = $this->getInvoicesByPartnerId($partnerId, $page, $pageSize);
 
             if ($response === null) {
                 break;
@@ -337,6 +406,8 @@ class IDokladClient
 
     public function getInvoiceById(int $invoiceId): ?array
     {
+        $this->resetLastError();
+
         return $this->request('GET', "/IssuedInvoices/$invoiceId");
     }
 
