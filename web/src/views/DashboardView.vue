@@ -8,7 +8,7 @@ import {
 import {
   Calendar, ChevronLeft, ChevronRight, ArrowRight,
   CheckCircle2, Loader2, Clock, Check, ClipboardList, Plus,
-  Sparkles, FileText, Users, FileSignature,
+  Sparkles, FileText, Users, FileSignature, AlertCircle,
 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { dashboardService, maintenanceRequestService, REQUEST_STATUSES } from '../api'
@@ -334,6 +334,7 @@ const isBrandNewClient = computed(() => {
 })
 
 const hasAnyInvoiceData = computed(() => (invoicesOverview.value.total || 0) > 0)
+const hasOverdueInvoices = computed(() => (invoicesOverview.value.overdueCount || 0) > 0)
 
 const MONTHS = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec']
 const currentMonthLabel = computed(() => `${MONTHS[today.getMonth()]} ${today.getFullYear()}`)
@@ -576,6 +577,10 @@ function selectCompany(ico) {
             <div class="metric-row">
               <div v-if="invoicesOverview.nextDue" class="metric-value">
                 za {{ invoicesOverview.nextDue.daysRelative }} dní
+              </div>
+              <div v-else-if="hasOverdueInvoices" class="metric-value metric-value-overdue">
+                <AlertCircle :size="18" aria-hidden="true" />
+                {{ invoicesOverview.overdueCount }} po splatnosti
               </div>
               <div v-else-if="hasAnyInvoiceData" class="metric-value metric-value-ok">
                 <Check :size="18" aria-hidden="true" />
@@ -1146,6 +1151,15 @@ function selectCompany(ico) {
 .metric-value-ok {
   font-size: 17px;
   color: var(--color-success);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.metric-value-overdue {
+  font-size: 17px;
+  color: var(--color-danger);
   display: inline-flex;
   align-items: center;
   gap: 6px;
