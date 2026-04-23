@@ -534,17 +534,15 @@ class IDokladClient
             ?? 0
         );
 
-        // IsPaid can be absent from the list response — fall back to PaymentStatus
-        // enum or the presence of DateOfPayment, both of which are in the schema.
-        $isPaid = false;
-        if (array_key_exists('IsPaid', $idokladInvoice)) {
-            $isPaid = (bool) $idokladInvoice['IsPaid'];
-        } elseif (isset($idokladInvoice['PaymentStatus'])) {
-            $ps = $idokladInvoice['PaymentStatus'];
-            $isPaid = $ps === 'Paid' || $ps === 2 || $ps === '2';
-        } elseif (!empty($idokladInvoice['DateOfPayment'])) {
-            $isPaid = true;
-        }
+        // iDoklad's list response leaves IsPaid=false until a payment is recorded on
+        // their side. Any of these being truthy means the invoice is paid in their books:
+        // a DateOfPayment, an IsPaid boolean, or a PaymentStatus enum of 2/'Paid'.
+        $paymentStatusValue = $idokladInvoice['PaymentStatus'] ?? null;
+        $isPaid = !empty($idokladInvoice['DateOfPayment'])
+            || (bool) ($idokladInvoice['IsPaid'] ?? false)
+            || $paymentStatusValue === 2
+            || $paymentStatusValue === '2'
+            || $paymentStatusValue === 'Paid';
 
         $invoiceWithDerivedPaid = $idokladInvoice + ['IsPaid' => $isPaid];
         $paymentStatus = self::calculatePaymentStatus($invoiceWithDerivedPaid);

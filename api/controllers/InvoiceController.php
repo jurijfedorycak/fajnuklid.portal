@@ -77,10 +77,11 @@ class InvoiceController extends Controller
         ]);
     }
 
-    public function downloadPdf(Request $request, int $id): void
+    public function downloadPdf(Request $request): void
     {
         $user = $request->getUser();
         $userId = $user['id'];
+        $id = (int) $request->param('id');
 
         $pdfContent = $this->idokladService->getInvoicePdf($id, $userId);
 
