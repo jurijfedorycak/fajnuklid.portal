@@ -237,6 +237,11 @@ class IDokladService
         return $this->client->getInvoicePdf($idokladId);
     }
 
+    public function getLastPdfError(): ?array
+    {
+        return $this->client->getLastError();
+    }
+
     public function getInvoiceFilename(int $invoiceDbId): string
     {
         $invoice = $this->invoiceRepo->findById($invoiceDbId);

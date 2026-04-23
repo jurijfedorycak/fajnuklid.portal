@@ -86,6 +86,16 @@ class InvoiceController extends Controller
         $pdfContent = $this->idokladService->getInvoicePdf($id, $userId);
 
         if ($pdfContent === null) {
+            $details = $this->idokladService->getLastPdfError();
+            if ($details !== null) {
+                error_log('Invoice PDF download failed (invoice db id ' . $id . '): ' . json_encode($details));
+                $suffix = sprintf(
+                    ' [%s HTTP %d]',
+                    $details['context'] ?? 'unknown',
+                    (int) ($details['http_code'] ?? 0)
+                );
+                throw new NotFoundException('PDF není dostupné' . $suffix);
+            }
             throw new NotFoundException('PDF není dostupné');
         }
 
