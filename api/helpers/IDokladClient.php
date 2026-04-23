@@ -347,7 +347,7 @@ class IDokladClient
     private function getInvoicesByPartnerId(int $partnerId, int $page = 1, int $pageSize = 100): ?array
     {
         $params = [
-            'filter' => '(PartnerId~eq~' . $partnerId . ")~and~(DateOfIssue~gte~'" . self::SYNC_FROM_DATE . "')",
+            'filter' => '(PartnerId~eq~' . $partnerId . ")~and~(DateOfIssue~gte~'" . self::SYNC_FROM_DATE . "T00:00:00')",
             'page' => $page,
             'pageSize' => $pageSize,
             'sort' => 'DateOfIssue~desc',
