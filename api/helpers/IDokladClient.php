@@ -438,7 +438,9 @@ class IDokladClient
             return null;
         }
 
-        $url = $this->apiUrl . "/IssuedInvoices/$invoiceId/GetPdf";
+        // v3 moved PDF generation out of the entity controllers into the Reports
+        // namespace. See https://api.idoklad.cz/Help/v3/en/ (Reports group).
+        $url = $this->apiUrl . "/Reports/IssuedInvoice/$invoiceId/Pdf";
 
         $ch = curl_init();
 
