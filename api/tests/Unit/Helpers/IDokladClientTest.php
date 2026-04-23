@@ -367,4 +367,36 @@ class IDokladClientTest extends TestCase
         $this->assertEquals(7, $method->invoke(null, ['TotalPages' => 7]));
         $this->assertEquals(1, $method->invoke(null, []));
     }
+
+    public function testMapIdokladInvoiceReadsNestedPricesTotal(): void
+    {
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => '2026-02-15T00:00:00',
+            'IsPaid' => false,
+            'Prices' => ['TotalWithVat' => 4840.00, 'TotalWithoutVat' => 4000.00],
+        ], 1);
+
+        $this->assertEquals(4840.00, $result['total_amount']);
+        $this->assertEquals('2026-01-15', $result['date_issued']);
+        $this->assertEquals('2026-02-15', $result['date_due']);
+    }
+
+    public function testMapIdokladInvoiceDerivesIsPaidFromPaymentDate(): void
+    {
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => '2026-02-15T00:00:00',
+            'DateOfPayment' => '2026-02-10T00:00:00',
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertTrue($result['is_paid']);
+        $this->assertEquals('paid', $result['payment_status']);
+        $this->assertEquals('2026-02-10', $result['date_paid']);
+    }
 }

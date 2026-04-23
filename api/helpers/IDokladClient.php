@@ -514,21 +514,63 @@ class IDokladClient
 
     public static function mapIdokladInvoice(array $idokladInvoice, int $companyId): array
     {
-        $paymentStatus = self::calculatePaymentStatus($idokladInvoice);
+        // One-shot diagnostic: dump the first invoice's shape per process so we can
+        // see iDoklad's actual field names if a mapping turns out to be wrong.
+        static $loggedSample = false;
+        if (!$loggedSample) {
+            error_log('iDoklad invoice sample keys: ' . implode(',', array_keys($idokladInvoice)));
+            if (isset($idokladInvoice['Prices']) && is_array($idokladInvoice['Prices'])) {
+                error_log('iDoklad invoice Prices keys: ' . implode(',', array_keys($idokladInvoice['Prices'])));
+            }
+            $loggedSample = true;
+        }
+
+        // iDoklad v3 moves totals into a nested `Prices` object; v2 had them at top level.
+        $totalAmount = (float) (
+            $idokladInvoice['Prices']['TotalWithVat']
+            ?? $idokladInvoice['Prices']['TotalWithVatHc']
+            ?? $idokladInvoice['TotalWithVat']
+            ?? $idokladInvoice['TotalWithVatHc']
+            ?? 0
+        );
+
+        // IsPaid can be absent from the list response — fall back to PaymentStatus
+        // enum or the presence of DateOfPayment, both of which are in the schema.
+        $isPaid = false;
+        if (array_key_exists('IsPaid', $idokladInvoice)) {
+            $isPaid = (bool) $idokladInvoice['IsPaid'];
+        } elseif (isset($idokladInvoice['PaymentStatus'])) {
+            $ps = $idokladInvoice['PaymentStatus'];
+            $isPaid = $ps === 'Paid' || $ps === 2 || $ps === '2';
+        } elseif (!empty($idokladInvoice['DateOfPayment'])) {
+            $isPaid = true;
+        }
+
+        $invoiceWithDerivedPaid = $idokladInvoice + ['IsPaid' => $isPaid];
+        $paymentStatus = self::calculatePaymentStatus($invoiceWithDerivedPaid);
 
         return [
             'idoklad_id' => (int) $idokladInvoice['Id'],
             'company_id' => $companyId,
             'document_number' => $idokladInvoice['DocumentNumber'] ?? '',
             'variable_symbol' => $idokladInvoice['VariableSymbol'] ?? null,
-            'date_issued' => $idokladInvoice['DateOfIssue'] ?? date('Y-m-d'),
-            'date_due' => $idokladInvoice['DateOfMaturity'] ?? date('Y-m-d'),
-            'date_paid' => $idokladInvoice['DateOfPayment'] ?? null,
-            'total_amount' => (float) ($idokladInvoice['TotalWithVat'] ?? 0),
+            'date_issued' => self::normalizeDate($idokladInvoice['DateOfIssue'] ?? null) ?? date('Y-m-d'),
+            'date_due' => self::normalizeDate($idokladInvoice['DateOfMaturity'] ?? null) ?? date('Y-m-d'),
+            'date_paid' => self::normalizeDate($idokladInvoice['DateOfPayment'] ?? null),
+            'total_amount' => $totalAmount,
             'currency_code' => $idokladInvoice['Currency']['Code'] ?? 'CZK',
-            'is_paid' => (bool) ($idokladInvoice['IsPaid'] ?? false),
+            'is_paid' => $isPaid,
             'payment_status' => $paymentStatus,
             'description' => $idokladInvoice['Description'] ?? null,
         ];
+    }
+
+    private static function normalizeDate(?string $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        // iDoklad v3 dates arrive as "2026-01-15T00:00:00"; DB columns are DATE.
+        return substr($value, 0, 10);
     }
 }
