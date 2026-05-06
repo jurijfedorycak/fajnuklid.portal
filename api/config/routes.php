@@ -22,6 +22,8 @@ $router->get('/storage/file', 'StorageController@serveFile');
 
 // Cron-triggered nightly sync of iDoklad invoices. Authenticated by shared token
 // (IDOKLAD_CRON_TOKEN env) passed via X-Cron-Token header (preferred) or ?token=.
+// GET is accepted because most low-end cron schedulers only support fetching a URL.
+$router->get('/cron/idoklad-sync', 'CronController@syncIdoklad');
 $router->post('/cron/idoklad-sync', 'CronController@syncIdoklad');
 
 // Protected routes - require authentication
