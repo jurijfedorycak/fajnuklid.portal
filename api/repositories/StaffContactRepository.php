@@ -20,18 +20,21 @@ class StaffContactRepository
     {
         $stmt = $this->db->prepare('
             SELECT
-                id,
-                name,
-                position,
-                phone,
-                email,
-                photo_url,
-                sort_order,
-                created_at,
-                updated_at,
-                deleted_at
-            FROM staff_contacts
-            WHERE id = :id AND deleted_at IS NULL
+                sc.id,
+                sc.name,
+                sc.position,
+                sc.phone,
+                sc.email,
+                sc.user_id,
+                sc.photo_url,
+                sc.sort_order,
+                sc.created_at,
+                sc.updated_at,
+                sc.deleted_at,
+                la.portal_enabled AS login_portal_enabled
+            FROM staff_contacts sc
+            LEFT JOIN login_accounts la ON la.id = sc.user_id
+            WHERE sc.id = :id AND sc.deleted_at IS NULL
         ');
         $stmt->execute(['id' => $id]);
         $result = $stmt->fetch();
@@ -43,18 +46,21 @@ class StaffContactRepository
     {
         $stmt = $this->db->query('
             SELECT
-                id,
-                name,
-                position,
-                phone,
-                email,
-                photo_url,
-                sort_order,
-                created_at,
-                updated_at
-            FROM staff_contacts
-            WHERE deleted_at IS NULL
-            ORDER BY sort_order ASC, name ASC
+                sc.id,
+                sc.name,
+                sc.position,
+                sc.phone,
+                sc.email,
+                sc.user_id,
+                sc.photo_url,
+                sc.sort_order,
+                sc.created_at,
+                sc.updated_at,
+                la.portal_enabled AS login_portal_enabled
+            FROM staff_contacts sc
+            LEFT JOIN login_accounts la ON la.id = sc.user_id
+            WHERE sc.deleted_at IS NULL AND sc.hidden_from_clients = 0
+            ORDER BY sc.sort_order ASC, sc.name ASC
         ');
 
         return $stmt->fetchAll();
@@ -64,27 +70,30 @@ class StaffContactRepository
     {
         $sql = '
             SELECT
-                id,
-                name,
-                position,
-                phone,
-                email,
-                photo_url,
-                sort_order,
-                created_at,
-                updated_at
-            FROM staff_contacts
-            WHERE deleted_at IS NULL
+                sc.id,
+                sc.name,
+                sc.position,
+                sc.phone,
+                sc.email,
+                sc.user_id,
+                sc.photo_url,
+                sc.sort_order,
+                sc.created_at,
+                sc.updated_at,
+                la.portal_enabled AS login_portal_enabled
+            FROM staff_contacts sc
+            LEFT JOIN login_accounts la ON la.id = sc.user_id
+            WHERE sc.deleted_at IS NULL
         ';
 
         $params = [];
 
         if ($search !== null && $search !== '') {
-            $sql .= ' AND (name LIKE :search OR position LIKE :search OR email LIKE :search)';
+            $sql .= ' AND (sc.name LIKE :search OR sc.position LIKE :search OR sc.email LIKE :search)';
             $params['search'] = '%' . $search . '%';
         }
 
-        $sql .= ' ORDER BY sort_order ASC, name ASC LIMIT :limit OFFSET :offset';
+        $sql .= ' ORDER BY sc.sort_order ASC, sc.name ASC LIMIT :limit OFFSET :offset';
 
         $stmt = $this->db->prepare($sql);
 
@@ -209,6 +218,74 @@ class StaffContactRepository
         $result = $stmt->fetchColumn();
 
         return $result !== false ? (int) $result : 0;
+    }
+
+    public function setUserId(int $id, ?int $userId): bool
+    {
+        $stmt = $this->db->prepare('
+            UPDATE staff_contacts
+            SET user_id = :user_id, updated_at = NOW()
+            WHERE id = :id AND deleted_at IS NULL
+        ');
+        $stmt->execute([
+            'id' => $id,
+            'user_id' => $userId,
+        ]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    public function findByUserId(int $userId): ?array
+    {
+        $stmt = $this->db->prepare('
+            SELECT
+                sc.id,
+                sc.name,
+                sc.position,
+                sc.phone,
+                sc.email,
+                sc.user_id,
+                sc.photo_url,
+                sc.sort_order,
+                sc.created_at,
+                sc.updated_at,
+                sc.deleted_at,
+                la.portal_enabled AS login_portal_enabled
+            FROM staff_contacts sc
+            LEFT JOIN login_accounts la ON la.id = sc.user_id
+            WHERE sc.user_id = :user_id AND sc.deleted_at IS NULL
+        ');
+        $stmt->execute(['user_id' => $userId]);
+        $result = $stmt->fetch();
+
+        return $result ?: null;
+    }
+
+    public function findByEmail(string $email): ?array
+    {
+        $stmt = $this->db->prepare('
+            SELECT
+                sc.id,
+                sc.name,
+                sc.position,
+                sc.phone,
+                sc.email,
+                sc.user_id,
+                sc.photo_url,
+                sc.sort_order,
+                sc.created_at,
+                sc.updated_at,
+                sc.deleted_at,
+                la.portal_enabled AS login_portal_enabled
+            FROM staff_contacts sc
+            LEFT JOIN login_accounts la ON la.id = sc.user_id
+            WHERE sc.email = :email AND sc.deleted_at IS NULL
+            LIMIT 1
+        ');
+        $stmt->execute(['email' => $email]);
+        $result = $stmt->fetch();
+
+        return $result ?: null;
     }
 
     public function reorder(array $orderedIds): bool

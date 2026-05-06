@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import {
   Phone, Mail, Plus, Pencil, Trash2, Loader2, Upload, X, Save, Users, GripVertical,
+  KeyRound, ShieldOff, ShieldCheck,
 } from 'lucide-vue-next'
 import { adminService } from '../api'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
@@ -23,6 +24,20 @@ const modal = ref({
 
 // Delete confirmation
 const deleteConfirm = ref({ show: false, id: null, name: '' })
+
+// Password modal
+const passwordModal = ref({
+  show: false,
+  saving: false,
+  error: null,
+  fieldErrors: {},
+  staff: null,
+  password: '',
+  passwordConfirm: '',
+})
+
+// Revoke confirmation
+const revokeConfirm = ref({ show: false, saving: false, id: null, name: '' })
 
 // Toast
 const toast = ref(null)
@@ -202,6 +217,81 @@ async function confirmDelete() {
   }
 }
 
+function openPasswordModal(contact) {
+  passwordModal.value = {
+    show: true,
+    saving: false,
+    error: null,
+    fieldErrors: {},
+    staff: { id: contact.id, name: contact.name, email: contact.email, login_status: contact.login_status },
+    password: '',
+    passwordConfirm: '',
+  }
+}
+
+function closePasswordModal() {
+  passwordModal.value.show = false
+}
+
+function validatePasswordForm() {
+  const errs = {}
+  if (!passwordModal.value.password || passwordModal.value.password.length < 8) {
+    errs.password = 'Heslo musí mít alespoň 8 znaků'
+  }
+  if (passwordModal.value.password !== passwordModal.value.passwordConfirm) {
+    errs.passwordConfirm = 'Hesla se neshodují'
+  }
+  passwordModal.value.fieldErrors = errs
+  return Object.keys(errs).length === 0
+}
+
+async function savePassword() {
+  if (!validatePasswordForm()) return
+  passwordModal.value.saving = true
+  passwordModal.value.error = null
+  try {
+    const response = await adminService.setStaffContactPassword(
+      passwordModal.value.staff.id,
+      passwordModal.value.password,
+    )
+    if (response.success) {
+      closePasswordModal()
+      showToast('success', 'Heslo bylo nastaveno')
+      await fetchContacts()
+    } else {
+      passwordModal.value.error = response.message || 'Uložení hesla selhalo'
+    }
+  } catch (err) {
+    const data = err.response?.data
+    if (data?.errors) passwordModal.value.fieldErrors = data.errors
+    passwordModal.value.error = data?.message || err.message || 'Uložení hesla selhalo'
+  } finally {
+    passwordModal.value.saving = false
+  }
+}
+
+function askRevoke(contact) {
+  revokeConfirm.value = { show: true, saving: false, id: contact.id, name: contact.name }
+}
+
+async function confirmRevoke() {
+  revokeConfirm.value.saving = true
+  try {
+    const response = await adminService.revokeStaffContactLogin(revokeConfirm.value.id)
+    if (response.success) {
+      revokeConfirm.value.show = false
+      showToast('success', 'Přístup byl zrušen')
+      await fetchContacts()
+    } else {
+      loadError.value = response.message || 'Zrušení přístupu selhalo'
+    }
+  } catch (err) {
+    loadError.value = err.response?.data?.message || err.message || 'Zrušení přístupu selhalo'
+  } finally {
+    revokeConfirm.value.saving = false
+  }
+}
+
 function initials(name) {
   if (!name) return '?'
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
@@ -336,7 +426,25 @@ async function persistOrder() {
           <span v-else>{{ initials(c.name) }}</span>
         </div>
         <div class="staff-info">
-          <h3 :id="`staff-contact-name-${c.id}`" class="staff-name">{{ c.name }}</h3>
+          <div class="staff-name-row">
+            <h3 :id="`staff-contact-name-${c.id}`" class="staff-name">{{ c.name }}</h3>
+            <span
+              v-if="c.login_status === 'active'"
+              :id="`staff-contact-login-badge-${c.id}`"
+              class="login-badge login-badge-active"
+              title="Tato osoba se může přihlásit jako admin"
+            >
+              <ShieldCheck :size="12" /> Přístup aktivní
+            </span>
+            <span
+              v-else-if="c.login_status === 'revoked'"
+              :id="`staff-contact-login-badge-${c.id}`"
+              class="login-badge login-badge-revoked"
+              title="Přístup byl zrušen"
+            >
+              <ShieldOff :size="12" /> Přístup pozastaven
+            </span>
+          </div>
           <p v-if="c.position" class="staff-position">{{ c.position }}</p>
           <div class="staff-meta">
             <span v-if="c.phone" class="staff-meta-item">
@@ -354,6 +462,24 @@ async function persistOrder() {
             @click="openEdit(c)"
           >
             <Pencil :size="14" /> Upravit
+          </button>
+          <button
+            :id="`staff-contact-password-${c.id}`"
+            class="btn btn-outline btn-sm"
+            :disabled="!c.email || !c.email.trim()"
+            :title="!c.email || !c.email.trim() ? 'Pro nastavení hesla je třeba nejprve uložit e-mail' : ''"
+            @click="openPasswordModal(c)"
+          >
+            <KeyRound :size="14" />
+            {{ c.login_status === 'none' ? 'Nastavit heslo' : 'Změnit heslo' }}
+          </button>
+          <button
+            v-if="c.login_status === 'active'"
+            :id="`staff-contact-revoke-${c.id}`"
+            class="btn btn-outline btn-sm btn-danger-outline"
+            @click="askRevoke(c)"
+          >
+            <ShieldOff :size="14" /> Zrušit přístup
           </button>
           <button
             :id="`staff-contact-delete-${c.id}`"
@@ -526,6 +652,146 @@ async function persistOrder() {
       </div>
     </div>
 
+    <!-- Password modal -->
+    <div
+      v-if="passwordModal.show"
+      id="staff-contact-password-modal-backdrop"
+      class="modal-backdrop"
+      @click.self="closePasswordModal"
+    >
+      <div id="staff-contact-password-modal" class="modal-card modal-card-sm">
+        <div class="modal-header">
+          <h2 class="modal-title">
+            {{ passwordModal.staff?.login_status === 'none' ? 'Nastavit heslo pro' : 'Změnit heslo pro' }}
+            {{ passwordModal.staff?.name }}
+          </h2>
+          <button
+            id="staff-contact-password-modal-close"
+            class="icon-btn"
+            @click="closePasswordModal"
+            aria-label="Zavřít"
+          >
+            <X :size="18" />
+          </button>
+        </div>
+        <div class="modal-body">
+          <div v-if="passwordModal.error" class="alert alert-danger" id="staff-contact-password-error">
+            {{ passwordModal.error }}
+          </div>
+
+          <div class="form-group">
+            <label>Přihlašovací e-mail</label>
+            <input
+              id="staff-contact-password-email"
+              :value="passwordModal.staff?.email || ''"
+              type="email"
+              class="form-input"
+              readonly
+            />
+            <p v-if="passwordModal.fieldErrors.email" class="form-error">
+              {{ passwordModal.fieldErrors.email }}
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label for="staff-contact-password-new">Nové heslo *</label>
+            <input
+              id="staff-contact-password-new"
+              v-model="passwordModal.password"
+              type="password"
+              class="form-input"
+              :class="{ 'is-invalid': passwordModal.fieldErrors.password }"
+              autocomplete="new-password"
+              maxlength="200"
+            />
+            <p v-if="passwordModal.fieldErrors.password" class="form-error">
+              {{ passwordModal.fieldErrors.password }}
+            </p>
+            <p class="form-help">Minimálně 8 znaků.</p>
+          </div>
+
+          <div class="form-group">
+            <label for="staff-contact-password-confirm">Potvrzení hesla *</label>
+            <input
+              id="staff-contact-password-confirm"
+              v-model="passwordModal.passwordConfirm"
+              type="password"
+              class="form-input"
+              :class="{ 'is-invalid': passwordModal.fieldErrors.passwordConfirm }"
+              autocomplete="new-password"
+              maxlength="200"
+            />
+            <p v-if="passwordModal.fieldErrors.passwordConfirm" class="form-error">
+              {{ passwordModal.fieldErrors.passwordConfirm }}
+            </p>
+          </div>
+
+          <p class="form-help" style="margin-top:8px;">
+            Po uložení získá osoba plný admin přístup do portálu.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button
+            id="staff-contact-password-cancel"
+            class="btn btn-outline"
+            @click="closePasswordModal"
+            :disabled="passwordModal.saving"
+          >
+            Zrušit
+          </button>
+          <button
+            id="staff-contact-password-save"
+            class="btn btn-primary"
+            @click="savePassword"
+            :disabled="passwordModal.saving"
+          >
+            <Loader2 v-if="passwordModal.saving" :size="16" class="spin" />
+            <Save v-else :size="16" />
+            Uložit heslo
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Revoke confirmation -->
+    <div
+      v-if="revokeConfirm.show"
+      id="staff-contact-revoke-modal-backdrop"
+      class="modal-backdrop"
+      @click.self="revokeConfirm.show = false"
+    >
+      <div id="staff-contact-revoke-modal" class="modal-card modal-card-sm">
+        <div class="modal-header">
+          <h2 class="modal-title">Zrušit přístup?</h2>
+        </div>
+        <div class="modal-body">
+          <p>
+            Zrušit administrátorský přístup pro <strong>{{ revokeConfirm.name }}</strong>?
+            Účet zůstane v systému, ale nebude se moci přihlásit.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button
+            id="staff-contact-revoke-cancel"
+            class="btn btn-outline"
+            @click="revokeConfirm.show = false"
+            :disabled="revokeConfirm.saving"
+          >
+            Zrušit
+          </button>
+          <button
+            id="staff-contact-revoke-confirm"
+            class="btn btn-primary btn-danger"
+            @click="confirmRevoke"
+            :disabled="revokeConfirm.saving"
+          >
+            <Loader2 v-if="revokeConfirm.saving" :size="16" class="spin" />
+            Zrušit přístup
+          </button>
+        </div>
+      </div>
+    </div>
+
     <FilePreviewModal
       :show="previewModal.show"
       :url="previewModal.url"
@@ -620,11 +886,38 @@ async function persistOrder() {
   min-width: 0;
 }
 
+.staff-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 2px;
+}
+
 .staff-name {
   font-size: 15px;
   font-weight: 600;
   color: var(--color-primary);
-  margin: 0 0 2px;
+  margin: 0;
+}
+
+.login-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.login-badge-active {
+  background: var(--color-success-light);
+  color: var(--color-success);
+}
+.login-badge-revoked {
+  background: var(--color-gray-100);
+  color: var(--color-gray-600);
 }
 
 .staff-position {

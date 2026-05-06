@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Config\Config;
 use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
@@ -46,9 +45,7 @@ class AuthController extends Controller
         // Update last login timestamp
         $this->userRepository->updateLastLogin($user['id']);
 
-        // Check if user is admin
-        $adminEmails = Config::getArray('ADMIN_EMAILS');
-        $isAdmin = in_array($user['email'], $adminEmails, true);
+        $isAdmin = (bool) ($user['is_admin'] ?? false);
 
         // Generate JWT token
         $token = JwtHelper::createForUser($user['id'], $user['email']);

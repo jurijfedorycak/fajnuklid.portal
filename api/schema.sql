@@ -70,13 +70,17 @@ CREATE TABLE `staff_contacts` (
     `position` VARCHAR(100) NULL,
     `phone` VARCHAR(20) NULL,
     `email` VARCHAR(255) NULL,
+    `user_id` INT UNSIGNED NULL COMMENT 'FK to login_accounts when staff has admin login',
     `photo_url` VARCHAR(500) NULL,
+    `hidden_from_clients` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'When true, hide from the public Kontakt page (internal admin accounts)',
     `sort_order` INT NOT NULL DEFAULT 0,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL COMMENT 'Soft delete timestamp',
     PRIMARY KEY (`id`),
-    KEY `idx_deleted_sort` (`deleted_at`, `sort_order`)
+    UNIQUE KEY `uk_user_id` (`user_id`),
+    KEY `idx_deleted_sort` (`deleted_at`, `sort_order`),
+    CONSTRAINT `fk_staff_contacts_user` FOREIGN KEY (`user_id`) REFERENCES `login_accounts` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ===========================
@@ -92,11 +96,13 @@ CREATE TABLE `login_accounts` (
     `email` VARCHAR(255) NOT NULL,
     `password_hash` VARCHAR(255) NOT NULL,
     `portal_enabled` TINYINT(1) NOT NULL DEFAULT 1,
+    `is_admin` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'When true, user has full admin permissions',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_email` (`email`),
-    KEY `idx_portal_enabled` (`portal_enabled`)
+    KEY `idx_portal_enabled` (`portal_enabled`),
+    KEY `idx_is_admin` (`is_admin`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------

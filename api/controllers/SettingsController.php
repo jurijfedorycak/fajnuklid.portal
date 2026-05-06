@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Config\Config;
 use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
@@ -58,9 +57,7 @@ class SettingsController extends Controller
             $clientCode = $client['client_id'] ?? null;
         }
 
-        // Determine admin flag (admins are not clients and must not see ID klienta)
-        $adminEmails = Config::getArray('ADMIN_EMAILS');
-        $isAdmin = in_array($user['email'], $adminEmails, true);
+        $isAdmin = (bool) ($user['is_admin'] ?? false);
 
         // Build current user info
         $currentUser = [

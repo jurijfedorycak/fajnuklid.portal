@@ -106,6 +106,8 @@ $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class],
     $router->post('/staff-contacts/reorder', 'AdminController@reorderStaffContacts');
     $router->put('/staff-contacts/{id}', 'AdminController@updateStaffContact');
     $router->delete('/staff-contacts/{id}', 'AdminController@deleteStaffContact');
+    $router->post('/staff-contacts/{id}/password', 'AdminController@setStaffPassword');
+    $router->delete('/staff-contacts/{id}/login', 'AdminController@revokeStaffLogin');
 
     // Maintenance requests - admin management
     $router->get('/maintenance-requests', 'AdminController@listMaintenanceRequests');

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Middleware;
 
-use App\Config\Config;
 use App\Core\Request;
 use App\Exceptions\AuthException;
 use App\Helpers\JwtHelper;
@@ -37,9 +36,7 @@ class AuthMiddleware
             throw new AuthException('Přístup do portálu je zakázán');
         }
 
-        // Check if user is admin
-        $adminEmails = Config::getArray('ADMIN_EMAILS');
-        $user['is_admin'] = in_array($user['email'], $adminEmails, true);
+        $user['is_admin'] = (bool) ($user['is_admin'] ?? false);
 
         $request->setUser($user);
     }

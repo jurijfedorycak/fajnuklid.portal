@@ -28,11 +28,13 @@ class StaffContactRepositoryTest extends DatabaseTestCase
             'position' => 'Support Manager',
             'phone' => '+420123456789',
             'email' => 'john@fajnuklid.cz',
+            'user_id' => null,
             'photo_url' => '/photos/john.jpg',
             'sort_order' => 0,
             'created_at' => '2024-01-01 00:00:00',
             'updated_at' => '2024-01-01 00:00:00',
             'deleted_at' => null,
+            'login_portal_enabled' => null,
         ];
 
         $this->setupFetchMock($expected);
@@ -354,5 +356,86 @@ class StaffContactRepositoryTest extends DatabaseTestCase
         $result = $this->repository->reorder([]);
 
         $this->assertTrue($result);
+    }
+
+    // setUserId tests
+
+    public function testSetUserIdAssignsLogin(): void
+    {
+        $this->setupRowCountMock(1);
+
+        $result = $this->repository->setUserId(1, 42);
+
+        $this->assertTrue($result);
+    }
+
+    public function testSetUserIdAcceptsNullToClear(): void
+    {
+        $this->setupRowCountMock(1);
+
+        $result = $this->repository->setUserId(1, null);
+
+        $this->assertTrue($result);
+    }
+
+    public function testSetUserIdReturnsFalseWhenNotFound(): void
+    {
+        $this->setupRowCountMock(0);
+
+        $result = $this->repository->setUserId(999, 42);
+
+        $this->assertFalse($result);
+    }
+
+    // findByUserId tests
+
+    public function testFindByUserIdReturnsRowWhenLinked(): void
+    {
+        $expected = [
+            'id' => 1,
+            'name' => 'Linked Staff',
+            'user_id' => 7,
+            'login_portal_enabled' => 1,
+        ];
+        $this->setupFetchMock($expected);
+
+        $result = $this->repository->findByUserId(7);
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testFindByUserIdReturnsNullWhenNoMatch(): void
+    {
+        $this->setupFetchMock(false);
+
+        $result = $this->repository->findByUserId(999);
+
+        $this->assertNull($result);
+    }
+
+    // findByEmail tests
+
+    public function testFindByEmailReturnsActiveRow(): void
+    {
+        $expected = [
+            'id' => 2,
+            'email' => 'staff@fajnuklid.cz',
+            'user_id' => null,
+            'login_portal_enabled' => null,
+        ];
+        $this->setupFetchMock($expected);
+
+        $result = $this->repository->findByEmail('staff@fajnuklid.cz');
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testFindByEmailReturnsNullWhenNoMatch(): void
+    {
+        $this->setupFetchMock(false);
+
+        $result = $this->repository->findByEmail('nope@fajnuklid.cz');
+
+        $this->assertNull($result);
     }
 }

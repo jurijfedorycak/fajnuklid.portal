@@ -138,6 +138,16 @@ export const adminService = {
     return response.data
   },
 
+  async setStaffContactPassword(id, password) {
+    const response = await apiClient.post(`/admin/staff-contacts/${id}/password`, { password })
+    return response.data
+  },
+
+  async revokeStaffContactLogin(id) {
+    const response = await apiClient.delete(`/admin/staff-contacts/${id}/login`)
+    return response.data
+  },
+
   // Maintenance requests
   async getMaintenanceRequests(clientId = null, status = null) {
     const params = {}

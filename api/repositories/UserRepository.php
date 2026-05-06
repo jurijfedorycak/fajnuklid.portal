@@ -24,6 +24,7 @@ class UserRepository
                 email,
                 password_hash,
                 portal_enabled,
+                is_admin,
                 created_at,
                 updated_at
             FROM login_accounts
@@ -43,6 +44,7 @@ class UserRepository
                 email,
                 password_hash,
                 portal_enabled,
+                is_admin,
                 created_at,
                 updated_at
             FROM login_accounts
@@ -86,6 +88,7 @@ class UserRepository
                 id,
                 email,
                 portal_enabled,
+                is_admin,
                 created_at,
                 updated_at
             FROM login_accounts
@@ -102,6 +105,7 @@ class UserRepository
                 id,
                 email,
                 portal_enabled,
+                is_admin,
                 created_at,
                 updated_at
             FROM login_accounts
@@ -177,9 +181,14 @@ class UserRepository
             $params['password_hash'] = $data['password_hash'];
         }
 
-        if (isset($data['portal_enabled'])) {
+        if (array_key_exists('portal_enabled', $data)) {
             $fields[] = 'portal_enabled = :portal_enabled';
-            $params['portal_enabled'] = $data['portal_enabled'];
+            $params['portal_enabled'] = (int) (bool) $data['portal_enabled'];
+        }
+
+        if (array_key_exists('is_admin', $data)) {
+            $fields[] = 'is_admin = :is_admin';
+            $params['is_admin'] = (int) (bool) $data['is_admin'];
         }
 
         if (empty($fields)) {
@@ -202,6 +211,16 @@ class UserRepository
         $stmt->execute(['id' => $id]);
 
         return $stmt->rowCount() > 0;
+    }
+
+    public function countActiveAdmins(): int
+    {
+        $stmt = $this->db->query('
+            SELECT COUNT(*) FROM login_accounts
+            WHERE is_admin = 1 AND portal_enabled = 1
+        ');
+
+        return (int) $stmt->fetchColumn();
     }
 
     public function existsByEmail(string $email, ?int $excludeId = null): bool

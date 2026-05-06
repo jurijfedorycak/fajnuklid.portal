@@ -21,6 +21,7 @@ use App\Repositories\StaffContactRepository;
 use App\Services\IDokladService;
 use App\Services\MaintenanceRequestService;
 use App\Services\R2StorageService;
+use App\Services\StaffLoginService;
 use App\Helpers\PasswordHelper;
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
@@ -41,6 +42,7 @@ class AdminController extends Controller
     private MaintenanceRequestService $maintenanceRequestService;
     private IDokladService $idokladService;
     private R2StorageService $storage;
+    private StaffLoginService $staffLoginService;
 
     public function __construct()
     {
@@ -58,6 +60,7 @@ class AdminController extends Controller
         $this->maintenanceRequestService = new MaintenanceRequestService();
         $this->idokladService = new IDokladService();
         $this->storage = new R2StorageService();
+        $this->staffLoginService = new StaffLoginService($this->userRepo, $this->staffContactRepo);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -1579,10 +1582,7 @@ class AdminController extends Controller
             $pagination['offset'],
             $search
         );
-        foreach ($items as &$item) {
-            $item['photo_url'] = $this->storage->resolveProxyUrl($item['photo_url'] ?? null);
-        }
-        unset($item);
+        $items = array_map(fn ($i) => $this->projectStaffContact($i), $items);
         $total = $this->staffContactRepo->countAll($search);
 
         Response::paginated($items, $total, $pagination['page'], $pagination['per_page']);
@@ -1597,9 +1597,7 @@ class AdminController extends Controller
             throw new NotFoundException('Kontakt nebyl nalezen');
         }
 
-        $contact['photo_url'] = $this->storage->resolveProxyUrl($contact['photo_url'] ?? null);
-
-        Response::success($contact);
+        Response::success($this->projectStaffContact($contact));
     }
 
     public function createStaffContact(Request $request): void
@@ -1623,9 +1621,8 @@ class AdminController extends Controller
 
         $id = $this->staffContactRepo->create($data);
         $created = $this->staffContactRepo->findById($id);
-        $created['photo_url'] = $this->storage->resolveProxyUrl($created['photo_url'] ?? null);
 
-        Response::created($created, 'Kontakt byl vytvořen');
+        Response::created($this->projectStaffContact($created), 'Kontakt byl vytvořen');
     }
 
     public function updateStaffContact(Request $request): void
@@ -1653,14 +1650,17 @@ class AdminController extends Controller
             $updateData['photo_url'] = $this->storage->extractKey($updateData['photo_url']) ?: null;
         }
 
+        if (array_key_exists('email', $updateData)) {
+            $this->staffLoginService->syncEmailIfChanged($id, $updateData['email']);
+        }
+
         if (!empty($updateData)) {
             $this->staffContactRepo->update($id, $updateData);
         }
 
         $updated = $this->staffContactRepo->findById($id);
-        $updated['photo_url'] = $this->storage->resolveProxyUrl($updated['photo_url'] ?? null);
 
-        Response::success($updated, 'Kontakt byl aktualizován');
+        Response::success($this->projectStaffContact($updated), 'Kontakt byl aktualizován');
     }
 
     public function reorderStaffContacts(Request $request): void
@@ -1683,9 +1683,90 @@ class AdminController extends Controller
             throw new NotFoundException('Kontakt nebyl nalezen');
         }
 
+        $userId = $existing['user_id'] !== null ? (int) $existing['user_id'] : null;
+        $isActiveAdmin = $userId !== null && (int) ($existing['login_portal_enabled'] ?? 0) === 1;
+
+        if ($isActiveAdmin && $this->userRepo->countActiveAdmins() <= 1) {
+            throw new ValidationException('Nelze smazat posledního aktivního administrátora.');
+        }
+
         $this->staffContactRepo->delete($id);
+        $this->staffLoginService->disableLoginForUser($userId);
 
         Response::success(null, 'Kontakt byl smazán');
+    }
+
+    public function setStaffPassword(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $existing = $this->staffContactRepo->findById($id);
+
+        if (!$existing) {
+            throw new NotFoundException('Kontakt nebyl nalezen');
+        }
+
+        $data = $this->validate($request->all(), [
+            'password' => 'required|string|min:8|max:200',
+        ]);
+
+        $result = $this->staffLoginService->setPasswordForStaff($id, $data['password']);
+
+        Response::success($result, 'Heslo bylo nastaveno');
+    }
+
+    public function revokeStaffLogin(Request $request): void
+    {
+        $id = (int) $request->param('id');
+        $existing = $this->staffContactRepo->findById($id);
+
+        if (!$existing) {
+            throw new NotFoundException('Kontakt nebyl nalezen');
+        }
+
+        if ($existing['user_id'] === null) {
+            Response::success(null, 'Účet již není aktivní');
+            return;
+        }
+
+        if ((int) $existing['user_id'] === $request->getUserId()) {
+            throw new ValidationException('Nemůžete zrušit přístup vlastnímu účtu.');
+        }
+
+        $isActiveAdmin = (int) ($existing['login_portal_enabled'] ?? 0) === 1;
+        if ($isActiveAdmin && $this->userRepo->countActiveAdmins() <= 1) {
+            throw new ValidationException('Nelze zrušit přístup poslednímu aktivnímu administrátorovi.');
+        }
+
+        $this->staffLoginService->revokeLogin($id);
+
+        Response::success(null, 'Přístup byl zrušen');
+    }
+
+    private function projectStaffContact(array $row): array
+    {
+        $userId = $row['user_id'] ?? null;
+        $portalEnabled = $row['login_portal_enabled'] ?? null;
+
+        if ($userId === null) {
+            $loginStatus = 'none';
+        } elseif ((int) $portalEnabled === 1) {
+            $loginStatus = 'active';
+        } else {
+            $loginStatus = 'revoked';
+        }
+
+        return [
+            'id' => (int) $row['id'],
+            'name' => $row['name'],
+            'position' => $row['position'],
+            'phone' => $row['phone'],
+            'email' => $row['email'],
+            'photo_url' => $this->storage->resolveProxyUrl($row['photo_url'] ?? null),
+            'sort_order' => (int) ($row['sort_order'] ?? 0),
+            'login_status' => $loginStatus,
+            'created_at' => $row['created_at'] ?? null,
+            'updated_at' => $row['updated_at'] ?? null,
+        ];
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

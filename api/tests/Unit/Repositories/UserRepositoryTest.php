@@ -27,6 +27,7 @@ class UserRepositoryTest extends DatabaseTestCase
             'email' => 'test@example.com',
             'password_hash' => 'hash123',
             'portal_enabled' => 1,
+            'is_admin' => 0,
             'created_at' => '2024-01-01 00:00:00',
             'updated_at' => '2024-01-01 00:00:00',
         ];
@@ -56,6 +57,7 @@ class UserRepositoryTest extends DatabaseTestCase
             'email' => 'test@example.com',
             'password_hash' => 'hash123',
             'portal_enabled' => 1,
+            'is_admin' => 1,
             'created_at' => '2024-01-01 00:00:00',
             'updated_at' => '2024-01-01 00:00:00',
         ];
@@ -281,6 +283,15 @@ class UserRepositoryTest extends DatabaseTestCase
         $this->assertTrue($result);
     }
 
+    public function testUpdateAcceptsIsAdminFlag(): void
+    {
+        $this->setupRowCountMock(1);
+
+        $result = $this->repository->update(1, ['is_admin' => true]);
+
+        $this->assertTrue($result);
+    }
+
     // delete tests
 
     public function testDeleteReturnsTrueWhenUserDeleted(): void
@@ -302,6 +313,28 @@ class UserRepositoryTest extends DatabaseTestCase
     }
 
     // existsByEmail tests
+
+    // countActiveAdmins tests
+
+    public function testCountActiveAdminsReturnsCount(): void
+    {
+        $this->stmtMock->method('fetchColumn')->willReturn('2');
+        $this->pdoMock->method('query')->willReturn($this->stmtMock);
+
+        $result = $this->repository->countActiveAdmins();
+
+        $this->assertSame(2, $result);
+    }
+
+    public function testCountActiveAdminsReturnsZeroWhenNone(): void
+    {
+        $this->stmtMock->method('fetchColumn')->willReturn('0');
+        $this->pdoMock->method('query')->willReturn($this->stmtMock);
+
+        $result = $this->repository->countActiveAdmins();
+
+        $this->assertSame(0, $result);
+    }
 
     public function testExistsByEmailReturnsTrueWhenExists(): void
     {
