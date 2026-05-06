@@ -724,6 +724,7 @@ async function save() {
         temp_pass: l.tempPass,
       })),
       icos: form.icos.map(i => ({
+        company_id: i.companyId ?? null,
         ico: i.ico,
         official_name: i.officialName,
         freshqr_enabled: i.freshqrEnabled,

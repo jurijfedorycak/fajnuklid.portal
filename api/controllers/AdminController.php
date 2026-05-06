@@ -179,14 +179,16 @@ class AdminController extends Controller
             }
         }
 
-        // Pre-load existing companies for the current client so updateClient uniqueness
-        // checks can exclude IČOs that already belong to this client (no false positive),
-        // and can reject attempts to add new IČOs (update path doesn't persist new companies).
+        // Pre-load existing companies for the current client so updateClient knows
+        // which company_id values an admin may legitimately echo back (anti-tampering),
+        // and so the IČO uniqueness check can exclude the row being edited.
         $ownIcoSet = [];
+        $ownCompanyIds = [];
         $ownUserIds = [];
         if (!$isCreate) {
             foreach ($this->companyRepo->findByClientId($updatingClientDbId) as $company) {
                 $ownIcoSet[$company['registration_number']] = true;
+                $ownCompanyIds[(int) $company['id']] = true;
                 foreach ($this->companyUserRepo->findByCompanyId((int) $company['id']) as $link) {
                     $ownUserIds[(int) $link['user_id']] = true;
                 }
@@ -203,9 +205,20 @@ class AdminController extends Controller
             }
             $ico = isset($icoData['ico']) ? trim((string) $icoData['ico']) : '';
             $officialName = isset($icoData['official_name']) ? trim((string) $icoData['official_name']) : '';
+            $rowCompanyId = isset($icoData['company_id']) && is_numeric($icoData['company_id'])
+                ? (int) $icoData['company_id']
+                : null;
 
             $hasAnyContent = $ico !== '' || $officialName !== ''
                 || !empty($icoData['objects']) || !empty($icoData['contract_file']);
+
+            // company_id echoed from getClient identifies an existing IČO row — it must
+            // belong to this client, otherwise an admin could rebind another client's
+            // company to themselves.
+            if ($rowCompanyId !== null && ($isCreate || !isset($ownCompanyIds[$rowCompanyId]))) {
+                $errors["{$path}.ico"][] = 'Neznámé IČO — obnovte stránku';
+                continue;
+            }
 
             if ($ico === '') {
                 if ($hasAnyContent) {
@@ -214,15 +227,13 @@ class AdminController extends Controller
             } elseif (!preg_match('/^\d{8}$/', $ico)) {
                 $errors["{$path}.ico"][] = 'IČO musí mít přesně 8 číslic';
             } else {
-                $isOwnIco = !$isCreate && isset($ownIcoSet[$ico]);
-
                 if (isset($seenIcoRow[$ico])) {
                     $errors["{$path}.ico"][] = 'Toto IČO už máte ve formuláři (řádek ' . ($seenIcoRow[$ico] + 1) . ')';
-                } elseif (!$isCreate && !$isOwnIco) {
-                    // Update path only touches existing companies — new rows would be
-                    // silently dropped, so reject upfront with a clear message.
-                    $errors["{$path}.ico"][] = 'Přidávání nových IČO při úpravě zatím není podporováno — kontaktujte vývojáře';
-                } elseif ($isCreate && $this->companyRepo->existsByRegistrationNumber($ico)) {
+                } elseif ($this->companyRepo->existsByRegistrationNumber($ico, $rowCompanyId)) {
+                    // Excluding rowCompanyId lets an admin save without renumbering an
+                    // existing row. Triggers when: create-path duplicate, update-path
+                    // duplicate against another client, or attempted move of an own
+                    // IČO into a different row.
                     $errors["{$path}.ico"][] = "IČO {$ico} už patří jinému klientovi — zkontrolujte, zda jste ho nepřeklepli";
                 }
                 $seenIcoRow[$ico] = $i;
@@ -798,41 +809,98 @@ class AdminController extends Controller
                 $icos = [];
             }
 
-            foreach ($icos as $icoData) {
+            $keptCompanyIds = [];
+
+            foreach ($icos as $i => $icoData) {
                 if (!is_array($icoData)) {
                     continue;
                 }
-                $ico = $icoData['ico'] ?? '';
-                if ($ico === '' || !isset($icoToCompanyId[$ico])) {
+                $ico = trim((string) ($icoData['ico'] ?? ''));
+                if ($ico === '') {
                     continue;
                 }
-                $companyId = $icoToCompanyId[$ico];
 
-                if (array_key_exists('idoklad_sync_enabled', $icoData)) {
-                    $this->companyRepo->update($companyId, [
-                        'idoklad_sync_enabled' => (bool) $icoData['idoklad_sync_enabled'],
-                    ]);
+                $rowCompanyId = isset($icoData['company_id']) && is_numeric($icoData['company_id'])
+                    ? (int) $icoData['company_id']
+                    : null;
+                $officialName = trim((string) ($icoData['official_name'] ?? ''));
+                $incomingContract = $icoData['contract_file'] ?? null;
+                $contractKey = is_string($incomingContract)
+                    ? ($this->storage->extractKey($incomingContract) ?: null)
+                    : null;
+                $companyName = $officialName !== ''
+                    ? $officialName
+                    : (string) ($client['display_name'] ?? '');
+
+                if ($rowCompanyId !== null && in_array($rowCompanyId, $companyIds, true)) {
+                    try {
+                        $this->companyRepo->update($rowCompanyId, [
+                            'registration_number' => $ico,
+                            'name' => $companyName,
+                            'contract_pdf_path' => $contractKey,
+                            'idoklad_sync_enabled' => (int) (bool) ($icoData['idoklad_sync_enabled'] ?? false),
+                        ]);
+                    } catch (\PDOException $e) {
+                        throw $this->reclassifyUniqueViolation(
+                            $e,
+                            "icos.{$i}.ico",
+                            "IČO {$ico} už patří jinému klientovi — zkontrolujte, zda jste ho nepřeklepli"
+                        );
+                    }
+                    $companyId = $rowCompanyId;
+                    $icoToCompanyId[$ico] = $companyId;
+                } else {
+                    try {
+                        $companyId = $this->companyRepo->create([
+                            'client_id' => $id,
+                            'registration_number' => $ico,
+                            'name' => $companyName,
+                            'contract_pdf_path' => $contractKey,
+                            'idoklad_sync_enabled' => (int) (bool) ($icoData['idoklad_sync_enabled'] ?? false),
+                        ]);
+                    } catch (\PDOException $e) {
+                        throw $this->reclassifyUniqueViolation(
+                            $e,
+                            "icos.{$i}.ico",
+                            "IČO {$ico} už patří jinému klientovi — zkontrolujte, zda jste ho nepřeklepli"
+                        );
+                    }
+                    $companyIds[] = $companyId;
+                    $icoToCompanyId[$ico] = $companyId;
                 }
+
+                $keptCompanyIds[] = $companyId;
 
                 $this->locationRepo->deleteByCompanyId($companyId);
 
-                $objects = $icoData['objects'] ?? [];
-                if (!is_array($objects)) {
-                    $objects = [];
-                }
+                $objects = is_array($icoData['objects'] ?? null) ? $icoData['objects'] : [];
                 foreach ($objects as $obj) {
                     if (!is_array($obj)) {
                         continue;
                     }
                     $this->locationRepo->create([
                         'company_id' => $companyId,
-                        'name' => $obj['name'] ?? '',
+                        'name' => trim((string) ($obj['name'] ?? '')),
                         'address' => $obj['address'] ?? null,
                         'latitude' => $obj['lat'] ?? null,
                         'longitude' => $obj['lng'] ?? null,
                     ]);
                 }
             }
+
+            // Companies the admin removed from the form — FK cascades clean up
+            // locations, company_contacts, company_users, invoices; maintenance_requests
+            // is set NULL.
+            foreach ($companyIds as $existingId) {
+                if (!in_array($existingId, $keptCompanyIds, true)) {
+                    $this->companyRepo->delete($existingId);
+                }
+            }
+            $companyIds = $keptCompanyIds;
+            $icoToCompanyId = array_filter(
+                $icoToCompanyId,
+                fn($cid) => in_array($cid, $keptCompanyIds, true)
+            );
 
             $contacts = $request->input('contacts', []);
             if (!is_array($contacts)) {
