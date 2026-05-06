@@ -288,4 +288,131 @@ class ClientRepositoryTest extends DatabaseTestCase
 
         $this->assertFalse($result);
     }
+
+    // findByUserId tests
+
+    public function testFindByUserIdReturnsClientWhenUserIsLinked(): void
+    {
+        $expected = [
+            'id' => 1,
+            'client_id' => 'CLT001',
+            'display_name' => 'Demo Client',
+            'is_demo' => 1,
+            'created_at' => '2024-01-01 00:00:00',
+            'updated_at' => '2024-01-01 00:00:00',
+            'deleted_at' => null,
+        ];
+        $this->setupFetchMock($expected);
+
+        $result = $this->repository->findByUserId(42);
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testFindByUserIdReturnsNullWhenUserNotLinked(): void
+    {
+        $this->setupFetchMock(false);
+
+        $result = $this->repository->findByUserId(999);
+
+        $this->assertNull($result);
+    }
+
+    // is_demo binding tests
+
+    public function testCreatePersistsIsDemoTrueAsOne(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'client_id' => 'CLT003',
+            'display_name' => 'New Client',
+            'is_demo' => true,
+        ]);
+
+        $this->assertSame(1, $captured['is_demo']);
+    }
+
+    public function testCreateDefaultsIsDemoToZeroWhenOmitted(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'client_id' => 'CLT003',
+            'display_name' => 'New Client',
+        ]);
+
+        $this->assertSame(0, $captured['is_demo']);
+    }
+
+    public function testUpdatePersistsIsDemoFlagWhenProvided(): void
+    {
+        $captured = null;
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        $result = $this->repository->update(1, ['is_demo' => true]);
+
+        $this->assertTrue($result);
+        $this->assertStringContainsString('is_demo = :is_demo', $sqlSeen);
+        $this->assertSame(1, $captured['is_demo']);
+    }
+
+    public function testUpdatePersistsIsDemoFalseAsZero(): void
+    {
+        $captured = null;
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        // Explicit false must persist (array_key_exists, not isset, in the repo)
+        // so admins can flip a demo flag back off.
+        $this->repository->update(1, ['is_demo' => false]);
+
+        $this->assertSame(0, $captured['is_demo']);
+    }
+
+    public function testUpdateOmitsIsDemoFromSqlWhenNotProvided(): void
+    {
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        $this->repository->update(1, ['display_name' => 'Renamed']);
+
+        $this->assertStringNotContainsString('is_demo', $sqlSeen);
+    }
 }

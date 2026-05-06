@@ -341,6 +341,7 @@ const form = reactive({
   displayName: '',
   notes:       '',
   active:      true,
+  isDemo:      false,
   logins: [],
   icos: [],
   staff: [],
@@ -395,6 +396,7 @@ onMounted(async () => {
         form.displayName = data.displayName || ''
         form.notes = data.notes || ''
         form.active = data.active ?? true
+        form.isDemo = data.isDemo ?? false
         form.logins = (data.logins || []).map(l => ({ ...l, id: uid(), showPass: false, tempPass: '', expanded: false }))
         form.icos = (data.icos || []).map(i => ({
           ...i,
@@ -713,6 +715,7 @@ async function save() {
       display_name: form.displayName,
       notes: form.notes,
       active: form.active,
+      is_demo: form.isDemo,
       logins: form.logins.map(l => ({
         user_id: l.userId ?? null,
         email: l.email,
@@ -807,6 +810,7 @@ function serializeForm() {
     displayName: form.displayName,
     notes: form.notes,
     active: form.active,
+    isDemo: form.isDemo,
     logins: form.logins.map(l => ({
       email: l.email,
       restriction: l.restriction,
@@ -1025,25 +1029,48 @@ onBeforeUnmount(() => {
             <textarea v-model="form.notes" class="form-input form-textarea" rows="3" placeholder="Poznámky pro interní potřebu (klient je nevidí)..." />
           </div>
 
-          <div class="status-toggle-row">
-            <div>
-              <div class="form-label">Stav účtu</div>
-              <p class="field-hint">Neaktivní klient se nemůže přihlásit do portálu.</p>
+          <div class="field-grid-2">
+            <div class="status-toggle-row">
+              <div>
+                <div class="form-label">Stav účtu</div>
+                <p class="field-hint">Neaktivní klient se nemůže přihlásit do portálu.</p>
+              </div>
+              <button
+                id="client-active-toggle"
+                class="toggle-btn"
+                :class="{ 'toggle-on': form.active }"
+                role="switch"
+                :aria-checked="form.active"
+                aria-label="Stav účtu"
+                @click="form.active = !form.active"
+              >
+                <span class="toggle-knob" aria-hidden="true" />
+              </button>
+              <span :class="form.active ? 'text-success' : 'text-muted'" style="font-weight:500; font-size:14px;">
+                {{ form.active ? 'Aktivní' : 'Neaktivní' }}
+              </span>
             </div>
-            <button
-              id="client-active-toggle"
-              class="toggle-btn"
-              :class="{ 'toggle-on': form.active }"
-              role="switch"
-              :aria-checked="form.active"
-              aria-label="Stav účtu"
-              @click="form.active = !form.active"
-            >
-              <span class="toggle-knob" aria-hidden="true" />
-            </button>
-            <span :class="form.active ? 'text-success' : 'text-muted'" style="font-weight:500; font-size:14px;">
-              {{ form.active ? 'Aktivní' : 'Neaktivní' }}
-            </span>
+
+            <div class="status-toggle-row">
+              <div>
+                <div class="form-label">Demo účet</div>
+                <p class="field-hint">Klient uvidí ukázkový kalendář úklidů (Út/Čt v lichých týdnech, St/So v sudých). Skutečná data z FreshQR se ignorují.</p>
+              </div>
+              <button
+                id="client-demo-toggle"
+                class="toggle-btn"
+                :class="{ 'toggle-on': form.isDemo }"
+                role="switch"
+                :aria-checked="form.isDemo"
+                aria-label="Demo účet"
+                @click="form.isDemo = !form.isDemo"
+              >
+                <span class="toggle-knob" aria-hidden="true" />
+              </button>
+              <span :class="form.isDemo ? 'text-warning' : 'text-muted'" style="font-weight:500; font-size:14px;">
+                {{ form.isDemo ? 'Zapnuto' : 'Vypnuto' }}
+              </span>
+            </div>
           </div>
         </section>
 

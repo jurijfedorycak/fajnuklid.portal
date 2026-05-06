@@ -536,6 +536,7 @@ class AdminController extends Controller
             'displayName' => $client['display_name'],
             'notes' => '',
             'active' => $hasActiveLogin,
+            'isDemo' => (bool) ($client['is_demo'] ?? false),
             'logins' => $logins,
             'icos' => $icos,
             'staff' => $staff,
@@ -555,6 +556,7 @@ class AdminController extends Controller
         $data = [
             'client_id' => trim((string) ($payload['client_id'] ?? '')),
             'display_name' => trim((string) ($payload['display_name'] ?? '')),
+            'is_demo' => (bool) ($payload['is_demo'] ?? false),
         ];
 
         $db = \App\Config\Database::getConnection();
@@ -771,6 +773,9 @@ class AdminController extends Controller
         $data = [];
         if (array_key_exists('display_name', $payload) && is_string($payload['display_name'])) {
             $data['display_name'] = trim($payload['display_name']);
+        }
+        if (array_key_exists('is_demo', $payload)) {
+            $data['is_demo'] = (bool) $payload['is_demo'];
         }
 
         $db = \App\Config\Database::getConnection();
