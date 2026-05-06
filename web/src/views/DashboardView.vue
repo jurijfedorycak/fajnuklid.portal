@@ -1,70 +1,103 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { RouterLink } from 'vue-router'
-import { Doughnut } from 'vue-chartjs'
 import {
-  Chart as ChartJS, ArcElement, Tooltip, Legend
-} from 'chart.js'
+  ref,
+  computed,
+  onMounted,
+  onBeforeUnmount,
+  watch,
+  nextTick,
+} from "vue";
+import { RouterLink } from "vue-router";
+import { Doughnut } from "vue-chartjs";
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import {
-  Calendar, ChevronLeft, ChevronRight, ArrowRight,
-  CheckCircle2, Loader2, Clock, Check, ClipboardList, Plus,
-  Sparkles, FileText, Users, FileSignature, AlertCircle,
-} from 'lucide-vue-next'
-import { useRouter } from 'vue-router'
-import { dashboardService, maintenanceRequestService, REQUEST_STATUSES } from '../api'
-import { useAuth } from '../stores/auth'
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  ArrowRight,
+  CheckCircle2,
+  Loader2,
+  Clock,
+  Check,
+  ClipboardList,
+  Plus,
+  Sparkles,
+  FileText,
+  Users,
+  FileSignature,
+  AlertCircle,
+} from "lucide-vue-next";
+import { useRouter } from "vue-router";
+import {
+  dashboardService,
+  maintenanceRequestService,
+  REQUEST_STATUSES,
+} from "../api";
+import { useAuth } from "../stores/auth";
 
-const dashRouter = useRouter()
+const dashRouter = useRouter();
 
 // ── Maintenance request widget ──────────────────────────────────────────────
-const requestsWidgetLoading = ref(true)
-const latestOpenRequest = ref(null)
+const requestsWidgetLoading = ref(true);
+const latestOpenRequest = ref(null);
 
 async function fetchLatestOpenRequest() {
-  requestsWidgetLoading.value = true
+  requestsWidgetLoading.value = true;
   try {
-    const res = await maintenanceRequestService.list({ status: 'open', limit: 1 })
+    const res = await maintenanceRequestService.list({
+      status: "open",
+      limit: 1,
+    });
     if (res.success && Array.isArray(res.data) && res.data.length) {
-      latestOpenRequest.value = res.data[0]
+      latestOpenRequest.value = res.data[0];
     } else {
-      latestOpenRequest.value = null
+      latestOpenRequest.value = null;
     }
   } catch (e) {
-    latestOpenRequest.value = null
+    latestOpenRequest.value = null;
   } finally {
-    requestsWidgetLoading.value = false
+    requestsWidgetLoading.value = false;
   }
 }
 
 function requestStatusMeta(key) {
-  return REQUEST_STATUSES.find(s => s.key === key) || { label: key, badge: 'badge-gray' }
+  return (
+    REQUEST_STATUSES.find((s) => s.key === key) || {
+      label: key,
+      badge: "badge-gray",
+    }
+  );
 }
 
 function formatRequestDate(d) {
-  if (!d) return ''
-  return new Date(d).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' })
+  if (!d) return "";
+  return new Date(d).toLocaleDateString("cs-CZ", {
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+  });
 }
 
-ChartJS.register(ArcElement, Tooltip, Legend)
+ChartJS.register(ArcElement, Tooltip, Legend);
 
-const { user } = useAuth()
+const { user } = useAuth();
 
 // ── State ────────────────────────────────────────────────────────────────────
-const loading = ref(true)
-const refetching = ref(false)
-const error = ref(null)
+const loading = ref(true);
+const refetching = ref(false);
+const error = ref(null);
 // Guards against double-fetch on initial mount when the watcher fires after
 // the server-validated activeIco syncs back into local state.
-let initialFetchDone = false
+let initialFetchDone = false;
 // Token used to discard responses from superseded fetches (e.g. rapid IČO clicks).
-let fetchToken = 0
+let fetchToken = 0;
 
-const today = new Date()
-const startOfYearStr = `${today.getFullYear()}-01-01`
-const todayStr = formatISODate(today)
+const today = new Date();
+const startOfYearStr = `${today.getFullYear()}-01-01`;
+const todayStr = formatISODate(today);
 
-const range = ref({ from: startOfYearStr, to: todayStr })
-const activeIco = ref(user.value?.active_ico || null)
+const range = ref({ from: startOfYearStr, to: todayStr });
+const activeIco = ref(user.value?.active_ico || null);
 
 const dashboardData = ref({
   currentUser: null,
@@ -72,123 +105,138 @@ const dashboardData = ref({
   activeIco: null,
   dateRange: { from: startOfYearStr, to: todayStr },
   overview: {
-    invoices: { total: 0, paidCount: 0, unpaidCount: 0, overdueCount: 0, nextDue: null },
-    personnel: { count: 0, locationName: '' },
+    invoices: {
+      total: 0,
+      paidCount: 0,
+      unpaidCount: 0,
+      overdueCount: 0,
+      nextDue: null,
+    },
+    personnel: { count: 0, locationName: "" },
     contract: { hasPdf: false, contractsEnabled: false },
   },
   cleaningDays: [],
   personnelList: [],
   recentInvoices: [],
-})
+});
 
 // ── Fetch ────────────────────────────────────────────────────────────────────
 async function fetchDashboard(initial = false) {
-  const myToken = ++fetchToken
+  const myToken = ++fetchToken;
   if (initial) {
-    loading.value = true
+    loading.value = true;
   } else {
-    refetching.value = true
+    refetching.value = true;
   }
-  error.value = null
+  error.value = null;
   try {
     const response = await dashboardService.getDashboard({
       ico: activeIco.value || undefined,
       from: range.value.from,
       to: range.value.to,
-    })
+    });
     // Discard stale responses (user clicked a different IČO mid-flight)
-    if (myToken !== fetchToken) return
+    if (myToken !== fetchToken) return;
     if (response.success) {
-      dashboardData.value = response.data
+      dashboardData.value = response.data;
       // Sync local state with server-validated values (e.g. fallback IČO).
       // Set initialFetchDone BEFORE the assignment so the watcher can fire
       // exactly once if the value actually changes.
-      if (response.data.activeIco && response.data.activeIco !== activeIco.value) {
+      if (
+        response.data.activeIco &&
+        response.data.activeIco !== activeIco.value
+      ) {
         // Suppress watcher reaction to this server-driven sync.
-        suppressWatch = true
-        activeIco.value = response.data.activeIco
+        suppressWatch = true;
+        activeIco.value = response.data.activeIco;
       }
       // Reset personnel paginator when data set changes
-      personnelPage.value = 0
+      personnelPage.value = 0;
     } else {
-      error.value = response.message || 'Nepodařilo se načíst data'
+      error.value = response.message || "Nepodařilo se načíst data";
     }
   } catch (err) {
-    if (myToken !== fetchToken) return
-    error.value = err.response?.data?.message || err.message || 'Nepodařilo se načíst data'
+    if (myToken !== fetchToken) return;
+    error.value =
+      err.response?.data?.message || err.message || "Nepodařilo se načíst data";
   } finally {
     if (myToken === fetchToken) {
-      loading.value = false
-      refetching.value = false
-      initialFetchDone = true
+      loading.value = false;
+      refetching.value = false;
+      initialFetchDone = true;
     }
   }
 }
 
-let suppressWatch = false
+let suppressWatch = false;
 
-onMounted(() => fetchDashboard(true))
-onMounted(fetchLatestOpenRequest)
+onMounted(() => fetchDashboard(true));
+onMounted(fetchLatestOpenRequest);
 
 watch([activeIco, () => range.value.from, () => range.value.to], () => {
   if (suppressWatch) {
-    suppressWatch = false
-    return
+    suppressWatch = false;
+    return;
   }
-  if (!initialFetchDone) return
-  fetchDashboard(false)
-})
+  if (!initialFetchDone) return;
+  fetchDashboard(false);
+});
 
 // ── Computed slices ─────────────────────────────────────────────────────────
-const companies = computed(() => dashboardData.value.companies || [])
-const overview = computed(() => dashboardData.value.overview || {})
-const invoicesOverview = computed(() => overview.value.invoices || {})
-const personnelOverview = computed(() => overview.value.personnel || {})
-const contract = computed(() => overview.value.contract || { hasPdf: false })
-const personnelList = computed(() => dashboardData.value.personnelList || [])
-const recentInvoices = computed(() => dashboardData.value.recentInvoices || [])
-const cleaningDays = computed(() => dashboardData.value.cleaningDays || [])
+const companies = computed(() => dashboardData.value.companies || []);
+const overview = computed(() => dashboardData.value.overview || {});
+const invoicesOverview = computed(() => overview.value.invoices || {});
+const personnelOverview = computed(() => overview.value.personnel || {});
+const contract = computed(() => overview.value.contract || { hasPdf: false });
+const personnelList = computed(() => dashboardData.value.personnelList || []);
+const recentInvoices = computed(() => dashboardData.value.recentInvoices || []);
+const cleaningDays = computed(() => dashboardData.value.cleaningDays || []);
 
 const greeting = computed(() => {
-  const h = new Date().getHours()
-  if (h < 12) return 'Dobré ráno'
-  if (h < 18) return 'Dobré odpoledne'
-  return 'Dobrý večer'
-})
+  const h = new Date().getHours();
+  if (h < 12) return "Dobré ráno";
+  if (h < 18) return "Dobré odpoledne";
+  return "Dobrý večer";
+});
 
 const displayFirstName = computed(() => {
-  const fullName = dashboardData.value.currentUser?.displayName
-    || user.value?.display_name
-    || user.value?.email
-    || 'Klient'
-  return fullName.split(' ')[0]
-})
+  const fullName =
+    dashboardData.value.currentUser?.displayName ||
+    user.value?.display_name ||
+    user.value?.email ||
+    "Klient";
+  return fullName.split(" ")[0];
+});
 
 // ── Donut chart ─────────────────────────────────────────────────────────────
 // Read color tokens from the CSS custom properties defined in style.css
 // (CLAUDE.md rule 3: never hardcode color values).
 function cssVar(name) {
-  if (typeof window === 'undefined') return ''
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  if (typeof window === "undefined") return "";
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
 }
 
 const chartData = computed(() => ({
-  labels: ['Zaplaceno', 'Nezaplaceno', 'Po splatnosti'],
-  datasets: [{
-    data: [
-      invoicesOverview.value.paidCount || 0,
-      invoicesOverview.value.unpaidCount || 0,
-      invoicesOverview.value.overdueCount || 0,
-    ],
-    backgroundColor: [
-      cssVar('--color-success'),
-      cssVar('--color-gray-300'),
-      cssVar('--color-danger'),
-    ],
-    borderWidth: 0,
-    hoverOffset: 4,
-  }],
-}))
+  labels: ["Zaplaceno", "Nezaplaceno", "Po splatnosti"],
+  datasets: [
+    {
+      data: [
+        invoicesOverview.value.paidCount || 0,
+        invoicesOverview.value.unpaidCount || 0,
+        invoicesOverview.value.overdueCount || 0,
+      ],
+      backgroundColor: [
+        cssVar("--color-success"),
+        cssVar("--color-gray-300"),
+        cssVar("--color-danger"),
+      ],
+      borderWidth: 0,
+      hoverOffset: 4,
+    },
+  ],
+}));
 
 const chartOptions = {
   responsive: true,
@@ -199,184 +247,219 @@ const chartOptions = {
       callbacks: { label: (ctx) => ` ${ctx.label}: ${ctx.raw} faktur` },
     },
   },
-  cutout: '70%',
-}
+  cutout: "70%",
+};
 
 // ── Date range picker ───────────────────────────────────────────────────────
-const datePickerOpen = ref(false)
-const customFrom = ref(range.value.from)
-const customTo = ref(range.value.to)
-const datePickerWrapRef = ref(null)
+const datePickerOpen = ref(false);
+const customFrom = ref(range.value.from);
+const customTo = ref(range.value.to);
+const datePickerWrapRef = ref(null);
 
 function onDocumentClick(e) {
-  if (!datePickerOpen.value) return
+  if (!datePickerOpen.value) return;
   if (datePickerWrapRef.value && !datePickerWrapRef.value.contains(e.target)) {
-    datePickerOpen.value = false
+    datePickerOpen.value = false;
   }
 }
 
 function onDocumentKeydown(e) {
-  if (e.key === 'Escape' && datePickerOpen.value) {
-    datePickerOpen.value = false
+  if (e.key === "Escape" && datePickerOpen.value) {
+    datePickerOpen.value = false;
     // Return focus to the trigger button for accessibility
-    nextTick(() => document.getElementById('dashboard-date-range-btn')?.focus())
+    nextTick(() =>
+      document.getElementById("dashboard-date-range-btn")?.focus(),
+    );
   }
 }
 
 onMounted(() => {
-  document.addEventListener('mousedown', onDocumentClick)
-  document.addEventListener('keydown', onDocumentKeydown)
-})
+  document.addEventListener("mousedown", onDocumentClick);
+  document.addEventListener("keydown", onDocumentKeydown);
+});
 
 onBeforeUnmount(() => {
-  document.removeEventListener('mousedown', onDocumentClick)
-  document.removeEventListener('keydown', onDocumentKeydown)
-})
+  document.removeEventListener("mousedown", onDocumentClick);
+  document.removeEventListener("keydown", onDocumentKeydown);
+});
 
 const PRESETS = [
-  { id: 'thisMonth', label: 'Tento měsíc' },
-  { id: 'lastMonth', label: 'Minulý měsíc' },
-  { id: 'thisYear', label: 'Tento rok' },
-  { id: 'lastYear', label: 'Minulý rok' },
-  { id: 'custom', label: 'Vlastní' },
-]
+  { id: "thisMonth", label: "Tento měsíc" },
+  { id: "lastMonth", label: "Minulý měsíc" },
+  { id: "thisYear", label: "Tento rok" },
+  { id: "lastYear", label: "Minulý rok" },
+  { id: "custom", label: "Vlastní" },
+];
 
-const activePreset = ref('thisYear')
+const activePreset = ref("thisYear");
 
 function applyPreset(id) {
-  const now = new Date()
-  let from, to
-  if (id === 'thisMonth') {
-    from = new Date(now.getFullYear(), now.getMonth(), 1)
-    to = now
-  } else if (id === 'lastMonth') {
-    from = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    to = new Date(now.getFullYear(), now.getMonth(), 0)
-  } else if (id === 'thisYear') {
-    from = new Date(now.getFullYear(), 0, 1)
-    to = now
-  } else if (id === 'lastYear') {
-    from = new Date(now.getFullYear() - 1, 0, 1)
-    to = new Date(now.getFullYear() - 1, 11, 31)
+  const now = new Date();
+  let from, to;
+  if (id === "thisMonth") {
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to = now;
+  } else if (id === "lastMonth") {
+    from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    to = new Date(now.getFullYear(), now.getMonth(), 0);
+  } else if (id === "thisYear") {
+    from = new Date(now.getFullYear(), 0, 1);
+    to = now;
+  } else if (id === "lastYear") {
+    from = new Date(now.getFullYear() - 1, 0, 1);
+    to = new Date(now.getFullYear() - 1, 11, 31);
   } else {
-    activePreset.value = 'custom'
-    return
+    activePreset.value = "custom";
+    return;
   }
-  activePreset.value = id
-  range.value = { from: formatISODate(from), to: formatISODate(to) }
-  customFrom.value = range.value.from
-  customTo.value = range.value.to
-  datePickerOpen.value = false
+  activePreset.value = id;
+  range.value = { from: formatISODate(from), to: formatISODate(to) };
+  customFrom.value = range.value.from;
+  customTo.value = range.value.to;
+  datePickerOpen.value = false;
 }
 
 function applyCustomRange() {
-  if (!customFrom.value || !customTo.value) return
-  let from = customFrom.value
-  let to = customTo.value
-  if (from > to) [from, to] = [to, from]
-  range.value = { from, to }
-  activePreset.value = 'custom'
-  datePickerOpen.value = false
+  if (!customFrom.value || !customTo.value) return;
+  let from = customFrom.value;
+  let to = customTo.value;
+  if (from > to) [from, to] = [to, from];
+  range.value = { from, to };
+  activePreset.value = "custom";
+  datePickerOpen.value = false;
 }
 
 function cancelCustomRange() {
-  customFrom.value = range.value.from
-  customTo.value = range.value.to
-  datePickerOpen.value = false
+  customFrom.value = range.value.from;
+  customTo.value = range.value.to;
+  datePickerOpen.value = false;
 }
 
-const dateRangeLabel = computed(() => `${formatCsDate(range.value.from)} – ${formatCsDate(range.value.to)}`)
+const dateRangeLabel = computed(
+  () => `${formatCsDate(range.value.from)} – ${formatCsDate(range.value.to)}`,
+);
 
 // Photos can occasionally 404 (e.g. broken links from the admin); when that happens
 // we fall back to initials rather than showing a broken-image icon on the dashboard.
-const brokenPhotos = ref({})
+const brokenPhotos = ref({});
 
 function markPhotoBroken(id) {
-  brokenPhotos.value = { ...brokenPhotos.value, [id]: true }
+  brokenPhotos.value = { ...brokenPhotos.value, [id]: true };
 }
 
 // ── Personnel pagination ────────────────────────────────────────────────────
-const personnelPage = ref(0)
-const PERSONNEL_PER_PAGE = 2
+const personnelPage = ref(0);
+const PERSONNEL_PER_PAGE = 2;
 
-const personnelTotalPages = computed(() => Math.max(1, Math.ceil(personnelList.value.length / PERSONNEL_PER_PAGE)))
+const personnelTotalPages = computed(() =>
+  Math.max(1, Math.ceil(personnelList.value.length / PERSONNEL_PER_PAGE)),
+);
 
 const personnelVisible = computed(() => {
-  const start = personnelPage.value * PERSONNEL_PER_PAGE
-  return personnelList.value.slice(start, start + PERSONNEL_PER_PAGE)
-})
+  const start = personnelPage.value * PERSONNEL_PER_PAGE;
+  return personnelList.value.slice(start, start + PERSONNEL_PER_PAGE);
+});
 
 function personnelPrev() {
-  if (personnelPage.value > 0) personnelPage.value--
+  if (personnelPage.value > 0) personnelPage.value--;
 }
 
 function personnelNext() {
-  if (personnelPage.value < personnelTotalPages.value - 1) personnelPage.value++
+  if (personnelPage.value < personnelTotalPages.value - 1)
+    personnelPage.value++;
 }
 
 // ── Cleaning summary ────────────────────────────────────────────────────────
 const cleaningStats = computed(() => {
-  const stats = { done: 0, ongoing: 0, scheduled: 0 }
+  const stats = { done: 0, ongoing: 0, scheduled: 0 };
   for (const d of cleaningDays.value) {
-    if (d.status === 'done') stats.done++
-    else if (d.status === 'ongoing') stats.ongoing++
-    else if (d.status === 'scheduled') stats.scheduled++
+    if (d.status === "done") stats.done++;
+    else if (d.status === "ongoing") stats.ongoing++;
+    else if (d.status === "scheduled") stats.scheduled++;
   }
-  return stats
-})
+  return stats;
+});
 
 // True when the client has no data at all — used to show a WOW onboarding hero
 // instead of a wall of zeros on the brand-new client's first visit.
 const isBrandNewClient = computed(() => {
-  return (invoicesOverview.value.total || 0) === 0
-    && cleaningDays.value.length === 0
-    && !contract.value.hasPdf
-})
+  return (
+    (invoicesOverview.value.total || 0) === 0 &&
+    cleaningDays.value.length === 0 &&
+    !contract.value.hasPdf
+  );
+});
 
-const hasAnyInvoiceData = computed(() => (invoicesOverview.value.total || 0) > 0)
-const hasOverdueInvoices = computed(() => (invoicesOverview.value.overdueCount || 0) > 0)
+const hasAnyInvoiceData = computed(
+  () => (invoicesOverview.value.total || 0) > 0,
+);
+const hasOverdueInvoices = computed(
+  () => (invoicesOverview.value.overdueCount || 0) > 0,
+);
 
-const MONTHS = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec']
-const currentMonthLabel = computed(() => `${MONTHS[today.getMonth()]} ${today.getFullYear()}`)
+const MONTHS = [
+  "leden",
+  "únor",
+  "březen",
+  "duben",
+  "květen",
+  "červen",
+  "červenec",
+  "srpen",
+  "září",
+  "říjen",
+  "listopad",
+  "prosinec",
+];
+const currentMonthLabel = computed(
+  () => `${MONTHS[today.getMonth()]} ${today.getFullYear()}`,
+);
 
 function cleaningDayNumber(dateStr) {
-  if (!dateStr) return ''
-  const parts = dateStr.split('-')
-  return parts[2] ? parseInt(parts[2], 10) : ''
+  if (!dateStr) return "";
+  const parts = dateStr.split("-");
+  return parts[2] ? parseInt(parts[2], 10) : "";
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function formatISODate(d) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function formatCsDate(iso) {
-  if (!iso) return ''
-  const [y, m, d] = iso.split('-')
-  return `${parseInt(d, 10)}. ${parseInt(m, 10)}. ${y}`
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${parseInt(d, 10)}. ${parseInt(m, 10)}. ${y}`;
 }
 
-function formatAmount(n, currency = 'Kč') {
-  return `${Number(n).toLocaleString('cs-CZ')} ${currency}`
+function formatAmount(n, currency = "Kč") {
+  return `${Number(n).toLocaleString("cs-CZ")} ${currency}`;
 }
 
 function initials(name) {
-  if (!name) return '?'
-  return name.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
+  if (!name) return "?";
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 function statusBadge(status) {
-  if (status === 'paid') return { cls: 'badge-success', label: 'Zaplaceno' }
-  if (status === 'overdue') return { cls: 'badge-danger', label: 'Po splatnosti' }
-  return { cls: 'badge-info', label: 'Nezaplaceno' }
+  if (status === "paid") return { cls: "badge-success", label: "Zaplaceno" };
+  if (status === "overdue")
+    return { cls: "badge-danger", label: "Po splatnosti" };
+  return { cls: "badge-info", label: "Nezaplaceno" };
 }
 
 function selectCompany(ico) {
-  if (ico === activeIco.value) return
-  activeIco.value = ico
+  if (ico === activeIco.value) return;
+  activeIco.value = ico;
 }
 </script>
 
@@ -395,9 +478,18 @@ function selectCompany(ico) {
     </div>
 
     <!-- Error state -->
-    <div v-else-if="error" id="dashboard-error" class="alert alert-danger dashboard-error-state">
+    <div
+      v-else-if="error"
+      id="dashboard-error"
+      class="alert alert-danger dashboard-error-state"
+    >
       <span>{{ error }}</span>
-      <button id="dashboard-error-retry-btn" type="button" class="btn btn-sm btn-outline" @click="fetchDashboard(true)">
+      <button
+        id="dashboard-error-retry-btn"
+        type="button"
+        class="btn btn-sm btn-outline"
+        @click="fetchDashboard(true)"
+      >
         Zkusit znovu
       </button>
     </div>
@@ -407,7 +499,8 @@ function selectCompany(ico) {
       <!-- Header: greeting + IČO switcher -->
       <header id="dashboard-header" class="dashboard-header">
         <h1 id="dashboard-greeting" class="dashboard-greeting">
-          {{ greeting }}, {{ displayFirstName }} <span aria-hidden="true">👋</span>
+          {{ greeting }}, {{ displayFirstName }}
+          <span aria-hidden="true">👋</span>
         </h1>
         <div
           v-if="companies.length >= 2"
@@ -427,7 +520,9 @@ function selectCompany(ico) {
             :aria-selected="company.ico === activeIco"
             @click="selectCompany(company.ico)"
           >
-            <span class="avatar avatar-sm company-tile-avatar">{{ initials(company.name) }}</span>
+            <span class="avatar avatar-sm company-tile-avatar">{{
+              initials(company.name)
+            }}</span>
             <span class="company-tile-text">
               <span class="company-tile-name">{{ company.name }}</span>
               <span class="company-tile-ico">IČO: {{ company.ico }}</span>
@@ -453,8 +548,9 @@ function selectCompany(ico) {
           Všechno důležité o úklidu vašich prostor na jednom místě
         </h2>
         <p id="dashboard-onboarding-desc" class="onboarding-hero-desc">
-          Až začnou probíhat první úklidy a přijdou vaše první faktury, uvidíte je tady.
-          Mezitím se můžete rozhlédnout nebo nám napsat jakoukoliv zprávu.
+          Až začnou probíhat první úklidy a přijdou vaše první faktury, uvidíte
+          je tady. Mezitím se můžete rozhlédnout nebo nám napsat jakoukoliv
+          zprávu.
         </p>
 
         <div class="onboarding-hero-steps">
@@ -488,11 +584,19 @@ function selectCompany(ico) {
         </div>
 
         <div class="onboarding-hero-actions">
-          <RouterLink id="dashboard-onboarding-cta-personnel" to="/personal" class="btn btn-primary btn-sm">
+          <RouterLink
+            id="dashboard-onboarding-cta-personnel"
+            to="/personal"
+            class="btn btn-primary btn-sm"
+          >
             <Users :size="14" aria-hidden="true" />
             <span>Poznat svůj tým</span>
           </RouterLink>
-          <RouterLink id="dashboard-onboarding-cta-request" to="/zadosti/nova" class="btn btn-outline btn-sm">
+          <RouterLink
+            id="dashboard-onboarding-cta-request"
+            to="/zadosti/nova"
+            class="btn btn-outline btn-sm"
+          >
             <Plus :size="14" aria-hidden="true" />
             <span>Vytvořit požadavek</span>
           </RouterLink>
@@ -500,9 +604,15 @@ function selectCompany(ico) {
       </section>
 
       <!-- Overview card -->
-      <section id="dashboard-overview-card" class="card overview-card" :class="{ 'is-refetching': refetching }">
+      <section
+        id="dashboard-overview-card"
+        class="card overview-card"
+        :class="{ 'is-refetching': refetching }"
+      >
         <div class="overview-head">
-          <h3 id="dashboard-overview-title" class="overview-title">Celkový přehled</h3>
+          <h3 id="dashboard-overview-title" class="overview-title">
+            Celkový přehled
+          </h3>
           <div ref="datePickerWrapRef" class="date-picker-wrap">
             <button
               id="dashboard-date-range-btn"
@@ -536,18 +646,50 @@ function selectCompany(ico) {
                   {{ preset.label }}
                 </button>
               </div>
-              <div v-if="activePreset === 'custom'" id="dashboard-date-custom" class="date-custom">
+              <div
+                v-if="activePreset === 'custom'"
+                id="dashboard-date-custom"
+                class="date-custom"
+              >
                 <div class="form-group">
-                  <label for="dashboard-date-custom-from" class="form-label">Od</label>
-                  <input id="dashboard-date-custom-from" v-model="customFrom" type="date" class="form-input" />
+                  <label for="dashboard-date-custom-from" class="form-label"
+                    >Od</label
+                  >
+                  <input
+                    id="dashboard-date-custom-from"
+                    v-model="customFrom"
+                    type="date"
+                    class="form-input"
+                  />
                 </div>
                 <div class="form-group">
-                  <label for="dashboard-date-custom-to" class="form-label">Do</label>
-                  <input id="dashboard-date-custom-to" v-model="customTo" type="date" class="form-input" />
+                  <label for="dashboard-date-custom-to" class="form-label"
+                    >Do</label
+                  >
+                  <input
+                    id="dashboard-date-custom-to"
+                    v-model="customTo"
+                    type="date"
+                    class="form-input"
+                  />
                 </div>
                 <div class="date-custom-actions">
-                  <button id="dashboard-date-custom-cancel" type="button" class="btn btn-ghost btn-sm" @click="cancelCustomRange">Zrušit</button>
-                  <button id="dashboard-date-custom-apply" type="button" class="btn btn-primary btn-sm" @click="applyCustomRange">Použít</button>
+                  <button
+                    id="dashboard-date-custom-cancel"
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    @click="cancelCustomRange"
+                  >
+                    Zrušit
+                  </button>
+                  <button
+                    id="dashboard-date-custom-apply"
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    @click="applyCustomRange"
+                  >
+                    Použít
+                  </button>
                 </div>
               </div>
             </div>
@@ -558,14 +700,23 @@ function selectCompany(ico) {
           <div id="dashboard-metric-invoices" class="metric">
             <div class="metric-label">Faktur celkem</div>
             <div class="metric-row">
-              <div class="metric-value" :class="{ 'metric-value-muted': !invoicesOverview.total }">
+              <div
+                class="metric-value"
+                :class="{ 'metric-value-muted': !invoicesOverview.total }"
+              >
                 {{ invoicesOverview.total }}
               </div>
               <div class="metric-badges">
-                <span v-if="invoicesOverview.overdueCount > 0" class="badge badge-danger">
+                <span
+                  v-if="invoicesOverview.overdueCount > 0"
+                  class="badge badge-danger"
+                >
                   {{ invoicesOverview.overdueCount }} po splatnosti
                 </span>
-                <span v-if="invoicesOverview.unpaidCount > 0" class="badge badge-info">
+                <span
+                  v-if="invoicesOverview.unpaidCount > 0"
+                  class="badge badge-info"
+                >
                   {{ invoicesOverview.unpaidCount }} čeká
                 </span>
               </div>
@@ -578,17 +729,25 @@ function selectCompany(ico) {
               <div v-if="invoicesOverview.nextDue" class="metric-value">
                 za {{ invoicesOverview.nextDue.daysRelative }} dní
               </div>
-              <div v-else-if="hasOverdueInvoices" class="metric-value metric-value-overdue">
+              <div
+                v-else-if="hasOverdueInvoices"
+                class="metric-value metric-value-overdue"
+              >
                 <AlertCircle :size="18" aria-hidden="true" />
                 {{ invoicesOverview.overdueCount }} po splatnosti
               </div>
-              <div v-else-if="hasAnyInvoiceData" class="metric-value metric-value-ok">
+              <div
+                v-else-if="hasAnyInvoiceData"
+                class="metric-value metric-value-ok"
+              >
                 <Check :size="18" aria-hidden="true" />
                 Vše splaceno
               </div>
               <div v-else class="metric-placeholder">Zatím žádné faktury</div>
               <div v-if="invoicesOverview.nextDue" class="metric-badges">
-                <span class="badge badge-info">{{ invoicesOverview.nextDue.documentNumber }}</span>
+                <span class="badge badge-info">{{
+                  invoicesOverview.nextDue.documentNumber
+                }}</span>
               </div>
             </div>
           </div>
@@ -596,12 +755,24 @@ function selectCompany(ico) {
           <div id="dashboard-metric-personnel" class="metric">
             <div class="metric-label">Přiřazený tým</div>
             <div class="metric-row">
-              <div class="metric-value" :class="{ 'metric-value-muted': !personnelOverview.count }">
+              <div
+                class="metric-value"
+                :class="{ 'metric-value-muted': !personnelOverview.count }"
+              >
                 {{ personnelOverview.count }}
-                <span class="metric-value-unit">{{ personnelOverview.count === 1 ? 'pracovník' : (personnelOverview.count >= 2 && personnelOverview.count <= 4 ? 'pracovníci' : 'pracovníků') }}</span>
+                <span class="metric-value-unit">{{
+                  personnelOverview.count === 1
+                    ? "pracovník"
+                    : personnelOverview.count >= 2 &&
+                        personnelOverview.count <= 4
+                      ? "pracovníci"
+                      : "pracovníků"
+                }}</span>
               </div>
               <div v-if="personnelOverview.locationName" class="metric-badges">
-                <span class="badge badge-info">{{ personnelOverview.locationName }}</span>
+                <span class="badge badge-info">{{
+                  personnelOverview.locationName
+                }}</span>
               </div>
             </div>
           </div>
@@ -609,25 +780,58 @@ function selectCompany(ico) {
           <div id="dashboard-metric-contract" class="metric">
             <div class="metric-label">Smlouva</div>
             <div class="metric-row metric-row-contract">
-              <Check v-if="contract.hasPdf" :size="18" class="metric-contract-icon ok" aria-label="Smlouva nahrána" />
-              <FileSignature v-else :size="18" class="metric-contract-icon pending" aria-label="Smlouva zatím není" />
-              <RouterLink v-if="contract.hasPdf" id="dashboard-metric-contract-link" to="/smlouva" class="metric-link">
+              <Check
+                v-if="contract.hasPdf"
+                :size="18"
+                class="metric-contract-icon ok"
+                aria-label="Smlouva nahrána"
+              />
+              <FileSignature
+                v-else
+                :size="18"
+                class="metric-contract-icon pending"
+                aria-label="Smlouva zatím není"
+              />
+              <RouterLink
+                v-if="contract.hasPdf"
+                id="dashboard-metric-contract-link"
+                to="/smlouva"
+                class="metric-link"
+              >
                 Zobrazit smlouvu <ArrowRight :size="14" />
               </RouterLink>
-              <span v-else class="metric-link metric-link-muted">Připravujeme</span>
+              <span v-else class="metric-link metric-link-muted"
+                >Připravujeme</span
+              >
             </div>
           </div>
         </div>
       </section>
 
       <!-- Požadavky a reklamace widget -->
-      <section id="dashboard-requests-card" class="card requests-widget" style="margin-bottom:24px;">
+      <section
+        id="dashboard-requests-card"
+        class="card requests-widget"
+        style="margin-bottom: 24px"
+      >
         <div class="card-header-row">
           <h3 id="dashboard-requests-title" class="card-title">
-            <ClipboardList :size="18" style="vertical-align:-3px; margin-right:6px; color:var(--color-mid);" />
+            <ClipboardList
+              :size="18"
+              style="
+                vertical-align: -3px;
+                margin-right: 6px;
+                color: var(--color-mid);
+              "
+            />
             Požadavky a reklamace
           </h3>
-          <RouterLink v-if="latestOpenRequest" id="dashboard-requests-all-link" to="/zadosti" class="card-link">
+          <RouterLink
+            v-if="latestOpenRequest"
+            id="dashboard-requests-all-link"
+            to="/zadosti"
+            class="card-link"
+          >
             Zobrazit všechny <ArrowRight :size="14" />
           </RouterLink>
         </div>
@@ -644,19 +848,29 @@ function selectCompany(ico) {
         >
           <div class="rwr-main">
             <div class="rwr-title">{{ latestOpenRequest.title }}</div>
-            <div class="rwr-meta">{{ formatRequestDate(latestOpenRequest.createdAt) }}</div>
+            <div class="rwr-meta">
+              {{ formatRequestDate(latestOpenRequest.createdAt) }}
+            </div>
           </div>
-          <span class="badge" :class="requestStatusMeta(latestOpenRequest.status).badge">
+          <span
+            class="badge"
+            :class="requestStatusMeta(latestOpenRequest.status).badge"
+          >
             {{ requestStatusMeta(latestOpenRequest.status).label }}
           </span>
         </RouterLink>
 
         <div v-else id="dashboard-requests-empty" class="requests-widget-empty">
-          Máte problém, dotaz nebo mimořádnou žádost? Vytvořte požadavek a my se vám co nejdříve ozveme s řešením.
+          Máte problém, dotaz nebo mimořádnou žádost? Vytvořte požadavek a my se
+          vám co nejdříve ozveme s řešením.
         </div>
 
         <div class="requests-widget-actions">
-          <RouterLink id="dashboard-requests-create-btn" to="/zadosti/nova" class="btn btn-primary btn-sm">
+          <RouterLink
+            id="dashboard-requests-create-btn"
+            to="/zadosti/nova"
+            class="btn btn-primary btn-sm"
+          >
             <Plus :size="14" />
             <span>Vytvořit požadavek</span>
           </RouterLink>
@@ -667,8 +881,14 @@ function selectCompany(ico) {
       <section id="dashboard-mid-row" class="dashboard-mid-row">
         <article id="dashboard-cleaning-card" class="card cleaning-card">
           <div class="card-header-row">
-            <h3 id="dashboard-cleaning-title" class="card-title">Úklidy – {{ currentMonthLabel }}</h3>
-            <RouterLink id="dashboard-cleaning-detail-link" to="/dochazka" class="card-link">
+            <h3 id="dashboard-cleaning-title" class="card-title">
+              Úklidy – {{ currentMonthLabel }}
+            </h3>
+            <RouterLink
+              id="dashboard-cleaning-detail-link"
+              to="/dochazka"
+              class="card-link"
+            >
               Detail <ArrowRight :size="14" />
             </RouterLink>
           </div>
@@ -682,13 +902,20 @@ function selectCompany(ico) {
               <Loader2 :size="13" class="spin" />
               Právě probíhá
             </span>
-            <span v-if="cleaningStats.scheduled > 0" class="cs-pill cs-scheduled">
+            <span
+              v-if="cleaningStats.scheduled > 0"
+              class="cs-pill cs-scheduled"
+            >
               <Clock :size="13" />
               {{ cleaningStats.scheduled }} naplánované
             </span>
           </div>
 
-          <div v-if="cleaningDays.length > 0" id="dashboard-cleaning-strip" class="day-strip">
+          <div
+            v-if="cleaningDays.length > 0"
+            id="dashboard-cleaning-strip"
+            class="day-strip"
+          >
             <div
               v-for="cell in cleaningDays"
               :key="cell.date"
@@ -702,9 +929,21 @@ function selectCompany(ico) {
               :title="cell.note || cell.date"
             >
               <span class="ds-num">{{ cleaningDayNumber(cell.date) }}</span>
-              <CheckCircle2 v-if="cell.status === 'done'" :size="11" class="ds-icon" />
-              <Loader2 v-else-if="cell.status === 'ongoing'" :size="11" class="ds-icon spin" />
-              <Clock v-else-if="cell.status === 'scheduled'" :size="11" class="ds-icon" />
+              <CheckCircle2
+                v-if="cell.status === 'done'"
+                :size="11"
+                class="ds-icon"
+              />
+              <Loader2
+                v-else-if="cell.status === 'ongoing'"
+                :size="11"
+                class="ds-icon spin"
+              />
+              <Clock
+                v-else-if="cell.status === 'scheduled'"
+                :size="11"
+                class="ds-icon"
+              />
             </div>
           </div>
           <div v-else id="dashboard-cleaning-empty" class="inline-empty">
@@ -714,16 +953,23 @@ function selectCompany(ico) {
             <span class="inline-empty-title">Zatím žádné úklidy</span>
             <span class="inline-empty-desc">
               Po prvním úklidu se tu rozsvítí zelené dny.
-              <RouterLink to="/dochazka" class="inline-empty-link">Otevřít kalendář</RouterLink>
+              <RouterLink to="/dochazka" class="inline-empty-link"
+                >Otevřít kalendář</RouterLink
+              >
             </span>
           </div>
         </article>
 
         <article id="dashboard-personnel-card" class="card personnel-card">
           <div class="card-header-row">
-            <h3 id="dashboard-personnel-title" class="card-title">Přiřazení pracovníci</h3>
+            <h3 id="dashboard-personnel-title" class="card-title">
+              Přiřazení pracovníci
+            </h3>
             <div class="personnel-header-actions">
-              <div v-if="personnelList.length > PERSONNEL_PER_PAGE" class="personnel-paginator">
+              <div
+                v-if="personnelList.length > PERSONNEL_PER_PAGE"
+                class="personnel-paginator"
+              >
                 <button
                   id="dashboard-personnel-prev-btn"
                   type="button"
@@ -734,7 +980,10 @@ function selectCompany(ico) {
                 >
                   <ChevronLeft :size="16" />
                 </button>
-                <span id="dashboard-personnel-page-indicator" class="paginator-text">
+                <span
+                  id="dashboard-personnel-page-indicator"
+                  class="paginator-text"
+                >
                   {{ personnelPage + 1 }}/{{ personnelTotalPages }}
                 </span>
                 <button
@@ -748,13 +997,21 @@ function selectCompany(ico) {
                   <ChevronRight :size="16" />
                 </button>
               </div>
-              <RouterLink id="dashboard-personnel-all-link" to="/personal" class="card-link">
+              <RouterLink
+                id="dashboard-personnel-all-link"
+                to="/personal"
+                class="card-link"
+              >
                 Všichni pracovníci <ArrowRight :size="14" />
               </RouterLink>
             </div>
           </div>
 
-          <div v-if="personnelVisible.length > 0" id="dashboard-personnel-list" class="personnel-list">
+          <div
+            v-if="personnelVisible.length > 0"
+            id="dashboard-personnel-list"
+            class="personnel-list"
+          >
             <div
               v-for="staff in personnelVisible"
               :key="staff.id"
@@ -772,7 +1029,9 @@ function selectCompany(ico) {
               </div>
               <div class="personnel-info">
                 <div class="personnel-name">{{ staff.name }}</div>
-                <div v-if="staff.role" class="personnel-role">{{ staff.role }}</div>
+                <div v-if="staff.role" class="personnel-role">
+                  {{ staff.role }}
+                </div>
               </div>
             </div>
           </div>
@@ -782,7 +1041,8 @@ function selectCompany(ico) {
             </span>
             <span class="inline-empty-title">Ještě žádný přiřazený tým</span>
             <span class="inline-empty-desc">
-              Jakmile vám přiřadíme pracovníky, najdete je tady i s jejich profily.
+              Jakmile vám přiřadíme pracovníky, najdete je tady i s jejich
+              profily.
             </span>
           </div>
         </article>
@@ -820,14 +1080,17 @@ function selectCompany(ico) {
             </span>
             <span class="inline-empty-title">Zatím žádné faktury</span>
             <span class="inline-empty-desc">
-              Jakmile vám vystavíme první fakturu, uvidíte tu rychlý přehled podle stavu.
+              Jakmile vám vystavíme první fakturu, uvidíte tu rychlý přehled
+              podle stavu.
             </span>
           </div>
         </article>
 
         <article id="dashboard-recent-invoices-card" class="card recent-card">
           <div class="card-header-row">
-            <h3 id="dashboard-recent-title" class="card-title">Poslední faktury</h3>
+            <h3 id="dashboard-recent-title" class="card-title">
+              Poslední faktury
+            </h3>
             <RouterLink
               v-if="recentInvoices.length > 0"
               id="dashboard-recent-all-link"
@@ -848,10 +1111,16 @@ function selectCompany(ico) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="inv in recentInvoices" :id="`dashboard-recent-row-${inv.id}`" :key="inv.id">
+                <tr
+                  v-for="inv in recentInvoices"
+                  :id="`dashboard-recent-row-${inv.id}`"
+                  :key="inv.id"
+                >
                   <td class="fw-500">{{ inv.documentNumber }}</td>
                   <td>{{ formatCsDate(inv.dueDate) }}</td>
-                  <td class="text-right fw-500">{{ formatAmount(inv.amount, inv.currency || 'Kč') }}</td>
+                  <td class="text-right fw-500">
+                    {{ formatAmount(inv.amount, inv.currency || "Kč") }}
+                  </td>
                   <td>
                     <span class="badge" :class="statusBadge(inv.status).cls">
                       {{ statusBadge(inv.status).label }}
@@ -1220,6 +1489,66 @@ function selectCompany(ico) {
   font-size: 13px;
 }
 
+/* ── Požadavky a reklamace widget ───────────────────────────────────────── */
+.requests-widget-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 0;
+  color: var(--color-mid);
+}
+
+.requests-widget-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.requests-widget-row:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.rwr-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.rwr-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rwr-meta {
+  font-size: 12px;
+  color: var(--color-gray-500);
+}
+
+.requests-widget-empty {
+  padding: 4px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-gray-600);
+}
+
+.requests-widget-actions {
+  display: flex;
+  margin-top: 14px;
+}
+
 /* ── Mid row ────────────────────────────────────────────────────────────── */
 /* Mobile-first: stacked. Two-column at lg. */
 .dashboard-mid-row {
@@ -1566,8 +1895,12 @@ function selectCompany(ico) {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Responsive ─────────────────────────────────────────────────────────── */
