@@ -222,9 +222,9 @@ class MaintenanceRequestServiceTest extends TestCase
 
     // clientReject
 
-    public function testClientRejectThrowsWhenStatusNotAwaiting(): void
+    public function testClientRejectThrowsWhenStatusNotResiSe(): void
     {
-        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'resi_se']));
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'prijato']));
 
         $this->expectException(ValidationException::class);
         $this->service->clientReject(1, 5, 10, 'Klient', 'protože');
@@ -232,7 +232,7 @@ class MaintenanceRequestServiceTest extends TestCase
 
     public function testClientRejectRequiresComment(): void
     {
-        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'ceka_na_potvrzeni']));
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'resi_se']));
 
         try {
             $this->service->clientReject(1, 5, 10, 'Klient', '');
@@ -242,14 +242,13 @@ class MaintenanceRequestServiceTest extends TestCase
         }
     }
 
-    public function testClientRejectRevertsToResiSe(): void
+    public function testClientRejectAddsCommentWithoutChangingStatus(): void
     {
-        $this->repoMock->method('findByIdForClient')->willReturnOnConsecutiveCalls(
-            $this->makeRow(['status' => 'ceka_na_potvrzeni']),
-            $this->makeRow(['status' => 'resi_se'])
-        );
-        $this->repoMock->expects($this->once())->method('updateStatus')->with(1, 'resi_se');
-        $this->repoMock->expects($this->once())->method('addActivity');
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'resi_se']));
+        $this->repoMock->expects($this->never())->method('updateStatus');
+        $this->repoMock->expects($this->once())
+            ->method('addActivity')
+            ->with($this->callback(fn ($d) => $d['author_type'] === 'client' && $d['message'] === 'Stále neteče voda' && $d['status_change'] === null));
         $this->stubAttachmentsAndActivity();
 
         $result = $this->service->clientReject(1, 5, 10, 'Klient', 'Stále neteče voda');
@@ -284,9 +283,9 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->service->clientConfirm(1, 5, 10, 'user@example.com');
     }
 
-    public function testClientConfirmThrowsWhenStatusNotAwaiting(): void
+    public function testClientConfirmThrowsWhenStatusNotResiSe(): void
     {
-        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'resi_se']));
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow(['status' => 'prijato']));
 
         $this->expectException(ValidationException::class);
         $this->service->clientConfirm(1, 5, 10, 'user@example.com');
@@ -295,7 +294,7 @@ class MaintenanceRequestServiceTest extends TestCase
     public function testClientConfirmUpdatesStatusAndAddsActivity(): void
     {
         $this->repoMock->method('findByIdForClient')->willReturnOnConsecutiveCalls(
-            $this->makeRow(['status' => 'ceka_na_potvrzeni']),
+            $this->makeRow(['status' => 'resi_se']),
             $this->makeRow(['status' => 'vyreseno'])
         );
         $this->repoMock->expects($this->once())

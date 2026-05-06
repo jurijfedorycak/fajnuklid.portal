@@ -324,7 +324,7 @@ CREATE TABLE `maintenance_requests` (
     `location_type` ENUM('office','common','custom') NULL,
     `location_value` VARCHAR(255) NULL,
     `description` TEXT NULL,
-    `status` ENUM('prijato','resi_se','ceka_na_potvrzeni','vyreseno','zablokovano') NOT NULL DEFAULT 'prijato',
+    `status` ENUM('prijato','resi_se','vyreseno','zablokovano') NOT NULL DEFAULT 'prijato',
     `due_date` DATE NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

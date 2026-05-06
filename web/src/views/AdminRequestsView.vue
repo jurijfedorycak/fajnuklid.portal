@@ -67,7 +67,6 @@ const stats = computed(() => ({
   total:    requests.value.length,
   prijato:  requests.value.filter(r => r.status === 'prijato').length,
   resi:     requests.value.filter(r => r.status === 'resi_se').length,
-  ceka:     requests.value.filter(r => r.status === 'ceka_na_potvrzeni').length,
   vyreseno: requests.value.filter(r => r.status === 'vyreseno').length,
 }))
 
@@ -116,10 +115,6 @@ function openDetail(id) {
         <div id="admin-stats-resi" class="stat-tile stat-tile--resi">
           <span class="stat-lbl">Řeší se</span>
           <span class="stat-val">{{ stats.resi }}</span>
-        </div>
-        <div id="admin-stats-ceka" class="stat-tile stat-tile--ceka">
-          <span class="stat-lbl">Čeká<span class="stat-lbl-extra"> na potvrzení</span></span>
-          <span class="stat-val">{{ stats.ceka }}</span>
         </div>
         <div id="admin-stats-vyreseno" class="stat-tile stat-tile--vyreseno">
           <span class="stat-lbl">Vyřešeno</span>
@@ -287,7 +282,6 @@ function openDetail(id) {
 
 .stat-tile--prijato  { border-left-color: var(--color-mid); }
 .stat-tile--resi     { border-left-color: var(--color-warning); }
-.stat-tile--ceka     { border-left-color: var(--color-mid); }
 .stat-tile--vyreseno { border-left-color: var(--color-success); }
 
 .stat-lbl {
@@ -299,8 +293,6 @@ function openDetail(id) {
   line-height: 1.3;
 }
 
-.stat-lbl-extra { display: none; }
-
 .stat-val {
   font-size: 22px;
   font-weight: 700;
@@ -310,13 +302,11 @@ function openDetail(id) {
 
 .stat-tile--prijato  .stat-val { color: var(--color-mid); }
 .stat-tile--resi     .stat-val { color: var(--color-warning); }
-.stat-tile--ceka     .stat-val { color: var(--color-mid); }
 .stat-tile--vyreseno .stat-val { color: var(--color-success); }
 
 @media (min-width: 640px) {
-  .stats-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .stat-tile--featured { grid-column: auto; }
-  .stat-lbl-extra { display: inline; }
 }
 
 .filters-row {

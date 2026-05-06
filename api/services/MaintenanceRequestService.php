@@ -11,8 +11,8 @@ use App\Repositories\MaintenanceRequestRepository;
 
 class MaintenanceRequestService
 {
-    public const STATUSES = ['prijato', 'resi_se', 'ceka_na_potvrzeni', 'vyreseno', 'zablokovano'];
-    public const OPEN_STATUSES = ['prijato', 'resi_se', 'ceka_na_potvrzeni'];
+    public const STATUSES = ['prijato', 'resi_se', 'vyreseno', 'zablokovano'];
+    public const OPEN_STATUSES = ['prijato', 'resi_se'];
     public const CATEGORIES = ['reklamace', 'mimoradna_prace', 'jine'];
     public const LOCATION_TYPES = ['office', 'common', 'custom'];
 
@@ -128,9 +128,9 @@ class MaintenanceRequestService
         if ($row === null) {
             throw new NotFoundException('Požadavek nebyl nalezen');
         }
-        if ($row['status'] !== 'ceka_na_potvrzeni') {
+        if ($row['status'] !== 'resi_se') {
             throw new ValidationException('Požadavek nelze potvrdit v tomto stavu', [
-                'status' => ['Potvrdit lze pouze požadavek ve stavu „Vyřešeno – čeká na potvrzení".'],
+                'status' => ['Potvrdit lze pouze požadavek ve stavu „V řešení".'],
             ]);
         }
 
@@ -153,9 +153,9 @@ class MaintenanceRequestService
         if ($row === null) {
             throw new NotFoundException('Požadavek nebyl nalezen');
         }
-        if ($row['status'] !== 'ceka_na_potvrzeni') {
+        if ($row['status'] !== 'resi_se') {
             throw new ValidationException('Požadavek nelze odmítnout v tomto stavu', [
-                'status' => ['Odmítnout lze pouze požadavek čekající na potvrzení.'],
+                'status' => ['Odmítnout lze pouze požadavek ve stavu „V řešení".'],
             ]);
         }
         $comment = trim($comment);
@@ -165,14 +165,13 @@ class MaintenanceRequestService
             ]);
         }
 
-        $this->repo->updateStatus($id, 'resi_se');
         $this->repo->addActivity([
             'request_id' => $id,
             'user_id' => $userId,
             'author_type' => 'client',
             'author_name' => $userName,
             'message' => $comment,
-            'status_change' => 'resi_se',
+            'status_change' => null,
         ]);
 
         return $this->getForClient($id, $clientId);

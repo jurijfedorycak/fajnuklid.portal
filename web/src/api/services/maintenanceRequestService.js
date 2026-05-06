@@ -57,10 +57,9 @@ export const maintenanceRequestService = {
 }
 
 export const REQUEST_STATUSES = [
-  { key: 'prijato',           label: 'Nový',                          badge: 'badge-info' },
-  { key: 'resi_se',           label: 'V řešení',                       badge: 'badge-warning' },
-  { key: 'ceka_na_potvrzeni', label: 'Vyřešeno – čeká na potvrzení',   badge: 'badge-info' },
-  { key: 'vyreseno',          label: 'Uzavřeno',                       badge: 'badge-success' },
+  { key: 'prijato',  label: 'Nový',     badge: 'badge-info' },
+  { key: 'resi_se',  label: 'V řešení', badge: 'badge-warning' },
+  { key: 'vyreseno', label: 'Uzavřeno', badge: 'badge-success' },
 ]
 
 export const REQUEST_CATEGORIES = [

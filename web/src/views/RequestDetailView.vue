@@ -43,14 +43,14 @@ const categoryLabel = computed(() => {
   const c = REQUEST_CATEGORIES.find(x => x.key === request.value?.category)
   return c ? c.label : '—'
 })
-const canConfirm = computed(() => request.value?.status === 'ceka_na_potvrzeni')
+const canConfirm = computed(() => request.value?.status === 'resi_se')
 const canCancel = computed(() => request.value?.status === 'prijato')
 
 const beforeAttachments = computed(() => request.value?.attachments?.before || [])
 const afterAttachments = computed(() => request.value?.attachments?.after || [])
 const showAfterGallery = computed(() =>
   afterAttachments.value.length > 0 &&
-  ['ceka_na_potvrzeni', 'vyreseno'].includes(request.value?.status)
+  ['resi_se', 'vyreseno'].includes(request.value?.status)
 )
 
 const latestAdminMessage = computed(() => {
@@ -306,7 +306,7 @@ function closePreview() {
           <p>{{ latestAdminMessage.message }}</p>
         </div>
 
-        <p class="confirm-prompt">Práce je hotová — potvrďte prosím vyřešení požadavku.</p>
+        <p class="confirm-prompt">Pokud je požadavek vyřešen, potvrďte jeho dokončení.</p>
 
         <div v-if="!showRejectForm" class="confirm-actions">
           <button id="request-detail-confirm-btn" class="btn btn-primary" :disabled="confirming" @click="confirmResolution">
