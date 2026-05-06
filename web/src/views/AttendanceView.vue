@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronLeft, ChevronRight, CheckCircle2, Loader2, ClipboardList, Calendar as CalendarIcon, Phone, Mail } from 'lucide-vue-next'
 import { attendanceService, maintenanceRequestService } from '../api'
@@ -16,6 +16,7 @@ const requestsByDay = ref({})
 const openPopoverDate = ref(null)
 const popoverItems = ref([])
 const popoverLoading = ref(false)
+const popoverAnchorRect = ref(null)
 
 const today = new Date()
 const viewYear  = ref(today.getFullYear())
@@ -129,11 +130,16 @@ function goToday() {
   viewMonth.value = today.getMonth()
 }
 
-async function openDayPopover(cell) {
+async function openDayPopover(cell, event) {
   if (!cell.requestCount) return
   if (openPopoverDate.value === cell.key) {
-    openPopoverDate.value = null
+    closeDayPopover()
     return
+  }
+  if (event && event.currentTarget && event.currentTarget.getBoundingClientRect) {
+    popoverAnchorRect.value = event.currentTarget.getBoundingClientRect()
+  } else {
+    popoverAnchorRect.value = null
   }
   openPopoverDate.value = cell.key
   popoverLoading.value = true
@@ -148,10 +154,42 @@ async function openDayPopover(cell) {
   }
 }
 
-function goToRequest(id) {
+function closeDayPopover() {
   openPopoverDate.value = null
+  popoverAnchorRect.value = null
+}
+
+function goToRequest(id) {
+  closeDayPopover()
   router.push(`/zadosti/${id}`)
 }
+
+const activeCell = computed(() => {
+  if (!openPopoverDate.value) return null
+  return calendarDays.value.find(c => c && c.key === openPopoverDate.value) || null
+})
+
+const popoverAnchorStyle = computed(() => {
+  const r = popoverAnchorRect.value
+  if (!r) return {}
+  return {
+    '--anchor-bottom': `${r.bottom}px`,
+    '--anchor-center': `${r.left + r.width / 2}px`,
+  }
+})
+
+function handleViewportChange() {
+  if (openPopoverDate.value) closeDayPopover()
+}
+
+onMounted(() => {
+  window.addEventListener('scroll', handleViewportChange, true)
+  window.addEventListener('resize', handleViewportChange)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', handleViewportChange, true)
+  window.removeEventListener('resize', handleViewportChange)
+})
 </script>
 
 <template>
@@ -270,7 +308,7 @@ function goToRequest(id) {
               'day-popover-open': openPopoverDate === cell.key,
             }"
             :title="cell.requestCount > 0 ? `Požadavky: ${cell.requestCount}` : (cell.hasCleaning ? (cell.note || 'Úklid proběhl') : '')"
-            @click="openDayPopover(cell)"
+            @click="openDayPopover(cell, $event)"
           >
             <span class="day-num">{{ cell.day }}</span>
             <span v-if="cell.hasCleaning && !cell.ongoing" class="day-icon done-icon">
@@ -283,29 +321,6 @@ function goToRequest(id) {
             <span v-if="cell.requestCount > 0" class="day-request-badge" :id="'req-badge-' + cell.key">
               <ClipboardList :size="9" />{{ cell.requestCount }}
             </span>
-
-            <div
-              v-if="openPopoverDate === cell.key"
-              id="day-popover-backdrop"
-              class="day-popover-backdrop"
-              @click.stop="openPopoverDate = null"
-            />
-            <div v-if="openPopoverDate === cell.key" class="day-popover" @click.stop>
-              <div class="day-popover-header">Požadavky · {{ cell.day }}.{{ viewMonth + 1 }}.</div>
-              <div v-if="popoverLoading" style="padding:10px; font-size:12px; color:var(--color-gray-500);">Načítám…</div>
-              <div v-else-if="popoverItems.length === 0" style="padding:10px; font-size:12px; color:var(--color-gray-500);">
-                Žádné požadavky.
-              </div>
-              <button
-                v-for="item in popoverItems"
-                :key="item.id"
-                class="day-popover-item"
-                @click.stop="goToRequest(item.id)"
-              >
-                <span class="dpi-title">{{ item.title }}</span>
-                <span class="dpi-status">{{ item.status }}</span>
-              </button>
-            </div>
           </div>
         </template>
       </div>
@@ -317,6 +332,36 @@ function goToRequest(id) {
     </p>
 
     </template>
+
+    <Teleport to="body">
+      <div
+        v-if="activeCell"
+        id="day-popover-backdrop"
+        class="day-popover-backdrop"
+        @click="closeDayPopover"
+      />
+      <div
+        v-if="activeCell"
+        id="day-popover"
+        class="day-popover"
+        :style="popoverAnchorStyle"
+      >
+        <div class="day-popover-header">Požadavky · {{ activeCell.day }}.{{ viewMonth + 1 }}.</div>
+        <div v-if="popoverLoading" style="padding:10px; font-size:12px; color:var(--color-gray-500);">Načítám…</div>
+        <div v-else-if="popoverItems.length === 0" style="padding:10px; font-size:12px; color:var(--color-gray-500);">
+          Žádné požadavky.
+        </div>
+        <button
+          v-for="item in popoverItems"
+          :key="item.id"
+          class="day-popover-item"
+          @click="goToRequest(item.id)"
+        >
+          <span class="dpi-title">{{ item.title }}</span>
+          <span class="dpi-status">{{ item.status }}</span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -524,27 +569,27 @@ function goToRequest(id) {
 }
 .day-has-requests { box-shadow: inset 0 0 0 1.5px var(--color-primary); }
 
-/* Lift the day cell (and its .day-popover / badge) above sibling grid cells.
-   The hover transform creates a stacking context that traps inner content,
-   so later grid rows paint over shadows/badges/popover without this. */
+/* Lift hovered/active cells above siblings so their shadow/badge isn't clipped. */
 .day-cell { z-index: 0; }
 .day-cell:hover,
-.day-cell.day-popover-open,
-.day-cell.day-popover-open:hover { z-index: 30; }
+.day-cell.day-popover-open { z-index: 30; }
 
-/* Backdrop — mobile-only tap-outside dismiss for the bottom-sheet popover */
+/* Backdrop — full-viewport tap-outside dismiss. Visible dim on mobile only;
+   on desktop it remains interactive but transparent so the calendar stays in view. */
 .day-popover-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.35);
-  z-index: 19;
+  z-index: 9990;
 }
 @media (min-width: 640px) {
-  .day-popover-backdrop { display: none; }
+  .day-popover-backdrop { background: transparent; }
 }
 
-/* Popover: on mobile becomes a centered bottom-sheet anchored to the viewport,
-   avoiding clipping when the tapped day cell is near a screen edge. */
+/* Popover: on mobile a bottom-sheet; on desktop anchored to the tapped day-cell.
+   Teleported to <body>, so positioning is always relative to the viewport and
+   never affected by transforms on ancestor day-cells (which would otherwise turn
+   the day-cell into the containing block for `position: fixed`). */
 .day-popover {
   position: fixed;
   top: auto;
@@ -552,7 +597,7 @@ function goToRequest(id) {
   left: 16px;
   right: 16px;
   transform: none;
-  z-index: 20;
+  z-index: 9991;
   background: var(--color-white);
   border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-lg);
@@ -564,13 +609,11 @@ function goToRequest(id) {
 }
 @media (min-width: 640px) {
   .day-popover {
-    position: absolute;
-    top: 100%;
+    top: var(--anchor-bottom, 50%);
+    left: var(--anchor-center, 50%);
     bottom: auto;
-    left: 50%;
     right: auto;
-    transform: translateX(-50%);
-    margin-top: 6px;
+    transform: translate(-50%, 6px);
     min-width: 220px;
     max-height: none;
   }
