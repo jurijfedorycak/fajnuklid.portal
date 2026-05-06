@@ -93,6 +93,22 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->assertArrayNotHasKey('created_at', $result[0]);
     }
 
+    public function testListForClientPassesDateToRepository(): void
+    {
+        $this->repoMock->expects($this->once())
+            ->method('findByClientId')
+            ->with(5, null, null, '2026-05-05')
+            ->willReturn([]);
+
+        $this->service->listForClient(5, null, null, '2026-05-05');
+    }
+
+    public function testListForClientThrowsOnInvalidDate(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->service->listForClient(5, null, null, '05.05.2026');
+    }
+
     // getForClient
 
     public function testGetForClientReturnsRequestWithActivity(): void
@@ -509,5 +525,45 @@ class MaintenanceRequestServiceTest extends TestCase
         ], true);
 
         $this->assertSame(42, $result['id']);
+    }
+
+    // calendarForClient
+
+    public function testCalendarForClientGroupsByDateAndStatus(): void
+    {
+        $this->repoMock->method('countByDayForClient')->willReturn([
+            ['date' => '2026-05-06', 'status' => 'prijato', 'count' => 2],
+            ['date' => '2026-05-06', 'status' => 'resi_se', 'count' => 1],
+            ['date' => '2026-05-07', 'status' => 'vyreseno', 'count' => 3],
+        ]);
+
+        $result = $this->service->calendarForClient(5, 2026, 5);
+
+        $this->assertCount(2, $result);
+        $this->assertSame('2026-05-06', $result[0]['date']);
+        $this->assertSame(3, $result[0]['total']);
+        $this->assertSame(['prijato' => 2, 'resi_se' => 1], $result[0]['statuses']);
+        $this->assertSame('2026-05-07', $result[1]['date']);
+        $this->assertSame(3, $result[1]['total']);
+        $this->assertSame(['vyreseno' => 3], $result[1]['statuses']);
+    }
+
+    public function testCalendarForClientReturnsEmptyWhenNoRows(): void
+    {
+        $this->repoMock->method('countByDayForClient')->willReturn([]);
+
+        $this->assertSame([], $this->service->calendarForClient(5, 2026, 5));
+    }
+
+    public function testCalendarForClientThrowsWhenMonthOutOfRange(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->service->calendarForClient(5, 2026, 13);
+    }
+
+    public function testCalendarForClientThrowsWhenMonthZero(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->service->calendarForClient(5, 2026, 0);
     }
 }

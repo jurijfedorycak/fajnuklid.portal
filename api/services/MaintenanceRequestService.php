@@ -55,7 +55,7 @@ class MaintenanceRequestService
         return (int) $companies[0]['client_id'];
     }
 
-    public function listForClient(int $clientId, ?string $status = null, ?int $limit = null): array
+    public function listForClient(int $clientId, ?string $status = null, ?int $limit = null, ?string $date = null): array
     {
         $statuses = null;
         if ($status === 'open') {
@@ -63,7 +63,17 @@ class MaintenanceRequestService
         } elseif ($status !== null && $status !== '') {
             $statuses = [$status];
         }
-        $rows = $this->repo->findByClientId($clientId, $statuses, $limit);
+
+        if ($date !== null && $date !== '') {
+            $parsed = \DateTime::createFromFormat('Y-m-d', $date);
+            if ($parsed === false || $parsed->format('Y-m-d') !== $date) {
+                throw new ValidationException('Validace selhala', [
+                    'date' => ['Datum musí být ve formátu RRRR-MM-DD.'],
+                ]);
+            }
+        }
+
+        $rows = $this->repo->findByClientId($clientId, $statuses, $limit, $date);
         return array_map([$this, 'formatRow'], $rows);
     }
 
@@ -207,7 +217,21 @@ class MaintenanceRequestService
                 'month' => ['Měsíc musí být v rozmezí 1–12.'],
             ]);
         }
-        return $this->repo->countByDayForClient($clientId, $year, $month);
+        $rows = $this->repo->countByDayForClient($clientId, $year, $month);
+
+        $byDate = [];
+        foreach ($rows as $row) {
+            $date = $row['date'];
+            $status = $row['status'];
+            $count = (int) $row['count'];
+            if (!isset($byDate[$date])) {
+                $byDate[$date] = ['date' => $date, 'total' => 0, 'statuses' => []];
+            }
+            $byDate[$date]['total'] += $count;
+            $byDate[$date]['statuses'][$status] = $count;
+        }
+
+        return array_values($byDate);
     }
 
     // ─────────── Attachments ───────────

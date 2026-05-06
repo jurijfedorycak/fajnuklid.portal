@@ -63,8 +63,10 @@ class MaintenanceRequestController extends Controller
         }
         $limit = $request->query('limit');
         $limitInt = ($limit !== null && $limit !== '') ? (int) $limit : null;
+        $date = $request->query('date');
+        $dateStr = ($date !== null && $date !== '') ? (string) $date : null;
 
-        $requests = $this->service->listForClient($clientId, $status, $limitInt);
+        $requests = $this->service->listForClient($clientId, $status, $limitInt, $dateStr);
 
         Response::success($requests);
     }

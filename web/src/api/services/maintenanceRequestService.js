@@ -1,10 +1,11 @@
 import apiClient from '../client'
 
 export const maintenanceRequestService = {
-  async list({ status = null, limit = null } = {}) {
+  async list({ status = null, limit = null, date = null } = {}) {
     const params = {}
     if (status && status !== 'all') params.status = status
     if (limit) params.limit = limit
+    if (date) params.date = date
     const response = await apiClient.get('/maintenance-requests', { params })
     return response.data
   },

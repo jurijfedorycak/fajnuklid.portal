@@ -36,7 +36,7 @@ class MaintenanceRequestRepository
     /**
      * @param int[]|null $statuses
      */
-    public function findByClientId(int $clientId, ?array $statuses = null, ?int $limit = null): array
+    public function findByClientId(int $clientId, ?array $statuses = null, ?int $limit = null, ?string $date = null): array
     {
         $sql = '
             SELECT ' . self::SELECT_FIELDS . '
@@ -56,6 +56,11 @@ class MaintenanceRequestRepository
                 $params[$key] = $s;
             }
             $sql .= ' AND r.status IN (' . implode(',', $placeholders) . ')';
+        }
+
+        if ($date !== null && $date !== '') {
+            $sql .= ' AND DATE(r.created_at) = :date';
+            $params['date'] = $date;
         }
 
         $sql .= ' ORDER BY r.created_at DESC';
@@ -135,28 +140,31 @@ class MaintenanceRequestRepository
     }
 
     /**
-     * Returns rows: [{ date: 'YYYY-MM-DD', count: int }]
+     * Returns rows: [{ date: 'YYYY-MM-DD', status: string, count: int }]
+     * Excludes the `zablokovano` status — blocked requests are not surfaced on the client calendar.
      */
     public function countByDayForClient(int $clientId, int $year, int $month): array
     {
         $stmt = $this->db->prepare('
-            SELECT DATE(created_at) AS d, COUNT(*) AS c
+            SELECT DATE(created_at) AS d, status AS s, COUNT(*) AS c
             FROM maintenance_requests
             WHERE client_id = :client_id
               AND deleted_at IS NULL
+              AND status <> :excluded_status
               AND YEAR(created_at) = :year
               AND MONTH(created_at) = :month
-            GROUP BY DATE(created_at)
+            GROUP BY DATE(created_at), status
             ORDER BY d ASC
         ');
         $stmt->execute([
             'client_id' => $clientId,
+            'excluded_status' => 'zablokovano',
             'year' => $year,
             'month' => $month,
         ]);
         $rows = $stmt->fetchAll();
         return array_map(function ($r) {
-            return ['date' => $r['d'], 'count' => (int) $r['c']];
+            return ['date' => $r['d'], 'status' => $r['s'], 'count' => (int) $r['c']];
         }, $rows);
     }
 

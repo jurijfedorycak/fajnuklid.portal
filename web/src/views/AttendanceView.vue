@@ -1,8 +1,11 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronLeft, ChevronRight, CheckCircle2, Loader2, ClipboardList, Calendar as CalendarIcon, Phone, Mail } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail } from 'lucide-vue-next'
 import { attendanceService, maintenanceRequestService } from '../api'
+import { REQUEST_STATUSES } from '../api/services/maintenanceRequestService'
+
+const PRIORITY_ORDER = ['resi_se', 'prijato', 'vyreseno']
 
 const router = useRouter()
 
@@ -54,7 +57,10 @@ async function fetchRequestsForMonth() {
     if (res.success) {
       const map = {}
       for (const r of res.data) {
-        map[r.date] = r.count
+        map[r.date] = {
+          total: r.total || 0,
+          statuses: r.statuses || {},
+        }
       }
       requestsByDay.value = map
     }
@@ -80,6 +86,23 @@ const dayMap = computed(() => {
   return m
 })
 
+function pickPriorityStatus(statuses) {
+  for (const key of PRIORITY_ORDER) {
+    if (statuses[key]) return key
+  }
+  return null
+}
+
+function buildRequestTooltip(requests) {
+  if (!requests.total) return ''
+  const parts = []
+  for (const s of REQUEST_STATUSES) {
+    const n = requests.statuses[s.key]
+    if (n) parts.push(`${s.label}: ${n}`)
+  }
+  return `Požadavky: ${requests.total} (${parts.join(', ')})`
+}
+
 const calendarDays = computed(() => {
   const year  = viewYear.value
   const month = viewMonth.value
@@ -93,12 +116,14 @@ const calendarDays = computed(() => {
     const info = dayMap.value[key]
     const isToday = year === today.getFullYear() && month === today.getMonth() && d === today.getDate()
     const isPast  = new Date(year, month, d) < today && !isToday
+    const requests = requestsByDay.value[key] || { total: 0, statuses: {} }
     cells.push({
       day: d, key,
       hasCleaning: !!info,
       ongoing: info?.ongoing || false,
       note: info?.note || '',
-      requestCount: requestsByDay.value[key] || 0,
+      requests,
+      priorityStatus: pickPriorityStatus(requests.statuses),
       isToday, isPast,
     })
   }
@@ -131,7 +156,7 @@ function goToday() {
 }
 
 async function openDayPopover(cell, event) {
-  if (!cell.requestCount) return
+  if (!cell.requests.total) return
   if (openPopoverDate.value === cell.key) {
     closeDayPopover()
     return
@@ -145,13 +170,17 @@ async function openDayPopover(cell, event) {
   popoverLoading.value = true
   popoverItems.value = []
   try {
-    const res = await maintenanceRequestService.list({})
+    const res = await maintenanceRequestService.list({ date: cell.key })
     if (res.success) {
-      popoverItems.value = res.data.filter(r => (r.createdAt || '').startsWith(cell.key))
+      popoverItems.value = res.data
     }
   } finally {
     popoverLoading.value = false
   }
+}
+
+function statusMeta(key) {
+  return REQUEST_STATUSES.find(s => s.key === key) || { label: key, badge: 'badge-gray' }
 }
 
 function closeDayPopover() {
@@ -298,16 +327,19 @@ onBeforeUnmount(() => {
           <div
             v-else
             class="day-cell"
-            :class="{
-              'day-today':   cell.isToday,
-              'day-done':    cell.hasCleaning && !cell.ongoing,
-              'day-ongoing': cell.ongoing,
-              'day-past':    cell.isPast && !cell.hasCleaning,
-              'day-future':  !cell.isPast && !cell.isToday && !cell.hasCleaning,
-              'day-has-requests': cell.requestCount > 0,
-              'day-popover-open': openPopoverDate === cell.key,
-            }"
-            :title="cell.requestCount > 0 ? `Požadavky: ${cell.requestCount}` : (cell.hasCleaning ? (cell.note || 'Úklid proběhl') : '')"
+            :class="[
+              {
+                'day-today':   cell.isToday,
+                'day-done':    cell.hasCleaning && !cell.ongoing,
+                'day-ongoing': cell.ongoing,
+                'day-past':    cell.isPast && !cell.hasCleaning,
+                'day-future':  !cell.isPast && !cell.isToday && !cell.hasCleaning,
+                'day-has-requests': cell.requests.total > 0,
+                'day-popover-open': openPopoverDate === cell.key,
+              },
+              cell.priorityStatus ? `day-priority-${cell.priorityStatus}` : '',
+            ]"
+            :title="cell.requests.total > 0 ? buildRequestTooltip(cell.requests) : (cell.hasCleaning ? (cell.note || 'Úklid proběhl') : '')"
             @click="openDayPopover(cell, $event)"
           >
             <span class="day-num">{{ cell.day }}</span>
@@ -318,9 +350,12 @@ onBeforeUnmount(() => {
               <Loader2 :size="12" class="spin" />
             </span>
             <span v-if="cell.note" class="day-note-dot" title="Poznámka k úklidu" />
-            <span v-if="cell.requestCount > 0" class="day-request-badge" :id="'req-badge-' + cell.key">
-              <ClipboardList :size="9" />{{ cell.requestCount }}
-            </span>
+            <span
+              v-if="cell.requests.total > 0"
+              class="day-status-badge"
+              :class="`badge-${cell.priorityStatus === 'resi_se' ? 'warning' : cell.priorityStatus === 'prijato' ? 'info' : 'success'}`"
+              :id="'req-badge-' + cell.key"
+            >{{ cell.requests.total }}</span>
           </div>
         </template>
       </div>
@@ -347,18 +382,24 @@ onBeforeUnmount(() => {
         :style="popoverAnchorStyle"
       >
         <div class="day-popover-header">Požadavky · {{ activeCell.day }}.{{ viewMonth + 1 }}.</div>
-        <div v-if="popoverLoading" style="padding:10px; font-size:12px; color:var(--color-gray-500);">Načítám…</div>
-        <div v-else-if="popoverItems.length === 0" style="padding:10px; font-size:12px; color:var(--color-gray-500);">
+        <div v-if="popoverLoading" class="day-popover-empty">Načítám…</div>
+        <div v-else-if="popoverItems.length === 0" class="day-popover-empty">
           Žádné požadavky.
         </div>
         <button
           v-for="item in popoverItems"
           :key="item.id"
+          :id="`day-popover-item-${item.id}`"
           class="day-popover-item"
           @click="goToRequest(item.id)"
         >
           <span class="dpi-title">{{ item.title }}</span>
-          <span class="dpi-status">{{ item.status }}</span>
+          <span class="dpi-meta">
+            <span class="dpi-badge" :class="statusMeta(item.status).badge">
+              {{ statusMeta(item.status).label }}
+            </span>
+            <span v-if="item.companyName" class="dpi-company">{{ item.companyName }}</span>
+          </span>
         </button>
       </div>
     </Teleport>
@@ -550,24 +591,27 @@ onBeforeUnmount(() => {
 .done-icon    { color: var(--color-success); }
 .ongoing-icon { color: var(--color-warning); }
 
-/* Request badge */
+/* Single per-day request badge, colored by highest-priority status */
 .day-cell { cursor: pointer; }
-.day-request-badge {
+.day-status-badge {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 5px;
-  border-radius: 10px;
-  background: var(--color-primary);
-  color: var(--color-white);
-  font-size: 10px;
-  font-weight: 600;
+  top: 3px;
+  right: 3px;
+  font-size: 9px;
+  font-weight: 700;
   line-height: 1;
+  padding: 2px 5px;
+  border-radius: 8px;
+  min-width: 14px;
+  text-align: center;
 }
-.day-has-requests { box-shadow: inset 0 0 0 1.5px var(--color-primary); }
+@media (min-width: 480px) {
+  .day-status-badge { font-size: 10px; padding: 2px 6px; min-width: 16px; }
+}
+.day-has-requests { box-shadow: inset 0 0 0 1.5px var(--color-gray-300); }
+.day-has-requests.day-priority-prijato  { box-shadow: inset 0 0 0 1.5px var(--color-primary); }
+.day-has-requests.day-priority-resi_se  { box-shadow: inset 0 0 0 1.5px var(--color-warning); }
+.day-has-requests.day-priority-vyreseno { box-shadow: inset 0 0 0 1.5px var(--color-success); }
 
 /* Lift hovered/active cells above siblings so their shadow/badge isn't clipped. */
 .day-cell { z-index: 0; }
@@ -641,7 +685,30 @@ onBeforeUnmount(() => {
 .day-popover-item:last-child { border-bottom: none; }
 .day-popover-item:hover { background: var(--color-gray-50); }
 .dpi-title { font-size: 13px; color: var(--color-primary); font-weight: 500; }
-.dpi-status { font-size: 11px; color: var(--color-gray-500); margin-top: 2px; }
+.dpi-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.dpi-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  line-height: 1.4;
+}
+.dpi-company {
+  font-size: 11px;
+  color: var(--color-gray-500);
+}
+.day-popover-empty {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--color-gray-500);
+  text-align: center;
+}
 
 /* Small dot indicating a note exists */
 .day-note-dot {

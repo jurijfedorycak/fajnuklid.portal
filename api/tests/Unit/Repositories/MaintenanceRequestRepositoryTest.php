@@ -44,6 +44,26 @@ class MaintenanceRequestRepositoryTest extends DatabaseTestCase
         $this->assertEquals($expected, $result);
     }
 
+    public function testFindByClientIdWithDateFilter(): void
+    {
+        $expected = [
+            ['id' => 1, 'client_id' => 5, 'title' => 'Broken AC'],
+        ];
+        $this->stmtMock->method('fetchAll')->willReturn($expected);
+        $this->stmtMock->expects($this->once())
+            ->method('execute')
+            ->with($this->callback(fn ($p) => ($p['client_id'] ?? null) === 5 && ($p['date'] ?? null) === '2026-05-05'))
+            ->willReturn(true);
+        $this->pdoMock->expects($this->once())
+            ->method('prepare')
+            ->with($this->callback(fn (string $sql) => str_contains($sql, 'AND DATE(r.created_at) = :date')))
+            ->willReturn($this->stmtMock);
+
+        $result = $this->repository->findByClientId(5, null, null, '2026-05-05');
+
+        $this->assertEquals($expected, $result);
+    }
+
     public function testFindByClientIdReturnsEmptyArray(): void
     {
         $this->setupFetchAllMock([]);
@@ -323,5 +343,66 @@ class MaintenanceRequestRepositoryTest extends DatabaseTestCase
         ]);
 
         $this->assertEquals(9, $newId);
+    }
+
+    // countByDayForClient
+
+    public function testCountByDayForClientFormatsRows(): void
+    {
+        $this->setupFetchAllMock([
+            ['d' => '2026-05-06', 's' => 'prijato', 'c' => '2'],
+            ['d' => '2026-05-06', 's' => 'resi_se', 'c' => '1'],
+            ['d' => '2026-05-07', 's' => 'vyreseno', 'c' => '3'],
+        ]);
+
+        $result = $this->repository->countByDayForClient(5, 2026, 5);
+
+        $this->assertEquals([
+            ['date' => '2026-05-06', 'status' => 'prijato', 'count' => 2],
+            ['date' => '2026-05-06', 'status' => 'resi_se', 'count' => 1],
+            ['date' => '2026-05-07', 'status' => 'vyreseno', 'count' => 3],
+        ], $result);
+    }
+
+    public function testCountByDayForClientReturnsEmptyArray(): void
+    {
+        $this->setupFetchAllMock([]);
+
+        $result = $this->repository->countByDayForClient(5, 2026, 5);
+
+        $this->assertEquals([], $result);
+    }
+
+    public function testCountByDayForClientPassesExpectedBindings(): void
+    {
+        $this->stmtMock->expects($this->once())
+            ->method('execute')
+            ->with([
+                'client_id' => 5,
+                'excluded_status' => 'zablokovano',
+                'year' => 2026,
+                'month' => 5,
+            ])
+            ->willReturn(true);
+        $this->stmtMock->method('fetchAll')->willReturn([]);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->repository->countByDayForClient(5, 2026, 5);
+    }
+
+    public function testCountByDayForClientSqlExcludesZablokovanoAndGroupsByStatus(): void
+    {
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetchAll')->willReturn([]);
+        $this->pdoMock->expects($this->once())
+            ->method('prepare')
+            ->with($this->callback(function (string $sql) {
+                return str_contains($sql, 'status <> :excluded_status')
+                    && str_contains($sql, 'GROUP BY DATE(created_at), status')
+                    && str_contains($sql, 'deleted_at IS NULL');
+            }))
+            ->willReturn($this->stmtMock);
+
+        $this->repository->countByDayForClient(5, 2026, 5);
     }
 }
