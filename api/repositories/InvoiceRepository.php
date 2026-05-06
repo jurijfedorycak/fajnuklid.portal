@@ -256,6 +256,27 @@ class InvoiceRepository
     }
 
     /**
+     * Most recent invoices across all companies. Used by the cron sync response
+     * as a freshness gauge — operator sees at a glance whether dates are still
+     * advancing day-over-day.
+     */
+    public function findRecentDates(int $limit = 5): array
+    {
+        $stmt = $this->db->prepare('
+            SELECT
+                i.date_issued,
+                i.document_number
+            FROM invoices i
+            ORDER BY i.date_issued DESC, i.id DESC
+            LIMIT :row_limit
+        ');
+        $stmt->bindValue(':row_limit', max(1, $limit), PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll();
+    }
+
+    /**
      * Find the next unpaid invoice with a due date >= today for a user.
      * Returns null if no upcoming unpaid invoices exist.
      */

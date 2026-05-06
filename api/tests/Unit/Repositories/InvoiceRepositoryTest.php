@@ -303,6 +303,82 @@ class InvoiceRepositoryTest extends DatabaseTestCase
         $this->assertSame([], $result);
     }
 
+    // findRecentDates tests
+
+    public function testFindRecentDatesReturnsRows(): void
+    {
+        $expected = [
+            ['date_issued' => '2026-05-05', 'document_number' => 'FV2026-042'],
+            ['date_issued' => '2026-05-04', 'document_number' => 'FV2026-041'],
+        ];
+
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetchAll')->willReturn($expected);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $result = $this->repository->findRecentDates(5);
+
+        $this->assertSame($expected, $result);
+    }
+
+    public function testFindRecentDatesBindsLimit(): void
+    {
+        $boundValues = [];
+
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->stmtMock->method('bindValue')
+            ->willReturnCallback(function ($key, $value) use (&$boundValues) {
+                $boundValues[$key] = $value;
+                return true;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetchAll')->willReturn([]);
+
+        $this->repository->findRecentDates(7);
+
+        $this->assertSame(7, $boundValues[':row_limit'] ?? null);
+    }
+
+    public function testFindRecentDatesOrdersByIssuedDateDesc(): void
+    {
+        // Order is the whole point of the freshness gauge — the secondary id DESC
+        // tiebreaker keeps results deterministic when several invoices share a date.
+        $capturedSql = null;
+
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function (string $sql) use (&$capturedSql) {
+                $capturedSql = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetchAll')->willReturn([]);
+
+        $this->repository->findRecentDates(5);
+
+        $this->assertStringContainsString(
+            'ORDER BY i.date_issued DESC, i.id DESC',
+            (string) $capturedSql
+        );
+    }
+
+    public function testFindRecentDatesClampsZeroOrNegativeLimit(): void
+    {
+        $boundValues = [];
+
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->stmtMock->method('bindValue')
+            ->willReturnCallback(function ($key, $value) use (&$boundValues) {
+                $boundValues[$key] = $value;
+                return true;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetchAll')->willReturn([]);
+
+        $this->repository->findRecentDates(0);
+
+        $this->assertSame(1, $boundValues[':row_limit'] ?? null);
+    }
+
     // findNextDueForUser tests
 
     public function testFindNextDueForUserReturnsInvoice(): void

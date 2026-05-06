@@ -182,6 +182,7 @@ class IDokladService
             'total_synced' => $totalSynced,
             'company_count' => count($companies),
             'companies' => $results,
+            'recent_invoices' => $this->invoiceRepo->findRecentDates(5),
         ];
     }
 

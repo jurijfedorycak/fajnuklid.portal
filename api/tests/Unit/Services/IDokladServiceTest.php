@@ -228,6 +228,7 @@ class IDokladServiceTest extends TestCase
             ['Id' => 1, 'DocumentNumber' => 'INV-001', 'IsPaid' => false, 'DateOfMaturity' => '2025-01-01'],
         ]);
         $this->invoiceRepoMock->method('upsertFromIdoklad');
+        $this->invoiceRepoMock->method('findRecentDates')->willReturn([]);
 
         $result = $this->service->syncAllEnabledCompanies();
 
@@ -243,6 +244,7 @@ class IDokladServiceTest extends TestCase
     {
         $this->clientMock->method('isConfigured')->willReturn(true);
         $this->companyRepoMock->method('findAllWithIdokladSyncEnabled')->willReturn([]);
+        $this->invoiceRepoMock->method('findRecentDates')->willReturn([]);
 
         $result = $this->service->syncAllEnabledCompanies();
 
@@ -250,6 +252,24 @@ class IDokladServiceTest extends TestCase
         $this->assertEquals(0, $result['total_synced']);
         $this->assertEquals(0, $result['company_count']);
         $this->assertCount(0, $result['companies']);
+    }
+
+    public function testSyncAllEnabledCompaniesIncludesRecentInvoiceDates(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->companyRepoMock->method('findAllWithIdokladSyncEnabled')->willReturn([]);
+        $expectedRecent = [
+            ['date_issued' => '2026-05-05', 'document_number' => 'FV2026-042'],
+            ['date_issued' => '2026-05-04', 'document_number' => 'FV2026-041'],
+        ];
+        $this->invoiceRepoMock->expects($this->once())
+            ->method('findRecentDates')
+            ->with(5)
+            ->willReturn($expectedRecent);
+
+        $result = $this->service->syncAllEnabledCompanies();
+
+        $this->assertSame($expectedRecent, $result['recent_invoices']);
     }
 
     public function testSyncAllEnabledCompaniesIsolatesPerCompanyFailures(): void
@@ -275,6 +295,7 @@ class IDokladServiceTest extends TestCase
                 ];
             });
         $this->invoiceRepoMock->method('upsertFromIdoklad');
+        $this->invoiceRepoMock->method('findRecentDates')->willReturn([]);
 
         $result = $this->service->syncAllEnabledCompanies();
 
