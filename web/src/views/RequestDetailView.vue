@@ -2,12 +2,11 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft, Calendar, User, Clock, MessageSquare, Download,
-  CheckCircle2, XCircle, Loader2, Trash2, Building2, Paperclip, FileText, Image as ImageIcon
+  ArrowLeft, Calendar, User, Clock,
+  CheckCircle2, XCircle, Loader2, Trash2, Building2,
 } from 'lucide-vue-next'
 import { maintenanceRequestService, REQUEST_STATUSES, REQUEST_CATEGORIES } from '../api'
-import FilePreviewModal from '../components/FilePreviewModal.vue'
-import { downloadFile } from '../utils/fileUtils'
+import RequestConversation from '../components/RequestConversation.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -46,25 +45,9 @@ const categoryLabel = computed(() => {
 const canConfirm = computed(() => request.value?.status === 'resi_se')
 const canCancel = computed(() => request.value?.status === 'prijato')
 
-const beforeAttachments = computed(() => request.value?.attachments?.before || [])
-const afterAttachments = computed(() => request.value?.attachments?.after || [])
-const showAfterGallery = computed(() =>
-  afterAttachments.value.length > 0 &&
-  ['resi_se', 'vyreseno'].includes(request.value?.status)
-)
-
-const latestAdminMessage = computed(() => {
-  const list = (request.value?.activity || []).filter(a => a.authorType === 'admin' && !a.isInternal && a.message)
-  return list.length ? list[list.length - 1] : null
-})
-
 function formatDate(d) {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' })
-}
-function formatDateTime(d) {
-  if (!d) return ''
-  return new Date(d).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 async function confirmResolution() {
@@ -120,18 +103,6 @@ async function cancelRequest() {
     showCancelConfirm.value = false
   }
 }
-
-function isImage(att) {
-  return (att.mimeType || '').startsWith('image/')
-}
-
-const previewModal = ref({ show: false, url: '', filename: '', mimeType: '' })
-function openPreview(att) {
-  previewModal.value = { show: true, url: att.url, filename: att.filename, mimeType: att.mimeType || '' }
-}
-function closePreview() {
-  previewModal.value.show = false
-}
 </script>
 
 <template>
@@ -179,108 +150,9 @@ function closePreview() {
         </div>
       </div>
 
-      <div id="request-detail-description-section" style="margin-top:24px;">
-        <div class="section-label">Popis</div>
-        <div id="request-detail-description" class="card description-card">
-          <p style="white-space:pre-wrap;">{{ request.description || '—' }}</p>
-        </div>
+      <div id="request-detail-conversation-wrap" class="conversation-wrap">
+        <RequestConversation :request="request" viewer-role="client" />
       </div>
-
-      <!-- Attachments: before -->
-      <div v-if="beforeAttachments.length" id="request-detail-attachments" style="margin-top:24px;">
-        <div class="section-label"><Paperclip :size="14" style="vertical-align:-2px;" /> Přílohy</div>
-        <div class="attach-gallery">
-          <div
-            v-for="att in beforeAttachments"
-            :key="att.id"
-            :id="'att-before-' + att.id"
-            class="attach-tile"
-          >
-            <template v-if="isImage(att)">
-              <img
-                :src="att.url" :alt="att.filename"
-                class="attach-tile-clickable"
-                role="button" tabindex="0"
-                @click="openPreview(att)" @keydown.enter="openPreview(att)"
-              />
-              <span
-                class="attach-tile-name"
-                role="button" tabindex="0"
-                @click="openPreview(att)" @keydown.enter="openPreview(att)"
-              >{{ att.filename }}</span>
-            </template>
-            <div
-              v-else class="attach-tile-pdf"
-              role="button" tabindex="0"
-              @click="openPreview(att)" @keydown.enter="openPreview(att)"
-            >
-              <FileText :size="28" />
-              <span>{{ att.filename }}</span>
-            </div>
-            <button
-              :id="'att-before-download-' + att.id"
-              class="attach-tile-download"
-              title="Stáhnout"
-              aria-label="Stáhnout"
-              @click.stop="downloadFile(att.url, att.filename)"
-            >
-              <Download :size="14" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Attachments: after (po vyřešení) -->
-      <div v-if="showAfterGallery" id="request-detail-attachments-after" style="margin-top:24px;">
-        <div class="section-label"><ImageIcon :size="14" style="vertical-align:-2px;" /> Přílohy – po vyřešení</div>
-        <div class="attach-gallery">
-          <div
-            v-for="att in afterAttachments"
-            :key="att.id"
-            :id="'att-after-' + att.id"
-            class="attach-tile"
-          >
-            <template v-if="isImage(att)">
-              <img
-                :src="att.url" :alt="att.filename"
-                class="attach-tile-clickable"
-                role="button" tabindex="0"
-                @click="openPreview(att)" @keydown.enter="openPreview(att)"
-              />
-              <span
-                class="attach-tile-name"
-                role="button" tabindex="0"
-                @click="openPreview(att)" @keydown.enter="openPreview(att)"
-              >{{ att.filename }}</span>
-            </template>
-            <div
-              v-else class="attach-tile-pdf"
-              role="button" tabindex="0"
-              @click="openPreview(att)" @keydown.enter="openPreview(att)"
-            >
-              <FileText :size="28" />
-              <span>{{ att.filename }}</span>
-            </div>
-            <button
-              :id="'att-after-download-' + att.id"
-              class="attach-tile-download"
-              title="Stáhnout"
-              aria-label="Stáhnout"
-              @click.stop="downloadFile(att.url, att.filename)"
-            >
-              <Download :size="14" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <FilePreviewModal
-        :show="previewModal.show"
-        :url="previewModal.url"
-        :filename="previewModal.filename"
-        :mime-type="previewModal.mimeType"
-        @close="closePreview"
-      />
 
       <!-- Cancel in Nový -->
       <div v-if="canCancel" id="request-detail-cancel-section" style="margin-top:20px;">
@@ -301,11 +173,6 @@ function closePreview() {
 
       <!-- Confirm / Reject -->
       <div v-if="canConfirm" id="request-detail-confirm-section" class="card confirm-card">
-        <div v-if="latestAdminMessage" id="request-detail-admin-comment" class="admin-comment">
-          <div class="admin-comment-label">Vzkaz od Fajn Úklid</div>
-          <p>{{ latestAdminMessage.message }}</p>
-        </div>
-
         <p class="confirm-prompt">Pokud je požadavek vyřešen, potvrďte jeho dokončení.</p>
 
         <div v-if="!showRejectForm" class="confirm-actions">
@@ -334,33 +201,6 @@ function closePreview() {
               <span>{{ rejecting ? 'Odesílám...' : 'Odeslat' }}</span>
             </button>
             <button class="btn btn-ghost" @click="closeRejectForm">Zpět</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="request-detail-activity" style="margin-top:24px;">
-        <div class="section-label">
-          <MessageSquare :size="14" style="vertical-align:-2px;" />
-          Historie ({{ request.activity.length }})
-        </div>
-        <div v-if="request.activity.length === 0" class="card" style="color:var(--color-gray-500); font-size:13px;">
-          Zatím žádná aktivita.
-        </div>
-        <div v-else class="activity-list">
-          <div v-for="a in request.activity" :key="a.id" :id="'activity-' + a.id" class="activity-item">
-            <div class="avatar avatar-sm" :class="{'admin-avatar': a.authorType === 'admin'}">
-              {{ (a.author || '?').charAt(0) }}
-            </div>
-            <div class="activity-body">
-              <div class="activity-head">
-                <span class="activity-author">{{ a.author }}</span>
-                <span v-if="a.authorType === 'admin'" class="role-badge">Fajn Úklid</span>
-                <span v-else-if="a.authorType === 'client'" class="role-badge role-client">Klient</span>
-                <span class="activity-time">{{ formatDateTime(a.createdAt) }}</span>
-              </div>
-              <div v-if="a.message" class="activity-message">{{ a.message }}</div>
-              <div v-if="a.statusChange" class="activity-status">→ {{ a.statusChange }}</div>
-            </div>
           </div>
         </div>
       </div>
@@ -396,104 +236,16 @@ function closePreview() {
   font-weight: 500;
   color: var(--color-primary);
 }
-.section-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-gray-500);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 8px;
-}
-.description-card {
-  font-size: 14px;
-  color: var(--color-gray-800);
-  line-height: 1.6;
-}
 
-.attach-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px;
-}
-.attach-tile {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-md);
-  overflow: hidden;
+.conversation-wrap {
+  margin-top: 24px;
+  padding: 18px 12px;
   background: var(--color-gray-50);
-  color: inherit;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
 }
-.attach-tile img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  display: block;
-}
-.attach-tile-clickable {
-  cursor: pointer;
-  transition: opacity var(--transition);
-}
-.attach-tile-clickable:hover {
-  opacity: 0.85;
-}
-.attach-tile-name {
-  display: block;
-  padding: 6px 8px;
-  font-size: 11px;
-  color: var(--color-accent);
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.attach-tile-name:hover {
-  text-decoration: underline;
-}
-.attach-tile-pdf {
-  width: 100%;
-  aspect-ratio: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px;
-  color: var(--color-gray-700);
-  font-size: 11px;
-  text-align: center;
-  word-break: break-word;
-  cursor: pointer;
-}
-.attach-tile-pdf:hover {
-  background: var(--color-gray-100);
-}
-.attach-tile-download {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: rgba(255, 255, 255, 0.85);
-  color: var(--color-gray-600);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--transition), background var(--transition);
-}
-.attach-tile:hover .attach-tile-download,
-.attach-tile:focus-within .attach-tile-download,
-.attach-tile-download:focus {
-  opacity: 1;
-}
-.attach-tile-download:hover {
-  background: var(--color-white);
-  color: var(--color-gray-900);
+@media (min-width: 640px) {
+  .conversation-wrap { padding: 22px 18px; }
 }
 
 .confirm-card {
@@ -501,26 +253,6 @@ function closePreview() {
   padding: 20px;
   background: var(--color-light);
   border: 1px solid var(--color-mid);
-}
-.admin-comment {
-  background: var(--color-white);
-  border-radius: var(--radius-md);
-  padding: 12px 14px;
-  margin-bottom: 14px;
-  border: 1px solid var(--color-gray-200);
-}
-.admin-comment-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-gray-500);
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-.admin-comment p {
-  margin: 0;
-  font-size: 14px;
-  color: var(--color-gray-800);
-  white-space: pre-wrap;
 }
 .confirm-prompt {
   margin: 0 0 14px;
@@ -543,62 +275,6 @@ function closePreview() {
 .field-error {
   font-size: 12px;
   color: var(--color-danger);
-  margin-top: 4px;
-}
-
-.activity-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.activity-item {
-  display: flex;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--color-gray-50);
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-lg);
-}
-.admin-avatar {
-  background: var(--color-primary);
-}
-.activity-body { flex: 1; min-width: 0; }
-.activity-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
-  flex-wrap: wrap;
-}
-.activity-author {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-primary);
-}
-.role-badge {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--color-primary);
-  color: var(--color-white);
-}
-.role-badge.role-client {
-  background: var(--color-mid);
-}
-.activity-time {
-  font-size: 11px;
-  color: var(--color-gray-500);
-}
-.activity-message {
-  font-size: 14px;
-  color: var(--color-gray-700);
-  white-space: pre-wrap;
-}
-.activity-status {
-  font-size: 11px;
-  color: var(--color-gray-500);
   margin-top: 4px;
 }
 

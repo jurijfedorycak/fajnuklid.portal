@@ -2,10 +2,11 @@
 import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Calendar, Clock, MessageSquare, Loader2, Trash2,
-  Save, Send, Lock, ChevronRight, Inbox,
+  Calendar, Clock, Loader2, Trash2,
+  Save, Send, Lock, ChevronRight,
 } from 'lucide-vue-next'
 import { adminService, REQUEST_STATUSES, REQUEST_CATEGORIES } from '../api'
+import RequestConversation from '../components/RequestConversation.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -66,16 +67,6 @@ function formatDate(d) {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' })
 }
-function formatDateTime(d) {
-  if (!d) return ''
-  return new Date(d).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function initials(name) {
-  if (!name) return '?'
-  return name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
-}
-
 async function setStatus(key) {
   if (!request.value || key === request.value.status || savingStatusKey.value) return
   statusError.value = null
@@ -240,56 +231,10 @@ async function confirmDelete() {
         </div>
       </div>
 
-      <!-- Conversation -->
-      <section id="admin-request-conversation" class="conversation">
-        <h2 id="admin-request-conv-title" class="conv-title">
-          <MessageSquare :size="16" />
-          Konverzace ({{ request.activity.length + 1 }})
-        </h2>
-
-        <!-- Root: client's original request -->
-        <article id="admin-conv-root" class="conv-item conv-root">
-          <div class="conv-avatar avatar avatar-sm">{{ initials(request.clientDisplayName) }}</div>
-          <div class="conv-body">
-            <div class="conv-head">
-              <span class="conv-author">{{ request.clientDisplayName || 'Klient' }}</span>
-              <span class="conv-role-badge">Žádost od klienta</span>
-              <span class="dot">·</span>
-              <span class="conv-time">{{ formatDateTime(request.createdAt) }}</span>
-            </div>
-            <div id="admin-conv-root-message" class="conv-message conv-message-root">{{ request.description || '—' }}</div>
-          </div>
-        </article>
-
-        <!-- Replies -->
-        <article
-          v-for="a in request.activity"
-          :key="a.id"
-          :id="'admin-activity-' + a.id"
-          class="conv-item"
-          :class="{ 'conv-internal': a.isInternal }"
-        >
-          <div :id="'admin-activity-avatar-' + a.id" class="conv-avatar avatar avatar-sm" :class="{ 'admin-avatar': a.authorType === 'admin' }">
-            {{ initials(a.author) }}
-          </div>
-          <div class="conv-body">
-            <div class="conv-head">
-              <span :id="'admin-activity-author-' + a.id" class="conv-author">{{ a.author }}</span>
-              <span v-if="a.isInternal" :id="'admin-activity-internal-badge-' + a.id" class="badge badge-warning internal-badge">
-                <Lock :size="11" /> Interní
-              </span>
-              <span class="dot">·</span>
-              <span :id="'admin-activity-time-' + a.id" class="conv-time">{{ formatDateTime(a.createdAt) }}</span>
-            </div>
-            <div :id="'admin-activity-message-' + a.id" class="conv-message">{{ a.message }}</div>
-          </div>
-        </article>
-
-        <div v-if="request.activity.length === 0" id="admin-conv-empty" class="conv-empty">
-          <Inbox :size="20" />
-          <span>Buďte první, kdo klientovi odpoví.</span>
-        </div>
-      </section>
+      <!-- Conversation (chat-style) -->
+      <div id="admin-request-conversation-wrap" class="conversation-wrap">
+        <RequestConversation :request="request" viewer-role="admin" :show-internal="true" />
+      </div>
 
       <!-- Composer -->
       <section
@@ -513,101 +458,16 @@ async function confirmDelete() {
   color: var(--color-danger);
 }
 
-/* Conversation */
-.conversation { margin-bottom: 20px; }
-.conv-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--color-primary);
-  margin: 0 0 14px;
-}
-
-.conv-item {
-  display: flex;
-  gap: 12px;
-  padding: 16px 18px;
-  background: white;
+/* Conversation wrapper — chat lives inside this card */
+.conversation-wrap {
+  margin-bottom: 16px;
+  padding: 18px 12px;
+  background: var(--color-gray-50);
   border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-lg);
-  margin-bottom: 10px;
 }
-.conv-item.conv-internal {
-  background: var(--color-warning-light);
-  border-color: var(--color-warning);
-  border-left-width: 3px;
-}
-.conv-item.conv-root {
-  background: var(--color-light);
-  border: 1px solid var(--color-mid);
-  border-left-width: 3px;
-  padding: 18px 20px;
-  margin-bottom: 18px;
-}
-
-.conv-avatar { background: var(--color-mid); }
-.admin-avatar { background: var(--color-primary); }
-
-.conv-body { flex: 1; min-width: 0; }
-.conv-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  flex-wrap: wrap;
-}
-.conv-author {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-primary);
-}
-.conv-role-badge {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-mid);
-  background: white;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-mid);
-}
-.conv-time {
-  font-size: 11px;
-  color: var(--color-gray-500);
-}
-.conv-message {
-  font-size: 14px;
-  color: var(--color-gray-700);
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-.conv-message-root {
-  font-size: 15px;
-  color: var(--color-gray-800);
-}
-
-.internal-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 10px;
-  padding: 2px 8px;
-}
-
-.conv-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 24px;
-  color: var(--color-gray-500);
-  font-size: 13px;
-  border: 1px dashed var(--color-gray-300);
-  border-radius: var(--radius-lg);
-  background: var(--color-gray-50);
+@media (min-width: 640px) {
+  .conversation-wrap { padding: 22px 18px; }
 }
 
 /* Composer */

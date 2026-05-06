@@ -717,6 +717,97 @@ input, select, textarea {
 .avatar { overflow: hidden; }
 .avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 
+/* ═══ Attachment tiles — shared across request detail, conversation, etc. ═══ */
+.attach-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.attach-gallery--compact {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+.attach-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-gray-50);
+  color: inherit;
+}
+.attach-tile img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+.attach-tile-clickable {
+  cursor: pointer;
+  transition: opacity var(--transition);
+}
+.attach-tile-clickable:hover {
+  opacity: 0.85;
+}
+.attach-tile-name {
+  display: block;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--color-accent);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-tile-name:hover {
+  text-decoration: underline;
+}
+.attach-tile-pdf {
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  color: var(--color-gray-700);
+  font-size: 11px;
+  text-align: center;
+  word-break: break-word;
+  cursor: pointer;
+}
+.attach-tile-pdf:hover {
+  background: var(--color-gray-100);
+}
+.attach-tile-download {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--color-gray-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition);
+}
+.attach-tile:hover .attach-tile-download,
+.attach-tile:focus-within .attach-tile-download,
+.attach-tile-download:focus {
+  opacity: 1;
+}
+.attach-tile-download:hover {
+  background: var(--color-white);
+  color: var(--color-gray-900);
+}
+
 /* Chips / filter tabs */
 .chip-group {
   display: flex;
