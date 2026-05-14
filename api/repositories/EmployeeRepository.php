@@ -185,6 +185,54 @@ class EmployeeRepository
         return array_map('strval', array_column($stmt->fetchAll(), 'personal_id'));
     }
 
+    /**
+     * Map personal_id → "Jméno P." display string for the given personal_ids.
+     * Used by FreshQRService Detailed mode to render employee labels in the
+     * client portal calendar without leaking full surnames.
+     *
+     * Personal_ids not present in the table (or soft-deleted) are simply absent
+     * from the result — callers should fall back to the personal_id itself.
+     *
+     * @param string[] $personalIds
+     * @return array<string,string>
+     */
+    public function findDisplayNamesByPersonalIds(array $personalIds): array
+    {
+        $personalIds = array_values(array_unique(array_filter(
+            array_map('strval', $personalIds),
+            fn($id) => $id !== ''
+        )));
+        if (empty($personalIds)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($personalIds), '?'));
+        $sql = "
+            SELECT personal_id, first_name, last_name
+            FROM employees
+            WHERE personal_id IN ({$placeholders})
+              AND deleted_at IS NULL
+        ";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($personalIds);
+
+        $map = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $first = trim((string) ($row['first_name'] ?? ''));
+            $last = trim((string) ($row['last_name'] ?? ''));
+            $personalId = (string) $row['personal_id'];
+
+            if ($first !== '' && $last !== '') {
+                $map[$personalId] = $first . ' ' . mb_substr($last, 0, 1) . '.';
+            } elseif ($first !== '') {
+                $map[$personalId] = $first;
+            } elseif ($last !== '') {
+                $map[$personalId] = $last;
+            }
+        }
+        return $map;
+    }
+
     public function findByLocation(int $locationId): array
     {
         $stmt = $this->db->prepare('

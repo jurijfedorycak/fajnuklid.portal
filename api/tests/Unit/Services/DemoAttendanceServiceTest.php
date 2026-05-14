@@ -141,14 +141,47 @@ class DemoAttendanceServiceTest extends TestCase
         $this->assertNotContains('2026-04-23', $dates);
     }
 
-    public function testEntriesContainOnlyDateAndOngoingKeys(): void
+    public function testEntriesCarryDateOngoingAndCleaningsKeys(): void
     {
         $result = DemoAttendanceService::buildCleaningDays(2026, 4, self::today('2026-05-06'));
 
         $this->assertNotEmpty($result);
         foreach ($result as $entry) {
-            $this->assertSame(['date', 'ongoing'], array_keys($entry));
+            $this->assertSame(['date', 'ongoing', 'cleanings'], array_keys($entry));
+            $this->assertNotEmpty($entry['cleanings'], "Demo entry {$entry['date']} must surface at least one cleaning");
+            foreach ($entry['cleanings'] as $cleaning) {
+                $this->assertSame(
+                    ['employee', 'startTime', 'endTime', 'note', 'ico'],
+                    array_keys($cleaning)
+                );
+                $this->assertIsString($cleaning['employee']);
+                $this->assertIsString($cleaning['startTime']);
+                $this->assertSame('12345678', $cleaning['ico']);
+            }
         }
+    }
+
+    public function testTodayEntryHasOngoingCleaningWithNullEndTime(): void
+    {
+        // Today's afternoon worker is "still on-site" (endTime null) so the
+        // demo always shows the ongoing affordance regardless of system time.
+        $result = DemoAttendanceService::buildCleaningDays(2026, 4, self::today('2026-04-21'));
+
+        $today = self::findByDate($result, '2026-04-21');
+        $this->assertNotNull($today);
+        $this->assertCount(2, $today['cleanings']);
+        $this->assertNull($today['cleanings'][1]['endTime']);
+    }
+
+    public function testEvenWeekWednesdayCarriesSampleNote(): void
+    {
+        // The demo seeds a single sample note on every ISO-even Wednesday so
+        // the notes feature always lights up at least once in the demo month.
+        $result = DemoAttendanceService::buildCleaningDays(2026, 4, self::today('2026-05-06'));
+
+        $weekEvenWednesday = self::findByDate($result, '2026-04-15');
+        $this->assertNotNull($weekEvenWednesday);
+        $this->assertNotNull($weekEvenWednesday['cleanings'][0]['note']);
     }
 
     /**

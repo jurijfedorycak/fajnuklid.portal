@@ -121,6 +121,7 @@ CREATE TABLE `companies` (
     `contract_end_date` DATE NULL,
     `contract_pdf_path` VARCHAR(500) NULL,
     `idoklad_sync_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'When true, nightly cron pulls issued invoices from iDoklad for this company',
+    `freshqr_mode` ENUM('off','basic','detailed') NOT NULL DEFAULT 'off' COMMENT 'Per-company FreshQR exposure level: off=no calendar, basic=date+ongoing only, detailed=employee+times',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),

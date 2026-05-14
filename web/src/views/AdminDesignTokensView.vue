@@ -66,6 +66,16 @@ const fontSizes = [
   { size: '22px', label: 'Heading' },
 ]
 
+// HTML parser collapses literal whitespace inside templates, so a multi-paragraph
+// note written inline gets squashed onto one line. The live AttendanceView uses
+// `{{ c.note }}` interpolation where the runtime preserves `\n\n` — replicate
+// that here with a JS-bound string so the demo actually shows paragraph breaks.
+const mergedNoteSample = [
+  'Doplněn papír na záchody.',
+  'Vyměnili jsme rozbitou žárovku v chodbě.',
+  'Klient nahlásil prasklé umyvadlo, předáno údržbě.',
+].join('\n\n')
+
 async function copyToClipboard(varName) {
   try {
     await navigator.clipboard.writeText(`var(${varName})`)
@@ -448,6 +458,178 @@ async function copyToClipboard(varName) {
             <div class="empty-state-text">Zkuste upravit vyhledávací kritéria nebo filtry.</div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- Calendar / FreshQR popover preview -->
+    <section id="dt-calendar-section" class="dt-section">
+      <h2 id="dt-calendar-title" class="dt-section-title">Kalendář docházky · FreshQR popover</h2>
+      <p id="dt-calendar-intro" class="dt-help-text">
+        Stejný HTML + CSS jako v <code>AttendanceView.vue</code>, plněný syntetickými daty.
+        Slouží k vizuálnímu ověření detailního režimu, kdy testovací prostředí nemá funkční napojení na FreshQR.
+      </p>
+
+      <!-- Day cells in every visual state -->
+      <div id="dt-calendar-cells" class="dt-subsection">
+        <h3 id="dt-calendar-cells-title" class="dt-subsection-title">Buňky kalendáře</h3>
+        <div id="dt-calendar-cells-grid" class="dt-cal-grid">
+          <div id="dt-cal-cell-empty" class="day-cell">
+            <span class="day-num">10</span>
+          </div>
+          <div id="dt-cal-cell-done-single" class="day-cell day-done">
+            <span class="day-num">11</span>
+            <span class="day-icon done-icon">✓</span>
+          </div>
+          <div id="dt-cal-cell-done-two" class="day-cell day-done">
+            <span class="day-num">12</span>
+            <span class="day-icon done-icon">✓</span>
+            <span class="day-multi-dots" title="2 úklidy v tento den">
+              <span class="dot" /><span class="dot" />
+            </span>
+          </div>
+          <div id="dt-cal-cell-done-many" class="day-cell day-done">
+            <span class="day-num">13</span>
+            <span class="day-icon done-icon">✓</span>
+            <span class="day-multi-dots" title="4 úklidy v tento den">
+              <span class="dot" /><span class="dot" /><span class="dot" /><span class="dot-more">+</span>
+            </span>
+            <span class="day-note-dot" title="Poznámka k úklidu" />
+          </div>
+          <div id="dt-cal-cell-ongoing-today" class="day-cell day-ongoing day-today">
+            <span class="day-num">14</span>
+            <span class="day-icon ongoing-icon">⟳</span>
+            <span class="day-multi-dots" title="3 úklidy v tento den">
+              <span class="dot" /><span class="dot" /><span class="dot" />
+            </span>
+          </div>
+        </div>
+        <p class="dt-cell-caption">
+          Den 10 – bez úklidu &nbsp;·&nbsp; den 11 – jeden úklid &nbsp;·&nbsp;
+          den 12 – 2 úklidy &nbsp;·&nbsp; den 13 – 4+ úklidů s poznámkou &nbsp;·&nbsp;
+          den 14 – dnes, právě probíhá, 3 úklidy
+        </p>
+      </div>
+
+      <!-- Popover variants -->
+      <div id="dt-popover-pair" class="dt-subsection">
+        <h3 id="dt-popover-pair-title" class="dt-subsection-title">Popover · detailní režim</h3>
+        <div id="dt-popover-pair-grid" class="dt-popover-pair-grid">
+
+          <div>
+            <div id="dt-popover-two" class="day-popover">
+              <div class="day-popover-header">Úklidy · 12.5.</div>
+              <ul class="cleaning-list">
+                <li class="cleaning-row">
+                  <div class="cleaning-time">08:00 – 11:30</div>
+                  <div class="cleaning-emp">Anna N.</div>
+                </li>
+                <li class="cleaning-row">
+                  <div class="cleaning-time">13:00 – 15:30</div>
+                  <div class="cleaning-emp">Petr K.</div>
+                  <div class="cleaning-note">Doplnili jsme tekuté mýdlo a papírové ručníky.</div>
+                </li>
+              </ul>
+            </div>
+            <p class="dt-cell-caption">Dva úklidy v jednom dni. Druhý záznam má poznámku z FreshQR.</p>
+          </div>
+
+          <div>
+            <div id="dt-popover-ongoing" class="day-popover">
+              <div class="day-popover-header">Úklidy · 14.5.</div>
+              <ul class="cleaning-list">
+                <li class="cleaning-row">
+                  <div class="cleaning-time">08:00 – 11:30</div>
+                  <div class="cleaning-emp">Anna N.</div>
+                </li>
+                <li class="cleaning-row">
+                  <div class="cleaning-time">13:00<span class="cleaning-time-open">…</span></div>
+                  <div class="cleaning-emp">Petr K.</div>
+                </li>
+                <li class="cleaning-row">
+                  <div class="cleaning-time">14:00<span class="cleaning-time-open">…</span></div>
+                  <div class="cleaning-emp">Jana V.</div>
+                </li>
+              </ul>
+            </div>
+            <p class="dt-cell-caption">Dnes, dva pracovníci stále na místě (čas konce nezjištěn → „…").</p>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Merged-notes scenario -->
+      <div id="dt-popover-notes" class="dt-subsection">
+        <h3 id="dt-popover-notes-title" class="dt-subsection-title">Popover s více poznámkami z FreshQR</h3>
+        <div id="dt-popover-notes-wrap" class="dt-popover-single">
+          <div id="dt-popover-merged-notes" class="day-popover">
+            <div class="day-popover-header">Úklidy · 13.5.</div>
+            <ul class="cleaning-list">
+              <li class="cleaning-row">
+                <div class="cleaning-time">08:00 – 11:30</div>
+                <div class="cleaning-emp">Anna N.</div>
+                <div class="cleaning-note">{{ mergedNoteSample }}</div>
+              </li>
+            </ul>
+          </div>
+          <p class="dt-cell-caption">
+            FreshQR pošle pole <code>notes</code>; backend je spojí prázdným řádkem.
+            CSS <code>white-space: pre-line</code> zachová odstavce.
+          </p>
+        </div>
+      </div>
+
+      <!-- Combined cleanings + requests -->
+      <div id="dt-popover-combined" class="dt-subsection">
+        <h3 id="dt-popover-combined-title" class="dt-subsection-title">Popover · úklidy + požadavky v jednom dni</h3>
+        <div class="dt-popover-single">
+          <div id="dt-popover-mix" class="day-popover">
+            <div class="day-popover-header">Úklidy · 13.5.</div>
+            <ul class="cleaning-list">
+              <li class="cleaning-row">
+                <div class="cleaning-time">08:00 – 11:30</div>
+                <div class="cleaning-emp">Anna N.</div>
+              </li>
+            </ul>
+            <div class="day-popover-header">Požadavky · 13.5.</div>
+            <button class="day-popover-item" type="button">
+              <span class="dpi-title">Oprava topení v zasedačce</span>
+              <span class="dpi-meta">
+                <span class="dpi-badge badge-warning">V řešení</span>
+                <span class="dpi-company">Klient s.r.o.</span>
+              </span>
+            </button>
+          </div>
+          <p class="dt-cell-caption">Když má den úklid i otevřený požadavek, popover ukáže obě sekce pod sebou.</p>
+        </div>
+      </div>
+
+      <!-- Basic mode contrast -->
+      <div id="dt-calendar-basic" class="dt-subsection">
+        <h3 id="dt-calendar-basic-title" class="dt-subsection-title">Pro srovnání · základní režim („Pouze datum")</h3>
+        <div id="dt-calendar-basic-cells" class="dt-cal-grid">
+          <div class="day-cell day-done">
+            <span class="day-num">10</span>
+            <span class="day-icon done-icon">✓</span>
+          </div>
+          <div class="day-cell day-done">
+            <span class="day-num">11</span>
+            <span class="day-icon done-icon">✓</span>
+          </div>
+          <div class="day-cell">
+            <span class="day-num">12</span>
+          </div>
+          <div class="day-cell day-ongoing day-today">
+            <span class="day-num">13</span>
+            <span class="day-icon ongoing-icon">⟳</span>
+          </div>
+          <div class="day-cell day-done">
+            <span class="day-num">14</span>
+            <span class="day-icon done-icon">✓</span>
+          </div>
+        </div>
+        <p class="dt-cell-caption">
+          Žádné body, žádný popover s personálem – jen ano/ne/probíhá. Klient s režimem „Pouze datum" tohle uvidí.
+        </p>
       </div>
     </section>
 
@@ -922,4 +1104,162 @@ async function copyToClipboard(varName) {
 }
 
 /* Token grids handled mobile-first in their base declarations above. */
+
+/* ─── Calendar + popover demo ─────────────────────────────────────────────
+   Mirrors the scoped styles in AttendanceView.vue so admins can see exactly
+   what clients see. Vue scoped CSS is namespaced per component, so the same
+   class names here don't conflict with the live calendar. */
+.dt-help-text {
+  font-size: 13px;
+  color: var(--color-gray-600);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+.dt-help-text code {
+  background: var(--color-gray-100);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.dt-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  max-width: 360px;
+  background: var(--color-white);
+  padding: 12px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+@media (min-width: 480px) {
+  .dt-cal-grid { max-width: 480px; padding: 16px; }
+}
+.dt-cell-caption {
+  font-size: 12px;
+  color: var(--color-gray-500);
+  margin-top: 10px;
+  line-height: 1.5;
+  max-width: 480px;
+}
+.dt-cell-caption code {
+  background: var(--color-gray-100);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+.dt-popover-pair-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+@media (min-width: 768px) {
+  .dt-popover-pair-grid { grid-template-columns: 1fr 1fr; }
+}
+.dt-popover-single { max-width: 320px; }
+
+/* Day cell — same shape as AttendanceView.vue's calendar cells */
+.day-cell {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+}
+.day-cell.day-done    { background: var(--color-success-light); border-color: #b6dac5; }
+.day-cell.day-ongoing { background: var(--color-warning-light); border-color: #f5c98a; }
+.day-cell.day-today   { box-shadow: 0 0 0 2px var(--color-accent) inset; }
+.day-num { font-weight: 600; }
+.day-icon { position: absolute; top: 4px; right: 4px; line-height: 1; }
+.done-icon    { color: var(--color-success); }
+.ongoing-icon { color: var(--color-warning); }
+.day-note-dot {
+  position: absolute; bottom: 5px; right: 6px;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--color-mid);
+}
+.day-multi-dots {
+  position: absolute; bottom: 4px; left: 5px;
+  display: inline-flex; align-items: center; gap: 2px;
+}
+.day-multi-dots .dot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--color-success);
+}
+.day-multi-dots .dot-more {
+  font-size: 9px; line-height: 1;
+  color: var(--color-gray-600); margin-left: 1px;
+}
+@media (min-width: 480px) {
+  .day-multi-dots .dot { width: 5px; height: 5px; }
+}
+
+/* Popover — same shape as AttendanceView.vue's popover */
+.day-popover {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  text-align: left;
+  max-width: 320px;
+}
+.day-popover-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-gray-500);
+  text-transform: uppercase;
+  background: var(--color-gray-50);
+  border-bottom: 1px solid var(--color-gray-200);
+}
+.cleaning-list { list-style: none; margin: 0; padding: 0; }
+.cleaning-row {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-gray-100);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.cleaning-row:last-child { border-bottom: none; }
+.cleaning-time {
+  font-size: 11px; font-weight: 600;
+  color: var(--color-gray-500);
+  letter-spacing: 0.02em;
+}
+.cleaning-time-open { margin-left: 4px; color: var(--color-mid); }
+.cleaning-emp {
+  font-size: 13px; color: var(--color-primary); font-weight: 500;
+}
+.cleaning-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-gray-700);
+  font-style: italic;
+  white-space: pre-line;
+}
+.day-popover-item {
+  display: flex; flex-direction: column; width: 100%;
+  padding: 10px 12px;
+  background: var(--color-white);
+  border: none;
+  border-bottom: 1px solid var(--color-gray-100);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.day-popover-item:last-child { border-bottom: none; }
+.dpi-title { font-size: 13px; color: var(--color-primary); font-weight: 500; }
+.dpi-meta {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 6px; flex-wrap: wrap;
+}
+.dpi-badge {
+  font-size: 10px; font-weight: 600;
+  padding: 2px 8px; border-radius: var(--radius-pill); line-height: 1.4;
+  background: var(--color-warning-light); color: var(--color-warning);
+}
+.dpi-company { font-size: 11px; color: var(--color-gray-500); }
 </style>

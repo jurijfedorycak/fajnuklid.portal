@@ -81,10 +81,22 @@ watch([viewYear, viewMonth], loadAll)
 const dayMap = computed(() => {
   const m = {}
   for (const d of cleaningDays.value) {
-    m[d.date] = { note: d.note || '', ongoing: !!d.ongoing }
+    m[d.date] = {
+      ongoing: !!d.ongoing,
+      cleanings: Array.isArray(d.cleanings) ? d.cleanings : [],
+    }
   }
   return m
 })
+
+// True iff any rendered day actually carries detailed cleanings — drives the
+// optional "víc úklidů v jednom dni" legend chip and the suppression of the
+// "no detail" privacy note. Quiet months show the privacy note even on
+// Detailed-mode IČOs; that's acceptable because the note is informative, not
+// a policy statement.
+const hasAnyDetailedCleaning = computed(() =>
+  cleaningDays.value.some(d => Array.isArray(d.cleanings) && d.cleanings.length > 0)
+)
 
 function pickPriorityStatus(statuses) {
   for (const key of PRIORITY_ORDER) {
@@ -117,11 +129,14 @@ const calendarDays = computed(() => {
     const isToday = year === today.getFullYear() && month === today.getMonth() && d === today.getDate()
     const isPast  = new Date(year, month, d) < today && !isToday
     const requests = requestsByDay.value[key] || { total: 0, statuses: {} }
+    const cleanings = info?.cleanings || []
     cells.push({
       day: d, key,
       hasCleaning: !!info,
       ongoing: info?.ongoing || false,
-      note: info?.note || '',
+      cleanings,
+      cleaningsCount: cleanings.length,
+      hasNote: cleanings.some(c => c && c.note),
       requests,
       priorityStatus: pickPriorityStatus(requests.statuses),
       isToday, isPast,
@@ -156,7 +171,9 @@ function goToday() {
 }
 
 async function openDayPopover(cell, event) {
-  if (!cell.requests.total) return
+  // Open whenever the day has anything to show — cleanings (Detailed mode) or
+  // maintenance requests. Empty days are still inert.
+  if (!cell.requests.total && !cell.cleaningsCount) return
   if (openPopoverDate.value === cell.key) {
     closeDayPopover()
     return
@@ -167,8 +184,13 @@ async function openDayPopover(cell, event) {
     popoverAnchorRect.value = null
   }
   openPopoverDate.value = cell.key
-  popoverLoading.value = true
   popoverItems.value = []
+  if (!cell.requests.total) {
+    // No requests to fetch — the popover is just the cleanings section.
+    popoverLoading.value = false
+    return
+  }
+  popoverLoading.value = true
   try {
     const res = await maintenanceRequestService.list({ date: cell.key })
     if (res.success) {
@@ -285,6 +307,12 @@ onBeforeUnmount(() => {
         <span class="legend-dot empty" />
         <span>Bez úklidu</span>
       </div>
+      <div v-if="hasAnyDetailedCleaning" id="legend-multi-cleanings" class="legend-item">
+        <span class="legend-multi-dots" aria-hidden="true">
+          <span class="dot" /><span class="dot" /><span class="dot" />
+        </span>
+        <span>Víc úklidů v jednom dni</span>
+      </div>
     </div>
 
     <!-- Calendar card -->
@@ -339,7 +367,7 @@ onBeforeUnmount(() => {
               },
               cell.priorityStatus ? `day-priority-${cell.priorityStatus}` : '',
             ]"
-            :title="cell.requests.total > 0 ? buildRequestTooltip(cell.requests) : (cell.hasCleaning ? (cell.note || 'Úklid proběhl') : '')"
+            :title="cell.requests.total > 0 ? buildRequestTooltip(cell.requests) : (cell.hasCleaning ? (cell.hasNote ? 'Úklid proběhl (s poznámkou)' : 'Úklid proběhl') : '')"
             @click="openDayPopover(cell, $event)"
           >
             <span class="day-num">{{ cell.day }}</span>
@@ -349,7 +377,16 @@ onBeforeUnmount(() => {
             <span v-if="cell.ongoing" class="day-icon ongoing-icon">
               <Loader2 :size="12" class="spin" />
             </span>
-            <span v-if="cell.note" class="day-note-dot" title="Poznámka k úklidu" />
+            <span
+              v-if="cell.cleaningsCount >= 2"
+              class="day-multi-dots"
+              :title="`${cell.cleaningsCount} úklidů v tento den`"
+              :id="'multi-dots-' + cell.key"
+            >
+              <span v-for="n in Math.min(cell.cleaningsCount, 3)" :key="n" class="dot" />
+              <span v-if="cell.cleaningsCount > 3" class="dot-more">+</span>
+            </span>
+            <span v-if="cell.hasNote" class="day-note-dot" title="Poznámka k úklidu" />
             <span
               v-if="cell.requests.total > 0"
               class="day-status-badge"
@@ -361,7 +398,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <p class="privacy-note">
+    <p v-if="!hasAnyDetailedCleaning" class="privacy-note">
       Kalendář zobrazuje pouze přítomnost úklidové služby.
       Detaily pracovníků a časy nejsou zobrazeny z důvodu ochrany soukromí.
     </p>
@@ -381,26 +418,48 @@ onBeforeUnmount(() => {
         class="day-popover"
         :style="popoverAnchorStyle"
       >
-        <div class="day-popover-header">Požadavky · {{ activeCell.day }}.{{ viewMonth + 1 }}.</div>
-        <div v-if="popoverLoading" class="day-popover-empty">Načítám…</div>
-        <div v-else-if="popoverItems.length === 0" class="day-popover-empty">
-          Žádné požadavky.
-        </div>
-        <button
-          v-for="item in popoverItems"
-          :key="item.id"
-          :id="`day-popover-item-${item.id}`"
-          class="day-popover-item"
-          @click="goToRequest(item.id)"
-        >
-          <span class="dpi-title">{{ item.title }}</span>
-          <span class="dpi-meta">
-            <span class="dpi-badge" :class="statusMeta(item.status).badge">
-              {{ statusMeta(item.status).label }}
+        <template v-if="activeCell.cleanings && activeCell.cleanings.length">
+          <div :id="`day-popover-header-cleanings-${activeCell.key}`" class="day-popover-header">Úklidy · {{ activeCell.day }}.{{ viewMonth + 1 }}.</div>
+          <ul :id="`cleaning-list-${activeCell.key}`" class="cleaning-list">
+            <li
+              v-for="(c, i) in activeCell.cleanings"
+              :key="`${c.startTime || 'na'}-${c.employee}-${i}`"
+              :id="`cleaning-row-${activeCell.key}-${i}`"
+              class="cleaning-row"
+            >
+              <div :id="`cleaning-time-${activeCell.key}-${i}`" class="cleaning-time">
+                <span class="cleaning-time-range">
+                  {{ c.startTime || '—' }}<template v-if="c.endTime"> – {{ c.endTime }}</template>
+                  <span v-if="!c.endTime" class="cleaning-time-open">…</span>
+                </span>
+              </div>
+              <div :id="`cleaning-emp-${activeCell.key}-${i}`" class="cleaning-emp">{{ c.employee }}</div>
+              <div v-if="c.note" :id="`cleaning-note-${activeCell.key}-${i}`" class="cleaning-note">{{ c.note }}</div>
+            </li>
+          </ul>
+        </template>
+        <template v-if="activeCell.requests && activeCell.requests.total > 0">
+          <div :id="`day-popover-header-requests-${activeCell.key}`" class="day-popover-header">Požadavky · {{ activeCell.day }}.{{ viewMonth + 1 }}.</div>
+          <div v-if="popoverLoading" class="day-popover-empty">Načítám…</div>
+          <div v-else-if="popoverItems.length === 0" class="day-popover-empty">
+            Žádné požadavky.
+          </div>
+          <button
+            v-for="item in popoverItems"
+            :key="item.id"
+            :id="`day-popover-item-${item.id}`"
+            class="day-popover-item"
+            @click="goToRequest(item.id)"
+          >
+            <span class="dpi-title">{{ item.title }}</span>
+            <span class="dpi-meta">
+              <span class="dpi-badge" :class="statusMeta(item.status).badge">
+                {{ statusMeta(item.status).label }}
+              </span>
+              <span v-if="item.companyName" class="dpi-company">{{ item.companyName }}</span>
             </span>
-            <span v-if="item.companyName" class="dpi-company">{{ item.companyName }}</span>
-          </span>
-        </button>
+          </button>
+        </template>
       </div>
     </Teleport>
   </div>
@@ -719,6 +778,83 @@ onBeforeUnmount(() => {
   height: 5px;
   border-radius: 50%;
   background: var(--color-mid);
+}
+
+/* Multi-cleaning indicator — small horizontal dot stack at the bottom of the
+   day cell. Up to 3 dots; "+" suffix when there are more. Visible only on days
+   with 2+ cleanings (Detailed-mode IČOs only). */
+.day-multi-dots {
+  position: absolute;
+  bottom: 4px;
+  left: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.day-multi-dots .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+.day-multi-dots .dot-more {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--color-gray-600);
+  margin-left: 1px;
+}
+@media (min-width: 480px) {
+  .day-multi-dots .dot { width: 5px; height: 5px; }
+}
+
+/* Same dot stack used inline in the legend */
+.legend-multi-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.legend-multi-dots .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+
+/* Cleanings list inside the popover — chronological per-cleaning rows. */
+.cleaning-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cleaning-row {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-gray-100);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cleaning-row:last-child { border-bottom: none; }
+.cleaning-time {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-gray-500);
+  letter-spacing: 0.02em;
+}
+.cleaning-time-open {
+  margin-left: 4px;
+  color: var(--color-mid);
+}
+.cleaning-emp {
+  font-size: 13px;
+  color: var(--color-primary);
+  font-weight: 500;
+}
+.cleaning-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-gray-700);
+  font-style: italic;
+  white-space: pre-line;
 }
 
 .spin { animation: spin 2s linear infinite; }

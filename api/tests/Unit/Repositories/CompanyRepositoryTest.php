@@ -396,4 +396,69 @@ class CompanyRepositoryTest extends DatabaseTestCase
 
         $this->assertFalse($result);
     }
+
+    // normaliseFreshqrMode tests
+
+    public function testNormaliseFreshqrModeAcceptsValidLowercaseValues(): void
+    {
+        $this->assertSame('off', CompanyRepository::normaliseFreshqrMode('off'));
+        $this->assertSame('basic', CompanyRepository::normaliseFreshqrMode('basic'));
+        $this->assertSame('detailed', CompanyRepository::normaliseFreshqrMode('detailed'));
+    }
+
+    public function testNormaliseFreshqrModeLowercasesAndTrimsInput(): void
+    {
+        $this->assertSame('basic', CompanyRepository::normaliseFreshqrMode('BASIC'));
+        $this->assertSame('detailed', CompanyRepository::normaliseFreshqrMode('  Detailed '));
+        $this->assertSame('off', CompanyRepository::normaliseFreshqrMode('OFF'));
+    }
+
+    public function testNormaliseFreshqrModeFallsBackToOffForUnknownStrings(): void
+    {
+        $this->assertSame('off', CompanyRepository::normaliseFreshqrMode('gibberish'));
+        $this->assertSame('off', CompanyRepository::normaliseFreshqrMode(''));
+        $this->assertSame('off', CompanyRepository::normaliseFreshqrMode('basic_extra'));
+    }
+
+    public function testNormaliseFreshqrModeFallsBackToOffForNonStringInput(): void
+    {
+        $this->assertSame('off', CompanyRepository::normaliseFreshqrMode(null));
+        $this->assertSame('off', CompanyRepository::normaliseFreshqrMode(1));
+        $this->assertSame('off', CompanyRepository::normaliseFreshqrMode(['detailed']));
+        $this->assertSame('off', CompanyRepository::normaliseFreshqrMode(true));
+    }
+
+    // freshqr_mode round-trip through update()
+
+    public function testUpdateNormalisesFreshqrModeBeforeBindingValue(): void
+    {
+        // Capturing the bound parameter is the cleanest way to assert the
+        // normaliser ran on the way in (without standing up a real DB).
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->repository->update(7, ['freshqr_mode' => '  DETAILED ']);
+
+        $this->assertSame('detailed', $captured['freshqr_mode'] ?? null);
+    }
+
+    public function testUpdateRejectsUnknownFreshqrModeByCoercingToOff(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->repository->update(7, ['freshqr_mode' => 'evil-injected-value']);
+
+        $this->assertSame('off', $captured['freshqr_mode'] ?? null);
+    }
 }

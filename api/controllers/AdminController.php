@@ -251,6 +251,17 @@ class AdminController extends Controller
                 $seenIcoRow[$ico] = $i;
             }
 
+            // Reject unknown freshqr_mode values up-front so the admin sees the
+            // typo instead of silently saving as 'off' (the repository's safety
+            // coercion would otherwise hide a bad FE state).
+            if (array_key_exists('freshqr_mode', $icoData)
+                && $icoData['freshqr_mode'] !== null
+                && $icoData['freshqr_mode'] !== ''
+                && !in_array($icoData['freshqr_mode'], ['off', 'basic', 'detailed'], true)
+            ) {
+                $errors["{$path}.freshqr_mode"][] = 'Neplatný režim docházky FreshQR';
+            }
+
             $objects = is_array($icoData['objects'] ?? null) ? $icoData['objects'] : [];
             foreach ($objects as $j => $obj) {
                 if (!is_array($obj)) {
@@ -483,7 +494,7 @@ class AdminController extends Controller
                 'id' => (int) $company['id'],
                 'ico' => $company['registration_number'] ?? '',
                 'officialName' => $company['name'] ?? '',
-                'freshqrEnabled' => false,
+                'freshqrMode' => $company['freshqr_mode'] ?? 'off',
                 'idokladSyncEnabled' => (bool) ($company['idoklad_sync_enabled'] ?? false),
                 'billingModel' => 'hourly',
                 'contractUploaded' => !empty($contractPath),
@@ -623,6 +634,7 @@ class AdminController extends Controller
                             ? ($this->storage->extractKey($incomingContract) ?: null)
                             : null,
                         'idoklad_sync_enabled' => (bool) ($icoData['idoklad_sync_enabled'] ?? false),
+                        'freshqr_mode' => $icoData['freshqr_mode'] ?? 'off',
                     ]);
                 } catch (\PDOException $e) {
                     throw $this->reclassifyUniqueViolation(
@@ -856,6 +868,7 @@ class AdminController extends Controller
                             'name' => $companyName,
                             'contract_pdf_path' => $contractKey,
                             'idoklad_sync_enabled' => (int) (bool) ($icoData['idoklad_sync_enabled'] ?? false),
+                            'freshqr_mode' => $icoData['freshqr_mode'] ?? 'off',
                         ]);
                     } catch (\PDOException $e) {
                         throw $this->reclassifyUniqueViolation(
@@ -874,6 +887,7 @@ class AdminController extends Controller
                             'name' => $companyName,
                             'contract_pdf_path' => $contractKey,
                             'idoklad_sync_enabled' => (int) (bool) ($icoData['idoklad_sync_enabled'] ?? false),
+                            'freshqr_mode' => $icoData['freshqr_mode'] ?? 'off',
                         ]);
                     } catch (\PDOException $e) {
                         throw $this->reclassifyUniqueViolation(

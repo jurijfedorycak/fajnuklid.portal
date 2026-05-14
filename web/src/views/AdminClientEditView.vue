@@ -457,7 +457,7 @@ function addLogin() {
 function removeLogin(id) { form.logins = form.logins.filter(l => l.id !== id) }
 
 function addIco() {
-  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrEnabled: false, idokladSyncEnabled: false, billingModel: 'hourly', contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], expanded: true })
+  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrMode: 'off', idokladSyncEnabled: false, billingModel: 'hourly', contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], expanded: true })
 }
 
 // ── iDoklad manual sync ───────────────────────────────────────────────────────
@@ -735,7 +735,7 @@ async function save() {
         company_id: i.companyId ?? null,
         ico: i.ico,
         official_name: i.officialName,
-        freshqr_enabled: i.freshqrEnabled,
+        freshqr_mode: i.freshqrMode,
         idoklad_sync_enabled: i.idokladSyncEnabled,
         billing_model: i.billingModel,
         contract_file: i.contractFile,
@@ -829,7 +829,7 @@ function serializeForm() {
     icos: form.icos.map(i => ({
       ico: i.ico,
       officialName: i.officialName,
-      freshqrEnabled: i.freshqrEnabled,
+      freshqrMode: i.freshqrMode,
       idokladSyncEnabled: i.idokladSyncEnabled,
       billingModel: i.billingModel,
       contractFile: i.contractFile,
@@ -1353,7 +1353,9 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="ico-header-right">
                   <span class="badge badge-info" style="font-size:11px;">{{ ico.objects.length }} provozovny</span>
-                  <span v-if="ico.freshqrEnabled" class="badge badge-success" style="font-size:11px;">FreshQR</span>
+                  <span v-if="ico.freshqrMode && ico.freshqrMode !== 'off'" class="badge badge-success" style="font-size:11px;">
+                    FreshQR · {{ ico.freshqrMode === 'detailed' ? 'Personál a časy' : 'Pouze datum' }}
+                  </span>
                   <span v-if="ico.contractUploaded" class="badge badge-gray" style="font-size:11px;">Smlouva ✓</span>
                   <button class="btn btn-ghost btn-sm danger-hover" @click.stop="removeIco(ico.id)"><Trash2 :size="14" /></button>
                   <ChevronUp v-if="ico.expanded" :size="16" class="text-muted" />
@@ -1398,25 +1400,30 @@ onBeforeUnmount(() => {
 
                 <!-- FreshQR + billing model + iDoklad sync -->
                 <div class="ico-toggles-row">
-                  <div class="toggle-field">
+                  <div class="toggle-field freshqr-mode-field">
                     <div>
-                      <div class="form-label">Docházka FreshQR</div>
-                      <p class="field-hint">Zapne modul docházky pro toto IČO.</p>
+                      <div :id="`ico-${ico.id}-freshqr-mode-label`" class="form-label">Docházka FreshQR</div>
+                      <p class="field-hint">Určuje, kolik informací o úklidech bude klient vidět v kalendáři docházky.</p>
                     </div>
-                    <button
-                      :id="`ico-${ico.id}-freshqr-toggle`"
-                      class="toggle-btn"
-                      :class="{ 'toggle-on': ico.freshqrEnabled }"
-                      role="switch"
-                      :aria-checked="ico.freshqrEnabled"
-                      aria-label="Docházka FreshQR"
-                      @click="ico.freshqrEnabled = !ico.freshqrEnabled"
+                    <div
+                      :id="`ico-${ico.id}-freshqr-mode`"
+                      class="restriction-options freshqr-mode-options"
+                      role="radiogroup"
+                      :aria-labelledby="`ico-${ico.id}-freshqr-mode-label`"
                     >
-                      <span class="toggle-knob" aria-hidden="true" />
-                    </button>
-                    <span :class="ico.freshqrEnabled ? 'text-success' : 'text-muted'" style="font-size:13px; font-weight:500;">
-                      {{ ico.freshqrEnabled ? 'Zapnuto' : 'Vypnuto' }}
-                    </span>
+                      <label :id="`ico-${ico.id}-freshqr-mode-off`" class="radio-option" :class="{ active: ico.freshqrMode === 'off' }">
+                        <input :id="`ico-${ico.id}-freshqr-mode-input-off`" type="radio" :name="`ico-${ico.id}-freshqr-mode-input`" v-model="ico.freshqrMode" value="off" />
+                        Vypnuto
+                      </label>
+                      <label :id="`ico-${ico.id}-freshqr-mode-basic`" class="radio-option" :class="{ active: ico.freshqrMode === 'basic' }">
+                        <input :id="`ico-${ico.id}-freshqr-mode-input-basic`" type="radio" :name="`ico-${ico.id}-freshqr-mode-input`" v-model="ico.freshqrMode" value="basic" />
+                        Pouze datum
+                      </label>
+                      <label :id="`ico-${ico.id}-freshqr-mode-detailed`" class="radio-option" :class="{ active: ico.freshqrMode === 'detailed' }">
+                        <input :id="`ico-${ico.id}-freshqr-mode-input-detailed`" type="radio" :name="`ico-${ico.id}-freshqr-mode-input`" v-model="ico.freshqrMode" value="detailed" />
+                        Personál a časy
+                      </label>
+                    </div>
                   </div>
 
                   <div class="toggle-field">
@@ -2330,6 +2337,16 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-gray-200);
 }
 
+.toggle-field.freshqr-mode-field {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.freshqr-mode-options {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
 .toggle-btn {
   position: relative;
   width: 44px;
@@ -2382,7 +2399,17 @@ onBeforeUnmount(() => {
   color: var(--color-gray-700);
   transition: var(--transition);
 }
-.radio-option input { display: none; }
+/* Visually hidden but still focusable so arrow-key cycling and keyboard
+   selection work. `display: none` would yank the input out of the focus tree
+   entirely, which broke keyboard-only users. */
+.radio-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  margin: 0;
+}
 .radio-option.active {
   border-color: var(--color-primary);
   background: var(--color-light);
@@ -2390,6 +2417,10 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 .radio-option:hover { border-color: var(--color-mid); }
+.radio-option:has(input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 
 /* IČO checkboxes */
 .ico-checkboxes, .obj-checkboxes {

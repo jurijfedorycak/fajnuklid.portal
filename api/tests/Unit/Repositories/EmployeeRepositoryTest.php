@@ -407,4 +407,52 @@ class EmployeeRepositoryTest extends DatabaseTestCase
 
         $this->assertFalse($result);
     }
+
+    // findDisplayNamesByPersonalIds tests
+
+    public function testFindDisplayNamesByPersonalIdsBuildsFirstNamePlusInitial(): void
+    {
+        $this->setupFetchAllMock([
+            ['personal_id' => 'EMP001', 'first_name' => 'Anna', 'last_name' => 'Nováková'],
+            ['personal_id' => 'EMP002', 'first_name' => 'Petr', 'last_name' => 'Krátký'],
+        ]);
+
+        $result = $this->repository->findDisplayNamesByPersonalIds(['EMP001', 'EMP002']);
+
+        $this->assertEquals([
+            'EMP001' => 'Anna N.',
+            'EMP002' => 'Petr K.',
+        ], $result);
+    }
+
+    public function testFindDisplayNamesByPersonalIdsFallsBackToFirstNameWhenLastNameMissing(): void
+    {
+        $this->setupFetchAllMock([
+            ['personal_id' => 'EMP001', 'first_name' => 'Anna', 'last_name' => ''],
+        ]);
+
+        $result = $this->repository->findDisplayNamesByPersonalIds(['EMP001']);
+
+        $this->assertEquals(['EMP001' => 'Anna'], $result);
+    }
+
+    public function testFindDisplayNamesByPersonalIdsReturnsEmptyForEmptyInput(): void
+    {
+        $this->pdoMock->expects($this->never())->method('prepare');
+
+        $this->assertEquals([], $this->repository->findDisplayNamesByPersonalIds([]));
+    }
+
+    public function testFindDisplayNamesByPersonalIdsDeduplicatesInput(): void
+    {
+        // Same personal_id passed twice — should result in a single placeholder
+        // and a single map entry, not crash on collisions.
+        $this->setupFetchAllMock([
+            ['personal_id' => 'EMP001', 'first_name' => 'Anna', 'last_name' => 'Nováková'],
+        ]);
+
+        $result = $this->repository->findDisplayNamesByPersonalIds(['EMP001', 'EMP001']);
+
+        $this->assertEquals(['EMP001' => 'Anna N.'], $result);
+    }
 }

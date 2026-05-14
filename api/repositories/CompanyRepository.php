@@ -29,6 +29,7 @@ class CompanyRepository
                 c.contract_end_date,
                 c.contract_pdf_path,
                 c.idoklad_sync_enabled,
+                c.freshqr_mode,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -55,6 +56,7 @@ class CompanyRepository
                 c.contract_end_date,
                 c.contract_pdf_path,
                 c.idoklad_sync_enabled,
+                c.freshqr_mode,
                 c.created_at,
                 c.updated_at
             FROM companies c
@@ -79,6 +81,7 @@ class CompanyRepository
                 contract_end_date,
                 contract_pdf_path,
                 idoklad_sync_enabled,
+                freshqr_mode,
                 created_at,
                 updated_at
             FROM companies
@@ -103,6 +106,7 @@ class CompanyRepository
                 c.contract_end_date,
                 c.contract_pdf_path,
                 c.idoklad_sync_enabled,
+                c.freshqr_mode,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -127,6 +131,7 @@ class CompanyRepository
                 c.contract_end_date,
                 c.contract_pdf_path,
                 c.idoklad_sync_enabled,
+                c.freshqr_mode,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -195,6 +200,7 @@ class CompanyRepository
                 contract_end_date,
                 contract_pdf_path,
                 idoklad_sync_enabled,
+                freshqr_mode,
                 created_at,
                 updated_at
             ) VALUES (
@@ -206,6 +212,7 @@ class CompanyRepository
                 :contract_end_date,
                 :contract_pdf_path,
                 :idoklad_sync_enabled,
+                :freshqr_mode,
                 NOW(),
                 NOW()
             )
@@ -220,6 +227,7 @@ class CompanyRepository
             'contract_end_date' => $data['contract_end_date'] ?? null,
             'contract_pdf_path' => $data['contract_pdf_path'] ?? null,
             'idoklad_sync_enabled' => (int) (bool) ($data['idoklad_sync_enabled'] ?? false),
+            'freshqr_mode' => self::normaliseFreshqrMode($data['freshqr_mode'] ?? null),
         ]);
 
         return (int) $this->db->lastInsertId();
@@ -233,13 +241,21 @@ class CompanyRepository
         $allowedFields = [
             'client_id', 'registration_number', 'name', 'address',
             'contract_start_date', 'contract_end_date', 'contract_pdf_path',
-            'idoklad_sync_enabled',
+            'idoklad_sync_enabled', 'freshqr_mode',
         ];
+
+        $boolFields = ['idoklad_sync_enabled'];
 
         foreach ($allowedFields as $field) {
             if (array_key_exists($field, $data)) {
                 $fields[] = "{$field} = :{$field}";
-                $params[$field] = $data[$field];
+                if ($field === 'freshqr_mode') {
+                    $params[$field] = self::normaliseFreshqrMode($data[$field]);
+                } elseif (in_array($field, $boolFields, true)) {
+                    $params[$field] = (int) (bool) $data[$field];
+                } else {
+                    $params[$field] = $data[$field];
+                }
             }
         }
 
@@ -294,6 +310,7 @@ class CompanyRepository
                 c.contract_end_date,
                 c.contract_pdf_path,
                 c.idoklad_sync_enabled,
+                c.freshqr_mode,
                 c.created_at,
                 c.updated_at
             FROM companies c
@@ -321,6 +338,21 @@ class CompanyRepository
         ");
 
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Coerce caller-supplied freshqr_mode into one of the ENUM values. Anything
+     * unrecognised collapses to the safe 'off' default — the column is NOT NULL
+     * in MySQL and admins should never be able to push the row into an unknown
+     * state through a typo or stale FE payload.
+     */
+    public static function normaliseFreshqrMode(mixed $value): string
+    {
+        if (!is_string($value)) {
+            return 'off';
+        }
+        $value = strtolower(trim($value));
+        return in_array($value, ['off', 'basic', 'detailed'], true) ? $value : 'off';
     }
 
     public function hasActiveContract(int $id): bool
