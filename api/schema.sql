@@ -17,6 +17,7 @@ CREATE TABLE `clients` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `client_id` VARCHAR(50) NOT NULL COMMENT 'External client identifier',
     `display_name` VARCHAR(255) NOT NULL,
+    `greeting` VARCHAR(100) NULL DEFAULT NULL COMMENT 'Optional personalized greeting target, e.g. "pane Nováku"',
     `is_demo` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

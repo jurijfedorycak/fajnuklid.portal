@@ -185,6 +185,11 @@ function validateForm() {
     validationErrors['display_name'] = 'Název může mít nejvýše 255 znaků'
   }
 
+  const greeting = form.greeting?.trim() || ''
+  if (greeting.length > 100) {
+    validationErrors['greeting'] = 'Pozdrav může mít nejvýše 100 znaků'
+  }
+
   if (isNew.value) {
     const clientId = form.clientId?.trim() || ''
     if (!clientId) {
@@ -339,6 +344,7 @@ function uid() { return crypto.randomUUID() }
 const form = reactive({
   clientId:    '',
   displayName: '',
+  greeting:    '',
   notes:       '',
   active:      true,
   isDemo:      false,
@@ -394,6 +400,7 @@ onMounted(async () => {
         const data = response.data
         form.clientId = data.clientId || ''
         form.displayName = data.displayName || ''
+        form.greeting = data.greeting || ''
         form.notes = data.notes || ''
         form.active = data.active ?? true
         form.isDemo = data.isDemo ?? false
@@ -713,6 +720,7 @@ async function save() {
     const payload = {
       client_id: form.clientId,
       display_name: form.displayName,
+      greeting: form.greeting,
       notes: form.notes,
       active: form.active,
       is_demo: form.isDemo,
@@ -1023,6 +1031,26 @@ onBeforeUnmount(() => {
               </p>
               <p v-else id="hint-clientId" class="field-hint">Unikátní identifikátor, nelze změnit po vytvoření.</p>
             </div>
+          </div>
+
+          <div class="form-group">
+            <label id="label-greeting" for="input-greeting" class="form-label">Osobní pozdrav</label>
+            <input
+              id="input-greeting"
+              v-model="form.greeting"
+              type="text"
+              class="form-input"
+              :class="{ 'input-error': validationErrors['greeting'] }"
+              placeholder="pane Nováku"
+              maxlength="100"
+              :aria-invalid="!!validationErrors['greeting']"
+              :aria-describedby="validationErrors['greeting'] ? 'error-greeting' : 'hint-greeting'"
+              @input="clearFieldError('greeting')"
+            />
+            <p v-if="validationErrors['greeting']" id="error-greeting" class="field-error" role="alert">
+              <AlertTriangle :size="12" /> {{ validationErrors['greeting'] }}
+            </p>
+            <p v-else id="hint-greeting" class="field-hint">Použije se v osobním pozdravu na úvodní stránce klienta, např. „Dobré ráno, pane Nováku“. Nepovinné — pokud zůstane prázdné, použije se název firmy.</p>
           </div>
 
           <div class="form-group">

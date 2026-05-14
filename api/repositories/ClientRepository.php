@@ -23,6 +23,7 @@ class ClientRepository
                 id,
                 client_id,
                 display_name,
+                greeting,
                 is_demo,
                 created_at,
                 updated_at,
@@ -43,6 +44,7 @@ class ClientRepository
                 id,
                 client_id,
                 display_name,
+                greeting,
                 is_demo,
                 created_at,
                 updated_at,
@@ -66,6 +68,7 @@ class ClientRepository
                 cl.id,
                 cl.client_id,
                 cl.display_name,
+                cl.greeting,
                 cl.is_demo,
                 cl.created_at,
                 cl.updated_at,
@@ -90,6 +93,7 @@ class ClientRepository
                 id,
                 client_id,
                 display_name,
+                greeting,
                 is_demo,
                 created_at,
                 updated_at
@@ -108,6 +112,7 @@ class ClientRepository
                 id,
                 client_id,
                 display_name,
+                greeting,
                 is_demo,
                 created_at,
                 updated_at
@@ -156,13 +161,14 @@ class ClientRepository
     public function create(array $data): int
     {
         $stmt = $this->db->prepare('
-            INSERT INTO clients (client_id, display_name, is_demo, created_at, updated_at)
-            VALUES (:client_id, :display_name, :is_demo, NOW(), NOW())
+            INSERT INTO clients (client_id, display_name, greeting, is_demo, created_at, updated_at)
+            VALUES (:client_id, :display_name, :greeting, :is_demo, NOW(), NOW())
         ');
 
         $stmt->execute([
             'client_id' => $data['client_id'],
             'display_name' => $data['display_name'],
+            'greeting' => $this->normalizeGreeting($data['greeting'] ?? null),
             'is_demo' => (int) (bool) ($data['is_demo'] ?? false),
         ]);
 
@@ -187,6 +193,11 @@ class ClientRepository
         if (array_key_exists('is_demo', $data)) {
             $fields[] = 'is_demo = :is_demo';
             $params['is_demo'] = (int) (bool) $data['is_demo'];
+        }
+
+        if (array_key_exists('greeting', $data)) {
+            $fields[] = 'greeting = :greeting';
+            $params['greeting'] = $this->normalizeGreeting($data['greeting']);
         }
 
         if (empty($fields)) {
@@ -225,6 +236,15 @@ class ClientRepository
         $stmt->execute(['id' => $id]);
 
         return $stmt->rowCount() > 0;
+    }
+
+    private function normalizeGreeting(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        $trimmed = trim($value);
+        return $trimmed === '' ? null : $trimmed;
     }
 
     public function existsByClientId(string $clientId, ?int $excludeId = null): bool

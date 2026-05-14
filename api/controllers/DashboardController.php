@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
+use App\Repositories\ClientRepository;
 use App\Repositories\CompanyRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\ClientEmployeeRepository;
@@ -16,6 +17,7 @@ use DateTime;
 
 class DashboardController extends Controller
 {
+    private ClientRepository $clientRepo;
     private CompanyRepository $companyRepo;
     private LocationRepository $locationRepo;
     private ClientEmployeeRepository $clientEmployeeRepo;
@@ -24,6 +26,7 @@ class DashboardController extends Controller
 
     public function __construct()
     {
+        $this->clientRepo = new ClientRepository();
         $this->companyRepo = new CompanyRepository();
         $this->locationRepo = new LocationRepository();
         $this->clientEmployeeRepo = new ClientEmployeeRepository();
@@ -150,11 +153,20 @@ class DashboardController extends Controller
         // Each cell must include "status" so the FE renders done/ongoing/scheduled correctly.
         $cleaningDays = [];
 
-        // Build current user info
+        $clientGreeting = null;
+        if ($activeClientId !== null) {
+            $clientRow = $this->clientRepo->findById($activeClientId);
+            if ($clientRow !== null) {
+                $greeting = isset($clientRow['greeting']) ? trim((string) $clientRow['greeting']) : '';
+                $clientGreeting = $greeting !== '' ? $greeting : null;
+            }
+        }
+
         $currentUser = [
             'id' => (int) $user['id'],
             'email' => $user['email'],
             'displayName' => $activeCompany['name'] ?? $user['email'],
+            'greeting' => $clientGreeting,
             'activeIco' => $activeIco,
             'clientId' => $activeClientId,
         ];

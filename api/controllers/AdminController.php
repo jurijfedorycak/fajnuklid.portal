@@ -165,6 +165,18 @@ class AdminController extends Controller
             $errors['display_name'][] = 'Název může mít nejvýše 255 znaků';
         }
 
+        if (array_key_exists('greeting', $payload)) {
+            $rawGreeting = $payload['greeting'];
+            if ($rawGreeting !== null && !is_scalar($rawGreeting)) {
+                $errors['greeting'][] = 'Pozdrav musí být text';
+            } else {
+                $greeting = trim((string) ($rawGreeting ?? ''));
+                if ($greeting !== '' && mb_strlen($greeting) > 100) {
+                    $errors['greeting'][] = 'Pozdrav může mít nejvýše 100 znaků';
+                }
+            }
+        }
+
         // client_id is immutable after creation — only validate on create path.
         if ($isCreate) {
             $clientId = isset($payload['client_id']) ? trim((string) $payload['client_id']) : '';
@@ -545,6 +557,7 @@ class AdminController extends Controller
         Response::success([
             'clientId' => $client['client_id'],
             'displayName' => $client['display_name'],
+            'greeting' => $client['greeting'] ?? '',
             'notes' => '',
             'active' => $hasActiveLogin,
             'isDemo' => (bool) ($client['is_demo'] ?? false),
@@ -567,6 +580,7 @@ class AdminController extends Controller
         $data = [
             'client_id' => trim((string) ($payload['client_id'] ?? '')),
             'display_name' => trim((string) ($payload['display_name'] ?? '')),
+            'greeting' => is_scalar($payload['greeting'] ?? null) ? trim((string) $payload['greeting']) : '',
             'is_demo' => (bool) ($payload['is_demo'] ?? false),
         ];
 
@@ -787,6 +801,9 @@ class AdminController extends Controller
         }
         if (array_key_exists('is_demo', $payload)) {
             $data['is_demo'] = (bool) $payload['is_demo'];
+        }
+        if (array_key_exists('greeting', $payload)) {
+            $data['greeting'] = is_scalar($payload['greeting']) ? trim((string) $payload['greeting']) : '';
         }
 
         $db = \App\Config\Database::getConnection();

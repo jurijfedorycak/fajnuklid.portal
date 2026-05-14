@@ -199,7 +199,11 @@ const greeting = computed(() => {
   return "Dobrý večer";
 });
 
-const displayFirstName = computed(() => {
+const greetingTarget = computed(() => {
+  const personal = dashboardData.value.currentUser?.greeting;
+  if (typeof personal === "string" && personal.trim() !== "") {
+    return personal.trim();
+  }
   const fullName =
     dashboardData.value.currentUser?.displayName ||
     user.value?.display_name ||
@@ -499,7 +503,7 @@ function selectCompany(ico) {
       <!-- Header: greeting + IČO switcher -->
       <header id="dashboard-header" class="dashboard-header">
         <h1 id="dashboard-greeting" class="dashboard-greeting">
-          {{ greeting }}, {{ displayFirstName }}
+          {{ greeting }}, {{ greetingTarget }}
           <span aria-hidden="true">👋</span>
         </h1>
         <div
