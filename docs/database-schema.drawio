@@ -62,7 +62,7 @@
                     <mxGeometry y="146" width="240" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="companies" value="companies" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;shadow=1;" parent="1" vertex="1">
-                    <mxGeometry x="60" y="380" width="260" height="322" as="geometry"/>
+                    <mxGeometry x="60" y="380" width="260" height="344" as="geometry"/>
                 </mxCell>
                 <mxCell id="companies-pk" value="PK id INT UNSIGNED AUTO_INCREMENT" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontStyle=1" parent="companies" vertex="1">
                     <mxGeometry y="30" width="260" height="20" as="geometry"/>
@@ -97,11 +97,14 @@
                 <mxCell id="companies-f10" value="freshqr_mode ENUM(off,basic,detailed) DEFAULT 'off'" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="companies" vertex="1">
                     <mxGeometry y="234" width="260" height="22" as="geometry"/>
                 </mxCell>
-                <mxCell id="companies-f8" value="created_at, updated_at DATETIME" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#888888;" parent="companies" vertex="1">
+                <mxCell id="companies-f11" value="billing_model ENUM(hourly,fixed) NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="companies" vertex="1">
                     <mxGeometry y="256" width="260" height="22" as="geometry"/>
                 </mxCell>
-                <mxCell id="companies-fk" value="FK: client_id -&gt; clients ON DELETE CASCADE" style="text;strokeColor=none;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#666666;fontStyle=2" parent="companies" vertex="1">
+                <mxCell id="companies-f8" value="created_at, updated_at DATETIME" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#888888;" parent="companies" vertex="1">
                     <mxGeometry y="278" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="companies-fk" value="FK: client_id -&gt; clients ON DELETE CASCADE" style="text;strokeColor=none;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#666666;fontStyle=2" parent="companies" vertex="1">
+                    <mxGeometry y="300" width="260" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="locations" value="locations" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;shadow=1;" parent="1" vertex="1">
                     <mxGeometry x="70" y="700" width="240" height="212" as="geometry"/>

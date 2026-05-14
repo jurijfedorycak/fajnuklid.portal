@@ -30,6 +30,7 @@ class CompanyRepository
                 c.contract_pdf_path,
                 c.idoklad_sync_enabled,
                 c.freshqr_mode,
+                c.billing_model,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -57,6 +58,7 @@ class CompanyRepository
                 c.contract_pdf_path,
                 c.idoklad_sync_enabled,
                 c.freshqr_mode,
+                c.billing_model,
                 c.created_at,
                 c.updated_at
             FROM companies c
@@ -82,6 +84,7 @@ class CompanyRepository
                 contract_pdf_path,
                 idoklad_sync_enabled,
                 freshqr_mode,
+                billing_model,
                 created_at,
                 updated_at
             FROM companies
@@ -107,6 +110,7 @@ class CompanyRepository
                 c.contract_pdf_path,
                 c.idoklad_sync_enabled,
                 c.freshqr_mode,
+                c.billing_model,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -132,6 +136,7 @@ class CompanyRepository
                 c.contract_pdf_path,
                 c.idoklad_sync_enabled,
                 c.freshqr_mode,
+                c.billing_model,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -201,6 +206,7 @@ class CompanyRepository
                 contract_pdf_path,
                 idoklad_sync_enabled,
                 freshqr_mode,
+                billing_model,
                 created_at,
                 updated_at
             ) VALUES (
@@ -213,6 +219,7 @@ class CompanyRepository
                 :contract_pdf_path,
                 :idoklad_sync_enabled,
                 :freshqr_mode,
+                :billing_model,
                 NOW(),
                 NOW()
             )
@@ -228,6 +235,7 @@ class CompanyRepository
             'contract_pdf_path' => $data['contract_pdf_path'] ?? null,
             'idoklad_sync_enabled' => (int) (bool) ($data['idoklad_sync_enabled'] ?? false),
             'freshqr_mode' => self::normaliseFreshqrMode($data['freshqr_mode'] ?? null),
+            'billing_model' => self::normaliseBillingModel($data['billing_model'] ?? null),
         ]);
 
         return (int) $this->db->lastInsertId();
@@ -241,7 +249,7 @@ class CompanyRepository
         $allowedFields = [
             'client_id', 'registration_number', 'name', 'address',
             'contract_start_date', 'contract_end_date', 'contract_pdf_path',
-            'idoklad_sync_enabled', 'freshqr_mode',
+            'idoklad_sync_enabled', 'freshqr_mode', 'billing_model',
         ];
 
         $boolFields = ['idoklad_sync_enabled'];
@@ -251,6 +259,8 @@ class CompanyRepository
                 $fields[] = "{$field} = :{$field}";
                 if ($field === 'freshqr_mode') {
                     $params[$field] = self::normaliseFreshqrMode($data[$field]);
+                } elseif ($field === 'billing_model') {
+                    $params[$field] = self::normaliseBillingModel($data[$field]);
                 } elseif (in_array($field, $boolFields, true)) {
                     $params[$field] = (int) (bool) $data[$field];
                 } else {
@@ -311,6 +321,7 @@ class CompanyRepository
                 c.contract_pdf_path,
                 c.idoklad_sync_enabled,
                 c.freshqr_mode,
+                c.billing_model,
                 c.created_at,
                 c.updated_at
             FROM companies c
@@ -353,6 +364,24 @@ class CompanyRepository
         }
         $value = strtolower(trim($value));
         return in_array($value, ['off', 'basic', 'detailed'], true) ? $value : 'off';
+    }
+
+    /**
+     * Coerce caller-supplied billing_model into one of the ENUM values or NULL.
+     * Unlike freshqr_mode this column is nullable — NULL represents "Neurčeno"
+     * (unset). Anything unrecognised collapses to NULL so a typo or stale FE
+     * payload can never push the row into an invalid ENUM state.
+     */
+    public static function normaliseBillingModel(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        $value = strtolower(trim($value));
+        if ($value === '') {
+            return null;
+        }
+        return in_array($value, ['hourly', 'fixed'], true) ? $value : null;
     }
 
     public function hasActiveContract(int $id): bool

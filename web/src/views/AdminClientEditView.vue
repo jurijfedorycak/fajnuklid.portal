@@ -457,7 +457,7 @@ function addLogin() {
 function removeLogin(id) { form.logins = form.logins.filter(l => l.id !== id) }
 
 function addIco() {
-  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrMode: 'off', idokladSyncEnabled: false, billingModel: 'hourly', contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], expanded: true })
+  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrMode: 'off', idokladSyncEnabled: false, billingModel: null, contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], expanded: true })
 }
 
 // ── iDoklad manual sync ───────────────────────────────────────────────────────
@@ -1400,7 +1400,7 @@ onBeforeUnmount(() => {
 
                 <!-- FreshQR + billing model + iDoklad sync -->
                 <div class="ico-toggles-row">
-                  <div class="toggle-field freshqr-mode-field">
+                  <div class="toggle-field toggle-field-stacked freshqr-mode-field">
                     <div>
                       <div :id="`ico-${ico.id}-freshqr-mode-label`" class="form-label">Docházka FreshQR</div>
                       <p class="field-hint">Určuje, kolik informací o úklidech bude klient vidět v kalendáři docházky.</p>
@@ -1426,8 +1426,37 @@ onBeforeUnmount(() => {
                     </div>
                   </div>
 
-                  <div class="toggle-field">
+                  <div class="toggle-field toggle-field-stacked">
                     <div>
+                      <div :id="`ico-${ico.id}-billing-model-label`" class="form-label">Fakturační model</div>
+                      <p class="field-hint">Zobrazí se v modulu docházky.</p>
+                    </div>
+                    <div
+                      :id="`ico-${ico.id}-billing-model`"
+                      class="restriction-options billing-model-options"
+                      role="radiogroup"
+                      :aria-labelledby="`ico-${ico.id}-billing-model-label`"
+                    >
+                      <label :id="`ico-${ico.id}-billing-model-none`" class="radio-option" :class="{ active: ico.billingModel == null }">
+                        <input :id="`ico-${ico.id}-billing-model-input-none`" type="radio" :name="`ico-${ico.id}-billing-model-input`" v-model="ico.billingModel" :value="null" />
+                        Neurčeno
+                      </label>
+                      <label :id="`ico-${ico.id}-billing-model-hourly`" class="radio-option" :class="{ active: ico.billingModel === 'hourly' }">
+                        <input :id="`ico-${ico.id}-billing-model-input-hourly`" type="radio" :name="`ico-${ico.id}-billing-model-input`" v-model="ico.billingModel" value="hourly" />
+                        Hodinová sazba
+                      </label>
+                      <label :id="`ico-${ico.id}-billing-model-fixed`" class="radio-option" :class="{ active: ico.billingModel === 'fixed' }">
+                        <input :id="`ico-${ico.id}-billing-model-input-fixed`" type="radio" :name="`ico-${ico.id}-billing-model-input`" v-model="ico.billingModel" value="fixed" />
+                        Paušál
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- iDoklad: automatic toggle + manual sync, unified card -->
+                <div :id="`ico-${ico.id}-idoklad-card`" class="toggle-field toggle-field-stacked idoklad-card">
+                  <div class="idoklad-toggle-row">
+                    <div class="idoklad-toggle-intro">
                       <div class="form-label">Synchronizace iDokladu</div>
                       <p class="field-hint">Noční cron stáhne vydané faktury podle IČO.</p>
                     </div>
@@ -1447,20 +1476,8 @@ onBeforeUnmount(() => {
                     </span>
                   </div>
 
-                  <div class="toggle-field">
-                    <div>
-                      <div class="form-label">Fakturační model</div>
-                      <p class="field-hint">Zobrazí se v modulu docházky.</p>
-                    </div>
-                    <select v-model="ico.billingModel" class="form-input" style="max-width:180px;">
-                      <option value="hourly">Hodinová sazba</option>
-                      <option value="fixed">Paušál</option>
-                    </select>
-                  </div>
-                </div>
+                  <div class="idoklad-card-divider" aria-hidden="true"></div>
 
-                <!-- Manual iDoklad sync (read-only fetch from iDoklad) -->
-                <div :id="`ico-${ico.id}-idoklad-sync-panel`" class="idoklad-sync-panel">
                   <div class="idoklad-sync-row">
                     <div class="idoklad-sync-intro">
                       <div class="form-label" style="margin-bottom:2px;">Manuální synchronizace faktur</div>
@@ -2337,12 +2354,13 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-gray-200);
 }
 
-.toggle-field.freshqr-mode-field {
+.toggle-field.toggle-field-stacked {
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
 }
-.freshqr-mode-options {
+.freshqr-mode-options,
+.billing-model-options {
   margin-top: 4px;
   margin-bottom: 0;
 }
@@ -2589,13 +2607,21 @@ onBeforeUnmount(() => {
   margin-bottom: 20px;
 }
 
-/* iDoklad manual sync panel (mobile-first) */
-.idoklad-sync-panel {
+/* iDoklad unified card: automatic toggle + manual sync (mobile-first) */
+.idoklad-card {
   margin-bottom: 20px;
-  padding: 14px;
-  background: var(--color-gray-50);
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-md);
+}
+.idoklad-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.idoklad-toggle-intro { flex: 1; min-width: 0; }
+.idoklad-card-divider {
+  height: 1px;
+  background: var(--color-gray-200);
+  margin: 2px 0;
 }
 .idoklad-sync-row {
   display: flex;
@@ -3245,6 +3271,7 @@ onBeforeUnmount(() => {
 
 /* Responsive — grids/nav/ico-toggles-row already mobile-first. Add row-direction at sm: */
 @media (min-width: 640px) {
-  .ico-toggles-row { flex-direction: row; }
+  .ico-toggles-row { flex-direction: row; align-items: flex-start; }
+  .ico-toggles-row > .toggle-field { flex: 1; }
 }
 </style>

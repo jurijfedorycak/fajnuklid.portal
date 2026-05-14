@@ -461,4 +461,125 @@ class CompanyRepositoryTest extends DatabaseTestCase
 
         $this->assertSame('off', $captured['freshqr_mode'] ?? null);
     }
+
+    // normaliseBillingModel tests
+
+    public function testNormaliseBillingModelAcceptsValidLowercaseValues(): void
+    {
+        $this->assertSame('hourly', CompanyRepository::normaliseBillingModel('hourly'));
+        $this->assertSame('fixed', CompanyRepository::normaliseBillingModel('fixed'));
+    }
+
+    public function testNormaliseBillingModelLowercasesAndTrimsInput(): void
+    {
+        $this->assertSame('hourly', CompanyRepository::normaliseBillingModel('HOURLY'));
+        $this->assertSame('fixed', CompanyRepository::normaliseBillingModel('  Fixed '));
+    }
+
+    public function testNormaliseBillingModelReturnsNullForUnknownStrings(): void
+    {
+        $this->assertNull(CompanyRepository::normaliseBillingModel('gibberish'));
+        $this->assertNull(CompanyRepository::normaliseBillingModel(''));
+        $this->assertNull(CompanyRepository::normaliseBillingModel('hourly_extra'));
+    }
+
+    public function testNormaliseBillingModelReturnsNullForNonStringInput(): void
+    {
+        $this->assertNull(CompanyRepository::normaliseBillingModel(null));
+        $this->assertNull(CompanyRepository::normaliseBillingModel(1));
+        $this->assertNull(CompanyRepository::normaliseBillingModel(['hourly']));
+        $this->assertNull(CompanyRepository::normaliseBillingModel(true));
+    }
+
+    // billing_model round-trip through update()
+
+    public function testUpdateNormalisesBillingModelBeforeBindingValue(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->repository->update(7, ['billing_model' => '  FIXED ']);
+
+        $this->assertSame('fixed', $captured['billing_model'] ?? 'missing');
+    }
+
+    public function testUpdatePersistsNullBillingModelForNeurceno(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->repository->update(7, ['billing_model' => null]);
+
+        // null must round-trip as null so "Neurčeno" is preserved end-to-end.
+        $this->assertArrayHasKey('billing_model', $captured);
+        $this->assertNull($captured['billing_model']);
+    }
+
+    public function testUpdateCoercesUnknownBillingModelToNull(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->repository->update(7, ['billing_model' => 'evil-injected-value']);
+
+        $this->assertArrayHasKey('billing_model', $captured);
+        $this->assertNull($captured['billing_model']);
+    }
+
+    public function testCreateNormalisesBillingModelBeforeBindingValue(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'client_id' => 1,
+            'registration_number' => '12345678',
+            'name' => 'New Company',
+            'billing_model' => '  HOURLY ',
+        ]);
+
+        $this->assertSame('hourly', $captured['billing_model'] ?? 'missing');
+    }
+
+    public function testCreatePersistsNullBillingModelWhenOmitted(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        // Caller didn't pass billing_model at all — must default to null so the
+        // FE "Neurčeno" state survives the create path for new IČOs.
+        $this->repository->create([
+            'client_id' => 1,
+            'registration_number' => '12345678',
+            'name' => 'New Company',
+        ]);
+
+        $this->assertArrayHasKey('billing_model', $captured);
+        $this->assertNull($captured['billing_model']);
+    }
 }
