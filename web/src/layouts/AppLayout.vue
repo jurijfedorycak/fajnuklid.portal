@@ -65,6 +65,7 @@ const sidebarOpen = ref(false)
 
 .main-content {
   flex: 1;
+  min-height: 0;
   padding: var(--space-lg) var(--space-lg);
   overflow-y: auto;
 }

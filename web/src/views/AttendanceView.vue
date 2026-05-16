@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail, Eye, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail, Eye } from 'lucide-vue-next'
 import { attendanceService, maintenanceRequestService } from '../api'
 import { REQUEST_STATUSES } from '../api/services/maintenanceRequestService'
 import { useAuth } from '../stores/auth'
@@ -404,15 +404,6 @@ function goToRequest(id) {
   router.push(`/zadosti/${id}`)
 }
 
-function closePreview() {
-  // The preview link is opened with `noopener`, so `window.close()` would be
-  // blocked by the browser. Send the admin back to the client list — they can
-  // pick the next client from there. We deliberately don't push to a specific
-  // /admin/clients/:id because we don't have the client_id slug on hand
-  // (preview keys off the numeric DB id).
-  router.push('/admin/clients')
-}
-
 const activeCell = computed(() => {
   if (!openPopoverDate.value) return null
   return calendarDays.value.find(c => c && c.key === openPopoverDate.value) || null
@@ -461,8 +452,10 @@ onBeforeUnmount(() => {
 <template>
   <div>
     <!-- Admin preview banner: only rendered when an admin opened /dochazka with
-         a previewClientId query param. Bold, sticky-looking strip so the admin
-         can never confuse the preview with their own attendance data. -->
+         a previewClientId query param. Bold strip so the admin can never confuse
+         the preview with their own attendance data. The preview always opens in
+         a new tab, so closing the view means closing the tab — no in-page close
+         button needed. -->
     <div v-if="isPreview" id="attendance-preview-banner" class="preview-banner">
       <div class="preview-banner-content">
         <Eye :size="16" aria-hidden="true" />
@@ -471,14 +464,6 @@ onBeforeUnmount(() => {
           <span v-if="previewClientName">— {{ previewClientName }}</span>
           <span class="preview-banner-hint">Zobrazujeme přesně to, co uvidí klient.</span>
         </div>
-        <button
-          id="attendance-preview-close"
-          class="btn btn-ghost btn-sm preview-banner-close"
-          type="button"
-          @click="closePreview"
-        >
-          <X :size="14" aria-hidden="true" /> Ukončit náhled
-        </button>
       </div>
     </div>
 
@@ -856,9 +841,6 @@ onBeforeUnmount(() => {
 .preview-banner-hint {
   color: var(--color-gray-700);
   font-size: 12px;
-}
-.preview-banner-close {
-  flex-shrink: 0;
 }
 @media (min-width: 640px) {
   .preview-banner {

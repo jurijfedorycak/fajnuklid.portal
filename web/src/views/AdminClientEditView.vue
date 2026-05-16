@@ -2516,7 +2516,8 @@ onBeforeUnmount(() => {
   .section-nav {
     flex-direction: column;
     gap: 2px;
-    overflow: visible;
+    overflow-y: auto;
+    overflow-x: hidden;
     width: 200px;
     flex-shrink: 0;
     align-self: flex-start;
