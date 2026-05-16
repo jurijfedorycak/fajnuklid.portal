@@ -2407,7 +2407,6 @@ onBeforeUnmount(() => {
 .edit-page {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
 }
 
 /* Top bar — mobile-first: back + actions on row 1, title spans row 2; single row ≥640px */
@@ -2486,7 +2485,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 16px;
   align-items: stretch;
-  flex: 1;
 }
 
 @media (min-width: 1024px) {
@@ -2497,37 +2495,31 @@ onBeforeUnmount(() => {
   }
 }
 
-/* Section nav — horizontal scrollable chip bar on mobile, sticky vertical sidebar on desktop */
+/* Section nav — plain chip row on mobile; on desktop, fixed to the viewport so it's always visible. */
 .section-nav {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scroll-snap-type: x proximity;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: var(--page-bg);
   padding: 8px 0;
-  margin: 0 -4px;
 }
 
 @media (min-width: 1024px) {
   .section-nav {
-    flex-direction: column;
-    gap: 2px;
-    overflow-y: auto;
-    overflow-x: hidden;
+    position: fixed;
+    top: 52px;
+    left: calc(var(--sidebar-width) + 32px);
     width: 200px;
-    flex-shrink: 0;
-    align-self: flex-start;
-    position: sticky;
-    top: 20px;
-    max-height: calc(100vh - 40px);
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 2px;
     padding: 0;
-    margin: 0;
-    background: transparent;
+    z-index: 10;
+    background: var(--page-bg);
+  }
+  /* Leave room for the fixed nav so form content doesn't slide under it */
+  .form-content {
+    padding-left: 224px;
   }
 }
 

@@ -34,10 +34,14 @@ const sidebarOpen = ref(false)
 </template>
 
 <style scoped>
-/* Mobile-first: no sidebar margin, topbar visible, smaller padding */
+/* Mobile-first: no sidebar margin, topbar visible, smaller padding.
+   `position: fixed` anchors the whole app shell to the viewport so the body has zero
+   flow content, which means body.scrollHeight === body.clientHeight at all times —
+   nothing above main-content can ever scroll, even programmatically via scrollIntoView. */
 .app-layout {
+  position: fixed;
+  inset: 0;
   display: flex;
-  height: 100vh;
 }
 
 .sidebar-overlay {
@@ -58,7 +62,7 @@ const sidebarOpen = ref(false)
   flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
   min-width: 0;
 }
