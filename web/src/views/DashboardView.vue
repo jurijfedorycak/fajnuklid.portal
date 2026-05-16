@@ -92,9 +92,38 @@ let initialFetchDone = false;
 // Token used to discard responses from superseded fetches (e.g. rapid IČO clicks).
 let fetchToken = 0;
 
-const today = new Date();
-const startOfYearStr = `${today.getFullYear()}-01-01`;
-const todayStr = formatISODate(today);
+// Reactive "today" — refreshed on tab visibility change and a 60-second tick so
+// month labels and greetings stay correct on dashboards left open overnight.
+// `today` exposes both a Date snapshot and the ISO string FE callers use.
+const today = ref(new Date());
+let todayInterval = null;
+const todayIso = computed(() => formatISODate(today.value));
+const todayYear = computed(() => today.value.getFullYear());
+const todayMonth = computed(() => today.value.getMonth());
+
+function refreshToday() {
+  const next = new Date();
+  // Compare by Y/M/D so we only retrigger reactivity when the calendar day
+  // actually changes — a 60-second interval would otherwise rerun every
+  // computed every minute.
+  const cur = today.value;
+  if (
+    next.getFullYear() !== cur.getFullYear() ||
+    next.getMonth() !== cur.getMonth() ||
+    next.getDate() !== cur.getDate()
+  ) {
+    today.value = next;
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === "visible") {
+    refreshToday();
+  }
+}
+
+const startOfYearStr = `${today.value.getFullYear()}-01-01`;
+const todayStr = formatISODate(today.value);
 
 const range = ref({ from: startOfYearStr, to: todayStr });
 const activeIco = ref(user.value?.active_ico || null);
@@ -178,6 +207,14 @@ watch([activeIco, () => range.value.from, () => range.value.to], () => {
     suppressWatch = false;
     return;
   }
+  if (!initialFetchDone) return;
+  fetchDashboard(false);
+});
+
+// When the wall-clock day rolls over (e.g. a dashboard left open past midnight),
+// refresh the dashboard so the "Úklidy – {month}" widget catches up with
+// today's data instead of pinning yesterday's ongoing cleaning.
+watch(todayIso, (_next, _prev) => {
   if (!initialFetchDone) return;
   fetchDashboard(false);
 });
@@ -280,11 +317,18 @@ function onDocumentKeydown(e) {
 onMounted(() => {
   document.addEventListener("mousedown", onDocumentClick);
   document.addEventListener("keydown", onDocumentKeydown);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  todayInterval = setInterval(refreshToday, 60_000);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("mousedown", onDocumentClick);
   document.removeEventListener("keydown", onDocumentKeydown);
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
+  if (todayInterval !== null) {
+    clearInterval(todayInterval);
+    todayInterval = null;
+  }
 });
 
 const PRESETS = [
@@ -416,7 +460,7 @@ const MONTHS = [
   "prosinec",
 ];
 const currentMonthLabel = computed(
-  () => `${MONTHS[today.getMonth()]} ${today.getFullYear()}`,
+  () => `${MONTHS[todayMonth.value]} ${todayYear.value}`,
 );
 
 function cleaningDayNumber(dateStr) {

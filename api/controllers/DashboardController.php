@@ -12,6 +12,8 @@ use App\Repositories\CompanyRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\ClientEmployeeRepository;
 use App\Repositories\InvoiceRepository;
+use App\Services\DemoAttendanceService;
+use App\Services\FreshQRService;
 use App\Services\R2StorageService;
 use DateTime;
 
@@ -23,6 +25,7 @@ class DashboardController extends Controller
     private ClientEmployeeRepository $clientEmployeeRepo;
     private InvoiceRepository $invoiceRepo;
     private R2StorageService $storage;
+    private FreshQRService $freshqr;
 
     public function __construct()
     {
@@ -32,6 +35,7 @@ class DashboardController extends Controller
         $this->clientEmployeeRepo = new ClientEmployeeRepository();
         $this->invoiceRepo = new InvoiceRepository();
         $this->storage = new R2StorageService();
+        $this->freshqr = new FreshQRService();
     }
 
     public function index(Request $request): void
@@ -149,9 +153,32 @@ class DashboardController extends Controller
             ];
         }
 
-        // TODO: Fetch cleaning visits from external API. Until then, return empty.
-        // Each cell must include "status" so the FE renders done/ongoing/scheduled correctly.
-        $cleaningDays = [];
+        // Cleaning days for the current calendar month. Demo clients see the
+        // synthetic schedule (same path AttendanceController uses); real clients
+        // go through FreshQR. The widget on the FE shows "Úklidy – {month}", so
+        // limiting the fetch to the current month keeps the payload small and
+        // matches the heading. Both sources expose `ongoing` per day already;
+        // we re-shape into the `{date, status, note}` contract the dashboard FE
+        // expects.
+        $currentYear = (int) $today->format('Y');
+        $currentMonth = (int) $today->format('n');
+
+        $clientForCleanings = $this->clientRepo->findByUserId($userId);
+        if ($clientForCleanings !== null && (bool) $clientForCleanings['is_demo']) {
+            // Pin the TZ here too — DemoAttendanceService compares against the
+            // injected "today", so a UTC-running CLI/cron would otherwise emit
+            // yesterday's calendar near Prague midnight.
+            $rawCleaningDays = DemoAttendanceService::buildCleaningDays(
+                $currentYear,
+                $currentMonth,
+                new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague'))
+            );
+        } else {
+            $cleaningsResult = $this->freshqr->getCleaningDaysForUser($userId, $currentYear, $currentMonth);
+            $rawCleaningDays = $cleaningsResult['cleaningDays'] ?? [];
+        }
+
+        $cleaningDays = self::reshapeCleaningDaysForDashboard($rawCleaningDays);
 
         $clientGreeting = null;
         if ($activeClientId !== null) {
@@ -213,6 +240,59 @@ class DashboardController extends Controller
                 ];
             }, $activeLocations),
         ]);
+    }
+
+    /**
+     * Collapse the FreshQR/Demo cleaningDays output into the simpler shape the
+     * dashboard FE renders in the cleaning summary widget:
+     *   { date, status: 'done' | 'ongoing', note: ?string }
+     *
+     * Status is 'ongoing' iff the day's aggregated `ongoing` flag is set;
+     * otherwise 'done' (a record exists for this day, so a cleaning happened).
+     * We don't emit 'scheduled' here — FreshQR has no concept of a future plan,
+     * and the demo service intentionally drops future dates so the dashboard
+     * matches the "past + today only" feel of the Docházka calendar.
+     *
+     * The note is the first cleaning's note (when present) so the day-cell
+     * tooltip on the dashboard surfaces something useful without growing the
+     * payload to a full cleanings list.
+     *
+     * SECURITY NOTE: if you add new fields here, route the cleaningDays input
+     * through AttendanceController::stripRawTimesWhenRounded first. The
+     * AttendanceController applies rounding-rule redaction; this controller
+     * currently bypasses that because the output is intentionally a narrow
+     * date/status/note tuple. Expanding the tuple would leak raw scan times
+     * to clients whose IČO has rounding rules configured.
+     *
+     * @param array<int,array<string,mixed>> $cleaningDays
+     * @return list<array{date:string,status:string,note:?string}>
+     */
+    private static function reshapeCleaningDaysForDashboard(array $cleaningDays): array
+    {
+        $out = [];
+        foreach ($cleaningDays as $day) {
+            $date = $day['date'] ?? null;
+            if (!is_string($date) || $date === '') {
+                continue;
+            }
+            $note = null;
+            $cleanings = $day['cleanings'] ?? [];
+            if (is_array($cleanings)) {
+                foreach ($cleanings as $c) {
+                    $candidate = $c['note'] ?? null;
+                    if (is_string($candidate) && trim($candidate) !== '') {
+                        $note = trim($candidate);
+                        break;
+                    }
+                }
+            }
+            $out[] = [
+                'date' => $date,
+                'status' => !empty($day['ongoing']) ? 'ongoing' : 'done',
+                'note' => $note,
+            ];
+        }
+        return $out;
     }
 
     /**

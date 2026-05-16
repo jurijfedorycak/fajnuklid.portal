@@ -49,7 +49,7 @@ class DemoAttendanceService
     /**
      * Build the cleaningDays list for a single calendar month under the demo schedule.
      *
-     * @return list<array{date:string,ongoing:bool,cleanings:list<array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string}>}>
+     * @return list<array{date:string,ongoing:bool,cleanings:list<array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,ongoing:bool}>}>
      */
     public static function buildCleaningDays(int $year, int $month, \DateTimeImmutable $today): array
     {
@@ -81,13 +81,15 @@ class DemoAttendanceService
                             self::DEMO_EMPLOYEES[0]['name'],
                             self::DEMO_EMPLOYEES[0]['startTime'],
                             self::DEMO_EMPLOYEES[0]['endTime'],
-                            null
+                            null,
+                            false
                         ),
                         self::buildCleaning(
                             self::DEMO_EMPLOYEES[1]['name'],
                             self::DEMO_EMPLOYEES[1]['startTime'],
                             null,
-                            null
+                            null,
+                            true
                         ),
                     ],
                 ];
@@ -130,7 +132,7 @@ class DemoAttendanceService
      * sample note so the notes feature shows up in the demo without spamming
      * every cell.
      *
-     * @return list<array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string}>
+     * @return list<array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,ongoing:bool}>
      */
     private static function buildDemoCleanings(\DateTimeImmutable $date): array
     {
@@ -152,7 +154,8 @@ class DemoAttendanceService
                 $emp['name'],
                 $emp['startTime'],
                 $emp['endTime'],
-                $note
+                $note,
+                false
             );
             // Notes are shown once per day, not duplicated across each entry —
             // mimics the real backend where a note is attached to one record.
@@ -168,13 +171,14 @@ class DemoAttendanceService
      * without rules. `rawMinutes` is computed when both ends are known so the
      * hourly summary helper has something to sum on demo accounts.
      *
-     * @return array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,rawMinutes:?int,roundedMinutes:?int}
+     * @return array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,rawMinutes:?int,roundedMinutes:?int,ongoing:bool}
      */
     private static function buildCleaning(
         string $employee,
         ?string $startTime,
         ?string $endTime,
-        ?string $note
+        ?string $note,
+        bool $ongoing
     ): array {
         return [
             'employee'       => $employee,
@@ -184,6 +188,7 @@ class DemoAttendanceService
             'ico'            => self::DEMO_ICO,
             'rawMinutes'     => FreshQRService::computeDurationMinutes($startTime, $endTime),
             'roundedMinutes' => null,
+            'ongoing'        => $ongoing,
         ];
     }
 }

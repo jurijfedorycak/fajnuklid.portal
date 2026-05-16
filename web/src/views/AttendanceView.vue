@@ -28,9 +28,24 @@ const popoverAnchorRect = ref(null)
 const openHourlyBreakdownIco = ref(null)
 const hourlyBreakdownAnchorRect = ref(null)
 
-const today = new Date()
-const viewYear  = ref(today.getFullYear())
-const viewMonth = ref(today.getMonth())
+// `today` is a reactive ref, refreshed on visibility change and on a low-frequency
+// interval, so a calendar left open past midnight stops marking yesterday as "today"
+// and stops dimming today as "past". The ref holds an ISO YYYY-MM-DD string —
+// cheaper to compare than constructing Date objects in every cell.
+function buildTodayIso() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+const _bootDate = new Date()
+const today = ref(buildTodayIso())
+let todayInterval = null
+function refreshToday() {
+  const next = buildTodayIso()
+  if (next !== today.value) today.value = next
+}
+
+const viewYear  = ref(_bootDate.getFullYear())
+const viewMonth = ref(_bootDate.getMonth())
 
 const WEEKDAYS = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne']
 const MONTHS = [
@@ -91,6 +106,14 @@ watch([viewYear, viewMonth], () => {
   loadAll()
 })
 
+// When the wall-clock day rolls over while the page is open, refetch so today's
+// "ongoing" state and any cleanings that started after midnight show up. The
+// guard ensures we don't refetch on the very first tick (when `today` is set
+// from its initial value).
+watch(today, (next, prev) => {
+  if (prev !== undefined) loadAll()
+})
+
 const dayMap = computed(() => {
   const m = {}
   for (const d of cleaningDays.value) {
@@ -136,11 +159,12 @@ const calendarDays = computed(() => {
   const startOffset = (firstDay.getDay() + 6) % 7
   const cells = []
   for (let i = 0; i < startOffset; i++) cells.push(null)
+  const todayIso = today.value
   for (let d = 1; d <= lastDay.getDate(); d++) {
     const key = `${year}-${String(month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
     const info = dayMap.value[key]
-    const isToday = year === today.getFullYear() && month === today.getMonth() && d === today.getDate()
-    const isPast  = new Date(year, month, d) < today && !isToday
+    const isToday = key === todayIso
+    const isPast = !isToday && key < todayIso
     const requests = requestsByDay.value[key] || { total: 0, statuses: {} }
     const cleanings = info?.cleanings || []
     cells.push({
@@ -165,9 +189,12 @@ const monthLabel = computed(() => `${MONTHS[viewMonth.value]} ${viewYear.value}`
 // the raw FreshQR sum (manual adjustments, renegotiated rates, complaint
 // credits) and we don't want clients comparing a provisional figure against
 // the real invoice. Future months are hidden because they're always zero.
-const isCurrentMonth = computed(() =>
-  viewYear.value === today.getFullYear() && viewMonth.value === today.getMonth()
-)
+const isCurrentMonth = computed(() => {
+  // today.value is 'YYYY-MM-DD'; pluck Y and M, compare zero-based month with
+  // viewMonth so navigating to a past month hides the summary correctly.
+  const [yStr, mStr] = today.value.split('-')
+  return viewYear.value === Number(yStr) && viewMonth.value === Number(mStr) - 1
+})
 
 const hourlySummaryHasRate = computed(() =>
   hourlySummary.value.some(r => r && typeof r.hourlyRate === 'number' && r.hourlyRate > 0)
@@ -184,7 +211,10 @@ function formatCzk(amount) {
 }
 
 function summaryHours(row) {
-  return formatDuration(row.totalMinutes) || '0 h'
+  // "0 h" reads better than "0 min" in the summary card header — keep the
+  // explicit zero fallback even though formatDuration handles 0 itself now.
+  if (!Number.isFinite(row.totalMinutes) || row.totalMinutes <= 0) return '0 h'
+  return formatDuration(row.totalMinutes)
 }
 
 function summaryAmount(row) {
@@ -213,7 +243,10 @@ function dailyBreakdown(ico) {
       minutes += m
       hasContribution = true
     }
-    if (hasContribution && minutes > 0) days.push({ date: day.date, minutes })
+    // Days where every cleaning rounded down to 0 minutes still happened and
+    // belong in the breakdown — dropping them used to make IČOs with strict
+    // rounding rules look like they had no activity at all in the popover.
+    if (hasContribution) days.push({ date: day.date, minutes })
   }
   return days
 }
@@ -283,8 +316,13 @@ function nextMonth() {
   else viewMonth.value++
 }
 function goToday() {
-  viewYear.value  = today.getFullYear()
-  viewMonth.value = today.getMonth()
+  // Read the wall clock at click time rather than the cached today.value so a
+  // page that's been open across midnight still navigates to the real current
+  // month even before the interval tick rolls today forward.
+  const now = new Date()
+  viewYear.value  = now.getFullYear()
+  viewMonth.value = now.getMonth()
+  refreshToday()
 }
 
 async function openDayPopover(cell, event) {
@@ -352,13 +390,29 @@ function handleViewportChange() {
   if (openHourlyBreakdownIco.value) closeHourlyBreakdown()
 }
 
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    refreshToday()
+  }
+}
+
 onMounted(() => {
   window.addEventListener('scroll', handleViewportChange, true)
   window.addEventListener('resize', handleViewportChange)
+  // Refresh `today` when the tab regains focus AND on a 60-second interval
+  // while the page stays open — a phone left on the dochazka tab overnight
+  // would otherwise keep dimming today's cell as "past".
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  todayInterval = setInterval(refreshToday, 60_000)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', handleViewportChange, true)
   window.removeEventListener('resize', handleViewportChange)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  if (todayInterval !== null) {
+    clearInterval(todayInterval)
+    todayInterval = null
+  }
 })
 </script>
 
@@ -608,9 +662,12 @@ onBeforeUnmount(() => {
               class="cleaning-row"
             >
               <div :id="`cleaning-time-${activeCell.key}-${i}`" class="cleaning-time">
-                <!-- Ongoing visit (no end time): client sees only "Probíhá"; admin keeps the
-                     start-of-shift time for audit. -->
-                <template v-if="!c.endTime">
+                <!-- Ongoing visit: backend sets c.ongoing only when the cleaning is
+                     today AND not scanned out AND the employee hasn't moved on.
+                     A null endTime alone is NOT a reliable ongoing signal — past-day
+                     single-scan records also have null endTime, and rounding-rule
+                     redaction nulls out endTime for finished cleanings too. -->
+                <template v-if="c.ongoing">
                   <span v-if="isAdmin && c.startTime" class="cleaning-time-ongoing">
                     {{ c.startTime }} · Probíhá
                   </span>
@@ -619,7 +676,8 @@ onBeforeUnmount(() => {
                 <!-- Rules defined for this IČO: clients see only the billable duration; admins keep raw times alongside. -->
                 <template v-else-if="c.roundedMinutes != null">
                   <span v-if="isAdmin" class="cleaning-time-range">
-                    {{ c.startTime }} – {{ c.endTime }}
+                    <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }}</template>
+                    <template v-else>—</template>
                     <span class="cleaning-time-billed">· Účtováno {{ formatDuration(c.roundedMinutes) }}</span>
                   </span>
                   <span v-else class="cleaning-time-billed-only">

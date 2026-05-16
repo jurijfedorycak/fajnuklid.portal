@@ -16,6 +16,13 @@ use App\Exceptions\NotFoundException;
 // Load configuration
 Config::load();
 
+// Pin the runtime timezone to Europe/Prague so every date('Y-m-d') and
+// new DateTime('today') call agrees with the business calendar. Without this
+// the FreshQR "ongoing today" detection drifts by 1–2 hours near midnight on
+// UTC-hosted servers — a cleaning that started after 22:00 Prague time gets
+// stamped on tomorrow's date and disappears from the calendar entirely.
+date_default_timezone_set((string) Config::get('APP_TIMEZONE', 'Europe/Prague'));
+
 // Helper to send CORS headers (needed for error responses too).
 // Wrapped in a try/catch so that if Config itself failed to load (e.g. a fatal
 // in .env parsing), the shutdown hook can still surface an Allow-Origin echo

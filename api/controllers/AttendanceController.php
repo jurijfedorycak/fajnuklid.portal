@@ -88,6 +88,11 @@ class AttendanceController extends Controller
      * service still returns the raw values so admins can audit, and so the
      * service stays a pure mapping; this controller does the role-specific
      * redaction at the API boundary.
+     *
+     * Note: `ongoing` is intentionally preserved. The FE uses it to decide
+     * between "Probíhá" and "Úklid · {duration}" — relying on a null endTime
+     * for that signal would mis-flag every rounded-and-stripped cleaning as
+     * ongoing.
      */
     private static function stripRawTimesWhenRounded(array $cleaningDays): array
     {

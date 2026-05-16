@@ -178,6 +178,24 @@ class FreshQRClient
             return null;
         }
 
-        return $response['data'] ?? [];
+        // FreshQR omits `data` on quiet months; treat that the same as an empty
+        // array. A non-array `data` is malformed though — surface it as an
+        // error rather than handing the service a value it can't iterate.
+        if (!array_key_exists('data', $response)) {
+            return [];
+        }
+        if (!is_array($response['data'])) {
+            $this->lastError = [
+                'context' => 'response shape',
+                'method' => 'GET',
+                'url' => $this->apiUrl . '/v1/reports/projects',
+                'http_code' => 200,
+                'curl_error' => '',
+                'response_body' => 'Pole "data" v odpovědi FreshQR není seznam.',
+                'timestamp' => date('c'),
+            ];
+            return null;
+        }
+        return $response['data'];
     }
 }

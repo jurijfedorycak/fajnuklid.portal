@@ -151,7 +151,7 @@ class DemoAttendanceServiceTest extends TestCase
             $this->assertNotEmpty($entry['cleanings'], "Demo entry {$entry['date']} must surface at least one cleaning");
             foreach ($entry['cleanings'] as $cleaning) {
                 $this->assertSame(
-                    ['employee', 'startTime', 'endTime', 'note', 'ico', 'rawMinutes', 'roundedMinutes'],
+                    ['employee', 'startTime', 'endTime', 'note', 'ico', 'rawMinutes', 'roundedMinutes', 'ongoing'],
                     array_keys($cleaning)
                 );
                 $this->assertIsString($cleaning['employee']);
@@ -175,6 +175,31 @@ class DemoAttendanceServiceTest extends TestCase
         $this->assertNotNull($today);
         $this->assertCount(2, $today['cleanings']);
         $this->assertNull($today['cleanings'][1]['endTime']);
+        // Per-cleaning ongoing flag matches the "scanned out yet?" reality so
+        // the FE can pick the right time-display template without inferring
+        // from null endTime.
+        $this->assertFalse($today['cleanings'][0]['ongoing'], 'Finished morning shift → ongoing=false');
+        $this->assertTrue($today['cleanings'][1]['ongoing'], 'Still-on-site afternoon shift → ongoing=true');
+    }
+
+    public function testPastDayCleaningsAreNotOngoing(): void
+    {
+        // Past-day demo cleanings always carry ongoing=false, even when the
+        // synthetic data leaves an endTime present — confirms the FE never
+        // mistakes a past day's record for an active one.
+        $result = DemoAttendanceService::buildCleaningDays(2026, 4, self::today('2026-04-21'));
+
+        foreach ($result as $entry) {
+            if ($entry['date'] === '2026-04-21') {
+                continue;
+            }
+            foreach ($entry['cleanings'] as $cleaning) {
+                $this->assertFalse(
+                    $cleaning['ongoing'],
+                    "Past-day {$entry['date']} cleaning by {$cleaning['employee']} must not be ongoing"
+                );
+            }
+        }
     }
 
     public function testEvenWeekWednesdayCarriesSampleNote(): void
