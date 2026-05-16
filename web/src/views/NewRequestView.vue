@@ -371,6 +371,9 @@ async function submit() {
   .recent-panel {
     position: sticky;
     top: 24px;
+    align-self: start;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
   }
 }
 .recent-header {
