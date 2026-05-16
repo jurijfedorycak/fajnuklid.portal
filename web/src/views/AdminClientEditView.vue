@@ -3,6 +3,7 @@ import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch, onBef
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { adminService } from '../api'
 import { extractFilename, downloadFile } from '../utils/fileUtils'
+import { formatDurationCs } from '../utils/duration'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
 import {
   ArrowLeft, Save, Plus, Trash2, Building2, MapPin, User, Users, Download,
@@ -253,6 +254,38 @@ function validateForm() {
         validationErrors[`icos.${i}.objects.${j}.name`] = 'Název provozovny je povinný'
       }
     })
+
+    // Per-IČO time rounding rules: same checks the backend runs, surfaced inline
+    // so the admin doesn't need a round-trip to discover an invalid milestone.
+    const allowedIntervals = new Set([0, 5, 10, 15, 30, 60])
+    const allowedDirections = new Set(['up', 'down', 'nearest', 'none'])
+    const seenThresholds = new Map()
+    ;(ico.roundingRules || []).forEach((rule, j) => {
+      const threshold = Number(rule.thresholdMinutes)
+      const interval = Number(rule.intervalMinutes)
+      const direction = rule.direction
+      if (!Number.isInteger(threshold) || threshold < 0) {
+        validationErrors[`icos.${i}.rounding_rules.${j}.threshold_minutes`] = 'Hranice musí být celé číslo ≥ 0'
+      } else if (threshold > 10080) {
+        validationErrors[`icos.${i}.rounding_rules.${j}.threshold_minutes`] = 'Hranice nemůže být vyšší než 10080 (7 dní)'
+      } else if (seenThresholds.has(threshold)) {
+        validationErrors[`icos.${i}.rounding_rules.${j}.threshold_minutes`] = `Tuto hranici už máte ve formuláři (řádek ${seenThresholds.get(threshold) + 1})`
+      } else {
+        seenThresholds.set(threshold, j)
+      }
+      if (!allowedIntervals.has(interval)) {
+        validationErrors[`icos.${i}.rounding_rules.${j}.interval_minutes`] = 'Interval musí být 0, 5, 10, 15, 30 nebo 60 minut'
+      }
+      if (!allowedDirections.has(direction)) {
+        validationErrors[`icos.${i}.rounding_rules.${j}.direction`] = 'Neplatný směr zaokrouhlení'
+      } else if (allowedIntervals.has(interval)) {
+        if (interval === 0 && direction !== 'none') {
+          validationErrors[`icos.${i}.rounding_rules.${j}.direction`] = 'Interval 0 vyžaduje směr „Nezaokrouhlovat"'
+        } else if (interval > 0 && direction === 'none') {
+          validationErrors[`icos.${i}.rounding_rules.${j}.interval_minutes`] = 'Pro směr „Nezaokrouhlovat" použijte interval 0'
+        }
+      }
+    })
   })
 
   // Contacts: email format if provided, name required if row touched, IČO required when scope=icos
@@ -279,7 +312,7 @@ function validateForm() {
 // Paths the template has a display site for. Anything not matching ends up in the
 // generic "other errors" list in the summary banner — so BE-side additions (e.g., a
 // new `logins.<i>.temp_pass` rule) surface to the admin instead of vanishing silently.
-const KNOWN_ERROR_PATH_RE = /^(display_name|client_id|logins\.\d+\.(email|allowed_icos)|icos\.\d+\.(ico|official_name|objects\.\d+\.name)|contacts\.\d+\.(name|email|ico_id))$/
+const KNOWN_ERROR_PATH_RE = /^(display_name|client_id|logins\.\d+\.(email|allowed_icos)|icos\.\d+\.(ico|official_name|objects\.\d+\.name|rounding_rules\.\d+\.(threshold_minutes|interval_minutes|direction))|contacts\.\d+\.(name|email|ico_id))$/
 
 const unmatchedServerErrors = ref([])
 
@@ -413,6 +446,12 @@ onMounted(async () => {
           contractOriginalName: i.contractFile ? extractFilename(i.contractFile) : null,
           uploadingContract: false,
           objects: (i.objects || []).map(o => ({ ...o, id: uid(), expanded: false })),
+          roundingRules: (i.roundingRules || []).map(r => ({
+            id: uid(),
+            thresholdMinutes: r.thresholdMinutes ?? 0,
+            intervalMinutes: r.intervalMinutes ?? 0,
+            direction: r.direction || 'none',
+          })),
         }))
         form.staff = (data.staff || []).map(s => ({ ...s, id: uid(), expanded: false }))
         form.contacts = (data.contacts || []).map(c => ({ ...c, id: uid(), expanded: false }))
@@ -457,7 +496,7 @@ function addLogin() {
 function removeLogin(id) { form.logins = form.logins.filter(l => l.id !== id) }
 
 function addIco() {
-  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrMode: 'off', idokladSyncEnabled: false, billingModel: null, contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], expanded: true })
+  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrMode: 'off', idokladSyncEnabled: false, billingModel: null, contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], roundingRules: [], expanded: true })
 }
 
 // ── iDoklad manual sync ───────────────────────────────────────────────────────
@@ -533,6 +572,55 @@ function addObject(ico) {
   ico.objects.push({ id: uid(), name: '', address: '', lat: null, lng: null, expanded: true })
 }
 function removeObject(ico, objId) { ico.objects = ico.objects.filter(o => o.id !== objId) }
+
+// Time rounding rules (per IČO) — milestone-based piecewise rounding of FreshQR
+// cleaning durations. Mirrors the backend TimeRoundingService so the admin can
+// preview the effect without a save round-trip.
+function addRule(ico) {
+  ico.roundingRules.push({ id: uid(), thresholdMinutes: 0, intervalMinutes: 0, direction: 'none' })
+}
+function removeRule(ico, ruleId) { ico.roundingRules = ico.roundingRules.filter(r => r.id !== ruleId) }
+
+// When admin picks interval=0, direction must be 'none' (and vice versa); the
+// backend normalises anyway but the UI also locks it so the rule reads coherently.
+function onRuleIntervalChange(rule) {
+  if (Number(rule.intervalMinutes) === 0) rule.direction = 'none'
+  else if (rule.direction === 'none') rule.direction = 'up'
+}
+function onRuleDirectionChange(rule) {
+  if (rule.direction === 'none') rule.intervalMinutes = 0
+  else if (Number(rule.intervalMinutes) === 0) rule.intervalMinutes = 60
+}
+
+function roundDurationLocal(minutes, rules) {
+  if (!Number.isFinite(minutes) || minutes <= 0 || !rules || rules.length === 0) return minutes
+  const sorted = [...rules].sort((a, b) => (a.thresholdMinutes | 0) - (b.thresholdMinutes | 0))
+  let matched = null
+  for (const r of sorted) {
+    if ((r.thresholdMinutes | 0) <= minutes) matched = r
+    else break
+  }
+  if (!matched) return minutes
+  const interval = matched.intervalMinutes | 0
+  if (matched.direction === 'none' || interval <= 0) return minutes
+  if (matched.direction === 'up')      return Math.ceil(minutes / interval) * interval
+  if (matched.direction === 'down')    return Math.floor(minutes / interval) * interval
+  if (matched.direction === 'nearest') return Math.round(minutes / interval) * interval
+  return minutes
+}
+
+function roundingPreview(ico) {
+  // Hard-coded samples are intentional: they cover the user's example case and
+  // give the admin a quick "does this rule set match my expectation" signal
+  // without needing to know what thresholds they just configured.
+  const samples = [30, 65, 90]
+  return samples
+    .map(s => {
+      const rounded = roundDurationLocal(s, ico.roundingRules)
+      return `${s} min → ${formatDurationCs(rounded) || '0 min'}`
+    })
+    .join(', ')
+}
 
 function addStaff() {
   showEmployeePicker.value = true
@@ -745,6 +833,13 @@ async function save() {
           lat: o.lat,
           lng: o.lng,
         })),
+        rounding_rules: [...(i.roundingRules || [])]
+          .sort((a, b) => (Number(a.thresholdMinutes) || 0) - (Number(b.thresholdMinutes) || 0))
+          .map(r => ({
+            threshold_minutes: Number(r.thresholdMinutes) || 0,
+            interval_minutes: Number(r.intervalMinutes) || 0,
+            direction: r.direction,
+          })),
       })),
       staff: form.staff.map(s => ({
         employee_id: s.employeeId,
@@ -840,6 +935,13 @@ function serializeForm() {
         lat: o.lat,
         lng: o.lng,
       })),
+      roundingRules: [...(i.roundingRules || [])]
+        .sort((a, b) => (Number(a.thresholdMinutes) || 0) - (Number(b.thresholdMinutes) || 0))
+        .map(r => ({
+          thresholdMinutes: Number(r.thresholdMinutes) || 0,
+          intervalMinutes: Number(r.intervalMinutes) || 0,
+          direction: r.direction,
+        })),
     })),
     staff: form.staff.map(s => ({
       employeeId: s.employeeId,
@@ -1674,6 +1776,126 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Time rounding rules (FreshQR duration milestones) -->
+                <div class="rounding-section">
+                  <div class="rounding-header">
+                    <div class="form-label" style="margin-bottom:0;">
+                      <Clock :size="14" style="vertical-align:middle;" /> Zaokrouhlení času (FreshQR)
+                    </div>
+                    <button
+                      :id="`ico-${ico.id}-add-rule-btn`"
+                      class="btn btn-ghost btn-sm"
+                      @click="addRule(ico)"
+                    >
+                      <Plus :size="13" /> Přidat pravidlo
+                    </button>
+                  </div>
+                  <p class="field-hint" style="margin-bottom:12px;">
+                    Definujte milníky doby úklidu. Klient uvidí pouze zaokrouhlený čas — skutečné časy příchodu a odchodu zůstanou skryté.
+                  </p>
+
+                  <div
+                    v-if="ico.roundingRules.length === 0"
+                    :id="`ico-${ico.id}-rules-empty`"
+                    class="empty-list-hint"
+                    style="padding:14px;"
+                  >
+                    Žádná pravidla – klient uvidí skutečnou dobu úklidu.
+                  </div>
+
+                  <div v-else class="rounding-rules">
+                    <div class="rounding-rules-header">
+                      <span>Od (min)</span>
+                      <span>Interval</span>
+                      <span>Směr</span>
+                      <span aria-hidden="true"></span>
+                    </div>
+                    <div
+                      v-for="(rule, ruleIndex) in ico.roundingRules"
+                      :key="rule.id"
+                      :id="`ico-${ico.id}-rule-${rule.id}`"
+                      class="rounding-rule-row"
+                      :class="{ 'card-has-error':
+                        validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.threshold_minutes`]
+                        || validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.interval_minutes`]
+                        || validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.direction`] }"
+                    >
+                      <div class="rounding-cell">
+                        <input
+                          :id="`ico-${ico.id}-rule-${rule.id}-threshold`"
+                          v-model.number="rule.thresholdMinutes"
+                          type="number"
+                          inputmode="numeric"
+                          min="0"
+                          step="5"
+                          class="form-input"
+                          :class="{ 'input-error': validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.threshold_minutes`] }"
+                          @input="clearFieldError(`icos.${icoIndex}.rounding_rules.${ruleIndex}.threshold_minutes`)"
+                        />
+                      </div>
+                      <div class="rounding-cell">
+                        <select
+                          :id="`ico-${ico.id}-rule-${rule.id}-interval`"
+                          v-model.number="rule.intervalMinutes"
+                          class="form-input"
+                          :class="{ 'input-error': validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.interval_minutes`] }"
+                          @change="onRuleIntervalChange(rule); clearFieldError(`icos.${icoIndex}.rounding_rules.${ruleIndex}.interval_minutes`)"
+                        >
+                          <option :value="0">Bez zaokrouhlení</option>
+                          <option :value="5">5 min</option>
+                          <option :value="10">10 min</option>
+                          <option :value="15">15 min</option>
+                          <option :value="30">30 min</option>
+                          <option :value="60">60 min</option>
+                        </select>
+                      </div>
+                      <div class="rounding-cell">
+                        <select
+                          :id="`ico-${ico.id}-rule-${rule.id}-direction`"
+                          v-model="rule.direction"
+                          class="form-input"
+                          :class="{ 'input-error': validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.direction`] }"
+                          :disabled="Number(rule.intervalMinutes) === 0"
+                          @change="onRuleDirectionChange(rule); clearFieldError(`icos.${icoIndex}.rounding_rules.${ruleIndex}.direction`)"
+                        >
+                          <option value="up">Nahoru</option>
+                          <option value="down">Dolů</option>
+                          <option value="nearest">Nejblíž</option>
+                          <option value="none">Nezaokrouhlovat</option>
+                        </select>
+                      </div>
+                      <div class="rounding-cell rounding-cell-actions">
+                        <button
+                          :id="`ico-${ico.id}-rule-${rule.id}-remove`"
+                          class="btn btn-ghost btn-sm danger-hover"
+                          aria-label="Odebrat pravidlo"
+                          @click="removeRule(ico, rule.id)"
+                        >
+                          <Trash2 :size="13" />
+                        </button>
+                      </div>
+                      <div
+                        v-if="validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.threshold_minutes`]
+                          || validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.interval_minutes`]
+                          || validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.direction`]"
+                        class="rounding-row-error"
+                        role="alert"
+                      >
+                        <AlertTriangle :size="12" />
+                        <span>{{
+                          validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.threshold_minutes`]
+                          || validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.interval_minutes`]
+                          || validationErrors[`icos.${icoIndex}.rounding_rules.${ruleIndex}.direction`]
+                        }}</span>
+                      </div>
+                    </div>
+
+                    <div :id="`ico-${ico.id}-rules-preview`" class="rounding-preview">
+                      <strong>Náhled:</strong> {{ roundingPreview(ico) }}
                     </div>
                   </div>
                 </div>
@@ -2710,6 +2932,83 @@ onBeforeUnmount(() => {
   margin-left: auto;
 }
 .contract-empty {}
+
+/* Rounding rules (per-IČO FreshQR duration milestones) */
+.rounding-section {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--color-gray-200);
+}
+.rounding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+.rounding-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rounding-rules-header {
+  display: none;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-gray-500);
+  padding: 0 4px;
+}
+@media (min-width: 640px) {
+  .rounding-rules-header {
+    display: grid;
+    grid-template-columns: 110px 1fr 1fr 36px;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+}
+.rounding-rule-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 8px;
+  padding: 10px;
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+}
+.rounding-rule-row.card-has-error {
+  border-color: var(--color-danger);
+}
+@media (min-width: 640px) {
+  .rounding-rule-row {
+    grid-template-columns: 110px 1fr 1fr 36px;
+    align-items: center;
+    padding: 8px 10px;
+  }
+}
+.rounding-cell { display: flex; }
+.rounding-cell .form-input { width: 100%; }
+.rounding-cell-actions {
+  justify-content: flex-end;
+}
+.rounding-row-error {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-danger);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.rounding-preview {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--color-gray-50);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--color-gray-700);
+}
 
 /* Objects */
 .objects-section {}

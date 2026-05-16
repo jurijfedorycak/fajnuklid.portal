@@ -913,6 +913,110 @@ class FreshQRServiceTest extends TestCase
         $this->assertEquals('Petr K.', $result[0]['cleanings'][0]['employee']);
     }
 
+    public function testBuildCleaningDaysExposesRawAndRoundedMinutesInDetailedMode(): void
+    {
+        // FreshQR scans 08:00 → 11:30 → 210 min raw. Rule rounds [0,300) up to 60-min blocks
+        // → ceil(210/60)*60 = 240. Both fields must surface to the FE.
+        $records = [
+            [
+                'date' => '2026-04-10',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '08:00:00',
+                'last_scan_time' => '11:30:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays(
+            $records,
+            ['12345678' => 'detailed'],
+            ['EMP001' => 0],
+            ['EMP001' => 'Anna N.'],
+            '2026-04-21',
+            ['12345678' => [
+                ['threshold_minutes' => 0, 'interval_minutes' => 60, 'direction' => 'up'],
+            ]]
+        );
+
+        $cleaning = $result[0]['cleanings'][0];
+        $this->assertSame(210, $cleaning['rawMinutes']);
+        $this->assertSame(240, $cleaning['roundedMinutes']);
+    }
+
+    public function testBuildCleaningDaysLeavesRoundedMinutesNullWhenNoRulesForIco(): void
+    {
+        // No rules for the IČO → roundedMinutes must stay null so the FE keeps
+        // showing the raw start/end pair instead of fabricating a billable value.
+        $records = [
+            [
+                'date' => '2026-04-10',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '08:00:00',
+                'last_scan_time' => '11:30:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays(
+            $records,
+            ['12345678' => 'detailed'],
+            ['EMP001' => 0],
+            ['EMP001' => 'Anna N.'],
+            '2026-04-21'
+            // no $roundingRulesByIco argument → default []
+        );
+
+        $cleaning = $result[0]['cleanings'][0];
+        $this->assertSame(210, $cleaning['rawMinutes']);
+        $this->assertNull($cleaning['roundedMinutes']);
+    }
+
+    public function testBuildCleaningDaysLeavesBothMinuteFieldsNullWhenStillOnSite(): void
+    {
+        // No endTime → no duration → no rounding. Both fields null so the FE
+        // shows "Probíhá" instead of a misleading billable count.
+        $records = [
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '08:00:00',
+                'last_scan_time' => '08:00:00', // same as first → still on-site
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays(
+            $records,
+            ['12345678' => 'detailed'],
+            ['EMP001' => 0],
+            ['EMP001' => 'Anna N.'],
+            '2026-04-21',
+            ['12345678' => [
+                ['threshold_minutes' => 0, 'interval_minutes' => 60, 'direction' => 'up'],
+            ]]
+        );
+
+        $cleaning = $result[0]['cleanings'][0];
+        $this->assertNull($cleaning['rawMinutes']);
+        $this->assertNull($cleaning['roundedMinutes']);
+    }
+
+    // computeDurationMinutes
+
+    public function testComputeDurationMinutesReturnsPositiveDifference(): void
+    {
+        $this->assertSame(210, FreshQRService::computeDurationMinutes('08:00', '11:30'));
+        $this->assertSame(1, FreshQRService::computeDurationMinutes('08:00', '08:01'));
+    }
+
+    public function testComputeDurationMinutesReturnsNullForMissingOrInvertedTimes(): void
+    {
+        $this->assertNull(FreshQRService::computeDurationMinutes(null, '11:30'));
+        $this->assertNull(FreshQRService::computeDurationMinutes('08:00', null));
+        $this->assertNull(FreshQRService::computeDurationMinutes('11:30', '08:00')); // inverted
+        $this->assertNull(FreshQRService::computeDurationMinutes('08:00', '08:00')); // zero diff
+    }
+
     public function testBuildCleaningDaysOffModeIcoIsAbsentFromMapAndContributesNothing(): void
     {
         // Sanity: an off-mode IČO is filtered out of the map upstream by

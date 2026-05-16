@@ -168,6 +168,23 @@ CREATE TABLE `locations` (
     CONSTRAINT `fk_locations_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ----------------------------
+-- Table: company_rounding_rules (per-IČO FreshQR duration rounding milestones)
+-- ----------------------------
+DROP TABLE IF EXISTS `company_rounding_rules`;
+CREATE TABLE `company_rounding_rules` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `company_id` INT UNSIGNED NOT NULL,
+    `threshold_minutes` INT UNSIGNED NOT NULL COMMENT 'Lower bound (inclusive) of the rule range in minutes',
+    `interval_minutes` INT UNSIGNED NOT NULL COMMENT 'Rounding step in minutes; 0 means no rounding',
+    `direction` ENUM('up','down','nearest','none') NOT NULL COMMENT 'Rounding direction within this range',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_company_threshold` (`company_id`, `threshold_minutes`),
+    CONSTRAINT `fk_rounding_rules_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ===========================
 -- Tables with FK to login_accounts
 -- ===========================

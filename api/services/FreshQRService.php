@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Helpers\FreshQRClient;
 use App\Repositories\CompanyRepository;
+use App\Repositories\CompanyRoundingRuleRepository;
 use App\Repositories\EmployeeRepository;
 
 /**
@@ -40,12 +41,14 @@ class FreshQRService
     private FreshQRClient $client;
     private CompanyRepository $companyRepo;
     private EmployeeRepository $employeeRepo;
+    private CompanyRoundingRuleRepository $roundingRuleRepo;
 
     public function __construct()
     {
         $this->client = new FreshQRClient();
         $this->companyRepo = new CompanyRepository();
         $this->employeeRepo = new EmployeeRepository();
+        $this->roundingRuleRepo = new CompanyRoundingRuleRepository();
     }
 
     public function isConfigured(): bool
@@ -69,11 +72,13 @@ class FreshQRService
      *       'ongoing'   => bool,
      *       'cleanings' => [
      *         [
-     *           'employee'  => 'Anna N.',
-     *           'startTime' => 'HH:mm',         // null when scan time absent
-     *           'endTime'   => 'HH:mm' | null,  // null when same as start (still on-site)
-     *           'note'      => string | null,   // FreshQR doesn't return notes today; surfaced as-is when it does
-     *           'ico'       => '12345678',
+     *           'employee'      => 'Anna N.',
+     *           'startTime'     => 'HH:mm',          // null when scan time absent
+     *           'endTime'       => 'HH:mm' | null,   // null when same as start (still on-site)
+     *           'note'          => string | null,    // FreshQR doesn't return notes today; surfaced as-is when it does
+     *           'ico'           => '12345678',
+     *           'rawMinutes'    => int | null,       // null when start/end times can't form a duration
+     *           'roundedMinutes'=> int | null,       // null when no rules defined or duration uncomputable
      *         ],
      *         ...
      *       ],
@@ -123,12 +128,20 @@ class FreshQRService
             ? $this->employeeRepo->findDisplayNamesByPersonalIds(array_keys($allowedPersonalIds))
             : [];
 
+        // Rounding rules: only worth loading when detailed mode is active for at
+        // least one IČO — basic-mode payloads don't carry per-cleaning fields, so
+        // there's nowhere to apply the rounded duration.
+        $roundingRulesByIco = $hasDetailed
+            ? self::buildRoundingRulesByIcoMap($companies, $this->roundingRuleRepo)
+            : [];
+
         $cleaningDays = self::buildCleaningDays(
             $records,
             $modeByIco,
             $allowedPersonalIds,
             $displayNames,
-            self::today()
+            self::today(),
+            $roundingRulesByIco
         );
 
         return [
@@ -211,14 +224,17 @@ class FreshQRService
      * @param array<string,mixed>        $allowedPersonalIds   array_flip of portal personal_ids (keys = ids)
      * @param array<string,string>       $displayNamesByPersonalId  personal_id => 'Jméno P.'
      * @param string                     $today                YYYY-MM-DD, injected for testability
-     * @return list<array{date:string,ongoing:bool,cleanings:list<array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string}>}>
+     * @param array<string,array<int,array<string,mixed>>> $roundingRulesByIco
+     *                                                          ico => list of rule rows (empty list / missing ico = no rounding)
+     * @return list<array{date:string,ongoing:bool,cleanings:list<array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,rawMinutes:?int,roundedMinutes:?int}>}>
      */
     public static function buildCleaningDays(
         array $records,
         array $modeByIco,
         array $allowedPersonalIds,
         array $displayNamesByPersonalId,
-        string $today
+        string $today,
+        array $roundingRulesByIco = []
     ): array {
         $latestScanPerEmployeeDay = self::indexLatestScanPerEmployeeDay($records);
 
@@ -264,12 +280,22 @@ class FreshQRService
             }
 
             if (($modeByIco[$matchedIco] ?? null) === 'detailed') {
+                $startTime = self::formatScanTimeToHm((string) ($record['first_scan_time'] ?? ''));
+                $endTime = self::computeEndTime($record);
+                $rawMinutes = self::computeDurationMinutes($startTime, $endTime);
+                $rules = $roundingRulesByIco[$matchedIco] ?? [];
+                $roundedMinutes = ($rawMinutes !== null && $rules !== [])
+                    ? TimeRoundingService::roundDuration($rawMinutes, $rules)
+                    : null;
+
                 $byDate[$date]['cleanings'][] = [
-                    'employee'  => $displayNamesByPersonalId[(string) $personalNumber] ?? (string) $personalNumber,
-                    'startTime' => self::formatScanTimeToHm((string) ($record['first_scan_time'] ?? '')),
-                    'endTime'   => self::computeEndTime($record),
-                    'note'      => self::extractNote($record),
-                    'ico'       => $matchedIco,
+                    'employee'       => $displayNamesByPersonalId[(string) $personalNumber] ?? (string) $personalNumber,
+                    'startTime'      => $startTime,
+                    'endTime'        => $endTime,
+                    'note'           => self::extractNote($record),
+                    'ico'            => $matchedIco,
+                    'rawMinutes'     => $rawMinutes,
+                    'roundedMinutes' => $roundedMinutes,
                 ];
             }
         }
@@ -523,5 +549,89 @@ class FreshQRService
     private static function today(): string
     {
         return (new \DateTimeImmutable('today'))->format('Y-m-d');
+    }
+
+    /**
+     * Build a map of IČO → rounding rule rows for the IČOs the user has access
+     * to. Off-mode IČOs are intentionally skipped (they never reach the cleanings
+     * branch in buildCleaningDays anyway). Empty rule lists are omitted so the
+     * downstream check is a simple `$rules !== []`.
+     *
+     * @param array<array<string,mixed>> $companies
+     * @return array<string,array<int,array<string,mixed>>>
+     */
+    private static function buildRoundingRulesByIcoMap(
+        array $companies,
+        CompanyRoundingRuleRepository $roundingRuleRepo
+    ): array {
+        $companyIds = [];
+        $idToIco = [];
+        foreach ($companies as $c) {
+            $companyId = isset($c['id']) ? (int) $c['id'] : 0;
+            $ico = self::sanitiseIco($c['registration_number'] ?? null);
+            if ($companyId <= 0 || $ico === null) {
+                continue;
+            }
+            $companyIds[] = $companyId;
+            $idToIco[$companyId] = $ico;
+        }
+
+        if ($companyIds === []) {
+            return [];
+        }
+
+        $rulesByCompany = $roundingRuleRepo->findByCompanyIds($companyIds);
+
+        $rulesByIco = [];
+        foreach ($rulesByCompany as $companyId => $rules) {
+            $ico = $idToIco[$companyId] ?? null;
+            if ($ico === null || $rules === []) {
+                continue;
+            }
+            $rulesByIco[$ico] = $rules;
+        }
+        return $rulesByIco;
+    }
+
+    /**
+     * Compute visit duration in whole minutes from HH:mm start and end strings.
+     * Returns null when either side is missing or the difference is non-positive
+     * (typically a data error: start later than end). The caller treats null as
+     * "no duration available, leave rounding empty" so the FE renders the
+     * "Probíhá" affordance instead of a fake billable value.
+     */
+    public static function computeDurationMinutes(?string $startTime, ?string $endTime): ?int
+    {
+        if ($startTime === null || $endTime === null) {
+            return null;
+        }
+        $start = self::parseHmToMinutes($startTime);
+        $end = self::parseHmToMinutes($endTime);
+        if ($start === null || $end === null) {
+            return null;
+        }
+        $diff = $end - $start;
+        if ($diff <= 0) {
+            return null;
+        }
+        return $diff;
+    }
+
+    /**
+     * Parse a HH:mm string into minutes since midnight. Returns null on any
+     * malformed input — buildCleaningDays only feeds in strings produced by
+     * formatScanTimeToHm, but the guard keeps the helper safe to reuse.
+     */
+    private static function parseHmToMinutes(string $hm): ?int
+    {
+        if (!preg_match('/^(\d{2}):(\d{2})$/', $hm, $m)) {
+            return null;
+        }
+        $h = (int) $m[1];
+        $min = (int) $m[2];
+        if ($h < 0 || $h > 23 || $min < 0 || $min > 59) {
+            return null;
+        }
+        return $h * 60 + $min;
     }
 }

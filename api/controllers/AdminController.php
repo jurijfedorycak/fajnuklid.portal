@@ -9,6 +9,7 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\ClientRepository;
 use App\Repositories\CompanyRepository;
+use App\Repositories\CompanyRoundingRuleRepository;
 use App\Repositories\CompanyUserRepository;
 use App\Repositories\CompanyContactRepository;
 use App\Repositories\EmployeeRepository;
@@ -39,6 +40,7 @@ class AdminController extends Controller
     private LocationRepository $locationRepo;
     private ClientContactRepository $clientContactRepo;
     private StaffContactRepository $staffContactRepo;
+    private CompanyRoundingRuleRepository $roundingRuleRepo;
     private MaintenanceRequestService $maintenanceRequestService;
     private IDokladService $idokladService;
     private R2StorageService $storage;
@@ -57,6 +59,7 @@ class AdminController extends Controller
         $this->locationRepo = new LocationRepository();
         $this->clientContactRepo = new ClientContactRepository();
         $this->staffContactRepo = new StaffContactRepository();
+        $this->roundingRuleRepo = new CompanyRoundingRuleRepository();
         $this->maintenanceRequestService = new MaintenanceRequestService();
         $this->idokladService = new IDokladService();
         $this->storage = new R2StorageService();
@@ -285,6 +288,61 @@ class AdminController extends Controller
                     $errors["{$path}.objects.{$j}.name"][] = 'Název provozovny je povinný';
                 }
             }
+
+            // Per-IČO time rounding rules. Validated up-front so the admin sees
+            // each problem on the offending row rather than failing the whole
+            // save with a generic error. Allowed enum sets mirror the
+            // FE dropdowns; everything else trips the row.
+            $rules = is_array($icoData['rounding_rules'] ?? null) ? $icoData['rounding_rules'] : [];
+            $allowedIntervals = [0, 5, 10, 15, 30, 60];
+            $allowedDirections = ['up', 'down', 'nearest', 'none'];
+            $seenThresholdByRow = [];
+            foreach ($rules as $j => $rule) {
+                $rulePath = "{$path}.rounding_rules.{$j}";
+                if (!is_array($rule)) {
+                    continue;
+                }
+                $threshold = $rule['threshold_minutes'] ?? null;
+                if (!is_numeric($threshold) || (int) $threshold < 0 || (float) $threshold !== (float) (int) $threshold) {
+                    $errors["{$rulePath}.threshold_minutes"][] = 'Hranice musí být celé číslo ≥ 0';
+                } elseif ((int) $threshold > 10080) {
+                    // 7 days in minutes — covers the longest realistic FreshQR visit by an
+                    // enormous margin while keeping us safely inside INT UNSIGNED limits.
+                    $errors["{$rulePath}.threshold_minutes"][] = 'Hranice nemůže být vyšší než 10080 (7 dní)';
+                } else {
+                    $threshold = (int) $threshold;
+                    if (isset($seenThresholdByRow[$threshold])) {
+                        $errors["{$rulePath}.threshold_minutes"][] = 'Tuto hranici už máte ve formuláři (řádek ' . ($seenThresholdByRow[$threshold] + 1) . ')';
+                    } else {
+                        // Record only the first occurrence so subsequent duplicates all
+                        // point back to it, instead of chaining "row 2 -> row 3 -> ...".
+                        $seenThresholdByRow[$threshold] = $j;
+                    }
+                }
+
+                $interval = $rule['interval_minutes'] ?? null;
+                if (!is_numeric($interval) || !in_array((int) $interval, $allowedIntervals, true)) {
+                    $errors["{$rulePath}.interval_minutes"][] = 'Interval musí být 0, 5, 10, 15, 30 nebo 60 minut';
+                }
+
+                $direction = $rule['direction'] ?? null;
+                if (!is_string($direction) || !in_array($direction, $allowedDirections, true)) {
+                    $errors["{$rulePath}.direction"][] = 'Neplatný směr zaokrouhlení';
+                }
+
+                if (is_numeric($interval) && is_string($direction)
+                    && in_array((int) $interval, $allowedIntervals, true)
+                    && in_array($direction, $allowedDirections, true)
+                ) {
+                    $intervalInt = (int) $interval;
+                    if ($intervalInt === 0 && $direction !== 'none') {
+                        $errors["{$rulePath}.direction"][] = 'Interval 0 vyžaduje směr „Nezaokrouhlovat“';
+                    }
+                    if ($intervalInt > 0 && $direction === 'none') {
+                        $errors["{$rulePath}.interval_minutes"][] = 'Pro směr „Nezaokrouhlovat“ použijte interval 0';
+                    }
+                }
+            }
         }
 
         $logins = is_array($payload['logins'] ?? null) ? $payload['logins'] : [];
@@ -499,6 +557,15 @@ class AdminController extends Controller
                 ];
             }, $locations);
 
+            $rules = $this->roundingRuleRepo->findByCompanyId((int) $company['id']);
+            $roundingRules = array_map(static function ($r) {
+                return [
+                    'thresholdMinutes' => (int) $r['threshold_minutes'],
+                    'intervalMinutes' => (int) $r['interval_minutes'],
+                    'direction' => (string) $r['direction'],
+                ];
+            }, $rules);
+
             $contractPath = $company['contract_pdf_path'] ?? null;
             return [
                 'id' => (int) $company['id'],
@@ -510,6 +577,7 @@ class AdminController extends Controller
                 'contractUploaded' => !empty($contractPath),
                 'contractFile' => $this->storage->resolveProxyUrl($contractPath),
                 'objects' => $objects,
+                'roundingRules' => $roundingRules,
             ];
         }, $companies);
 
@@ -671,6 +739,9 @@ class AdminController extends Controller
                         'longitude' => $obj['lng'] ?? null,
                     ]);
                 }
+
+                $rules = is_array($icoData['rounding_rules'] ?? null) ? $icoData['rounding_rules'] : [];
+                $this->roundingRuleRepo->replaceForCompany($companyId, $rules);
             }
 
             $logins = is_array($payload['logins'] ?? null) ? $payload['logins'] : [];
@@ -930,6 +1001,9 @@ class AdminController extends Controller
                         'longitude' => $obj['lng'] ?? null,
                     ]);
                 }
+
+                $rules = is_array($icoData['rounding_rules'] ?? null) ? $icoData['rounding_rules'] : [];
+                $this->roundingRuleRepo->replaceForCompany($companyId, $rules);
             }
 
             // Companies the admin removed from the form — FK cascades clean up

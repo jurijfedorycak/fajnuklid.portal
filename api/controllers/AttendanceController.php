@@ -53,13 +53,45 @@ class AttendanceController extends Controller
 
         $result = $this->freshqr->getCleaningDaysForUser($userId, $year, $month);
 
+        $isAdmin = (bool) ($user['is_admin'] ?? false);
+        $cleaningDays = $isAdmin
+            ? $result['cleaningDays']
+            : self::stripRawTimesWhenRounded($result['cleaningDays']);
+
         Response::success([
             'freshqrActive' => $result['active'],
-            'cleaningDays' => $result['cleaningDays'],
+            'cleaningDays' => $cleaningDays,
             'error' => $result['error'] ?? null,
             'year' => $year,
             'month' => $month,
         ]);
+    }
+
+    /**
+     * Non-admin clients must never see raw scan times for cleanings whose IČO has
+     * rounding rules defined — the whole point of the feature is that the
+     * displayed duration is the billable one, not the wall-clock window. The
+     * service still returns the raw values so admins can audit, and so the
+     * service stays a pure mapping; this controller does the role-specific
+     * redaction at the API boundary.
+     */
+    private static function stripRawTimesWhenRounded(array $cleaningDays): array
+    {
+        foreach ($cleaningDays as &$day) {
+            if (!isset($day['cleanings']) || !is_array($day['cleanings'])) {
+                continue;
+            }
+            foreach ($day['cleanings'] as &$cleaning) {
+                if (($cleaning['roundedMinutes'] ?? null) !== null) {
+                    $cleaning['startTime'] = null;
+                    $cleaning['endTime'] = null;
+                    $cleaning['rawMinutes'] = null;
+                }
+            }
+            unset($cleaning);
+        }
+        unset($day);
+        return $cleaningDays;
     }
 
     private static function clampYear(int $year): int

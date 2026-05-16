@@ -4,6 +4,10 @@ import { useRouter } from 'vue-router'
 import { ChevronLeft, ChevronRight, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail } from 'lucide-vue-next'
 import { attendanceService, maintenanceRequestService } from '../api'
 import { REQUEST_STATUSES } from '../api/services/maintenanceRequestService'
+import { useAuth } from '../stores/auth'
+import { formatDurationCs as formatDuration } from '../utils/duration'
+
+const { isAdmin } = useAuth()
 
 const PRIORITY_ORDER = ['resi_se', 'prijato', 'vyreseno']
 
@@ -428,10 +432,30 @@ onBeforeUnmount(() => {
               class="cleaning-row"
             >
               <div :id="`cleaning-time-${activeCell.key}-${i}`" class="cleaning-time">
-                <span class="cleaning-time-range">
-                  {{ c.startTime || '—' }}<template v-if="c.endTime"> – {{ c.endTime }}</template>
-                  <span v-if="!c.endTime" class="cleaning-time-open">…</span>
-                </span>
+                <!-- Ongoing visit (no end time): client sees only "Probíhá"; admin keeps the
+                     start-of-shift time for audit. -->
+                <template v-if="!c.endTime">
+                  <span v-if="isAdmin && c.startTime" class="cleaning-time-ongoing">
+                    {{ c.startTime }} · Probíhá
+                  </span>
+                  <span v-else class="cleaning-time-ongoing">Probíhá</span>
+                </template>
+                <!-- Rules defined for this IČO: clients see only the billable duration; admins keep raw times alongside. -->
+                <template v-else-if="c.roundedMinutes != null">
+                  <span v-if="isAdmin" class="cleaning-time-range">
+                    {{ c.startTime }} – {{ c.endTime }}
+                    <span class="cleaning-time-billed">· Účtováno {{ formatDuration(c.roundedMinutes) }}</span>
+                  </span>
+                  <span v-else class="cleaning-time-billed-only">
+                    Úklid · {{ formatDuration(c.roundedMinutes) }}
+                  </span>
+                </template>
+                <!-- No rounding rules configured: fall back to the legacy raw-time range. -->
+                <template v-else>
+                  <span class="cleaning-time-range">
+                    {{ c.startTime || '—' }}<template v-if="c.endTime"> – {{ c.endTime }}</template>
+                  </span>
+                </template>
               </div>
               <div :id="`cleaning-emp-${activeCell.key}-${i}`" class="cleaning-emp">{{ c.employee }}</div>
               <div v-if="c.note" :id="`cleaning-note-${activeCell.key}-${i}`" class="cleaning-note">{{ c.note }}</div>
@@ -843,6 +867,20 @@ onBeforeUnmount(() => {
 .cleaning-time-open {
   margin-left: 4px;
   color: var(--color-mid);
+}
+.cleaning-time-ongoing {
+  color: var(--color-warning, var(--color-mid));
+  font-weight: 600;
+}
+.cleaning-time-billed {
+  margin-left: 6px;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.cleaning-time-billed-only {
+  color: var(--color-primary);
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 .cleaning-emp {
   font-size: 13px;
