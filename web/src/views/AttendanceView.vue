@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronLeft, ChevronRight, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail } from 'lucide-vue-next'
 import { attendanceService, maintenanceRequestService } from '../api'
 import { REQUEST_STATUSES } from '../api/services/maintenanceRequestService'
 import { useAuth } from '../stores/auth'
@@ -25,6 +25,8 @@ const openPopoverDate = ref(null)
 const popoverItems = ref([])
 const popoverLoading = ref(false)
 const popoverAnchorRect = ref(null)
+const openHourlyBreakdownIco = ref(null)
+const hourlyBreakdownAnchorRect = ref(null)
 
 const today = new Date()
 const viewYear  = ref(today.getFullYear())
@@ -81,8 +83,13 @@ async function loadAll() {
 
 onMounted(loadAll)
 
-// Refetch when month changes
-watch([viewYear, viewMonth], loadAll)
+// Refetch when month changes; close any open popover so it doesn't show stale
+// breakdown data (or anchor to a card that's about to disappear).
+watch([viewYear, viewMonth], () => {
+  closeDayPopover()
+  closeHourlyBreakdown()
+  loadAll()
+})
 
 const dayMap = computed(() => {
   const m = {}
@@ -185,6 +192,78 @@ function summaryAmount(row) {
   return formatCzk((row.totalMinutes / 60) * row.hourlyRate)
 }
 
+// Mirror the backend's pickMinutes precedence: roundedMinutes is the billable
+// truth (0 is a valid rounded-down value, not "missing"); rawMinutes only kicks
+// in when no rounding rule applied (roundedMinutes is null).
+function pickCleaningMinutes(c) {
+  if (typeof c.roundedMinutes === 'number' && c.roundedMinutes >= 0) return c.roundedMinutes
+  if (typeof c.rawMinutes === 'number' && c.rawMinutes > 0) return c.rawMinutes
+  return null
+}
+
+function dailyBreakdown(ico) {
+  const days = []
+  for (const day of cleaningDays.value) {
+    let minutes = 0
+    let hasContribution = false
+    for (const c of (day.cleanings || [])) {
+      if (c.ico !== ico) continue
+      const m = pickCleaningMinutes(c)
+      if (m === null) continue
+      minutes += m
+      hasContribution = true
+    }
+    if (hasContribution && minutes > 0) days.push({ date: day.date, minutes })
+  }
+  return days
+}
+
+function formatBreakdownDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  // ISO weekday: Mon=1..Sun=7 — convert to our WEEKDAYS index (0=Po..6=Ne).
+  const wdIndex = (date.getDay() + 6) % 7
+  return `${WEEKDAYS[wdIndex]} ${d}. ${m}.`
+}
+
+const breakdownRow = computed(() => {
+  if (!openHourlyBreakdownIco.value) return null
+  return hourlySummary.value.find(r => r.ico === openHourlyBreakdownIco.value) || null
+})
+
+const breakdownDays = computed(() => {
+  if (!openHourlyBreakdownIco.value) return []
+  return dailyBreakdown(openHourlyBreakdownIco.value)
+})
+
+const hourlyBreakdownAnchorStyle = computed(() => {
+  const r = hourlyBreakdownAnchorRect.value
+  if (!r) return {}
+  return {
+    '--anchor-bottom': `${r.bottom}px`,
+    '--anchor-center': `${r.left + r.width / 2}px`,
+  }
+})
+
+function openHourlyBreakdown(ico, event) {
+  if (openHourlyBreakdownIco.value === ico) {
+    closeHourlyBreakdown()
+    return
+  }
+  closeDayPopover()
+  if (event && event.currentTarget && event.currentTarget.getBoundingClientRect) {
+    hourlyBreakdownAnchorRect.value = event.currentTarget.getBoundingClientRect()
+  } else {
+    hourlyBreakdownAnchorRect.value = null
+  }
+  openHourlyBreakdownIco.value = ico
+}
+
+function closeHourlyBreakdown() {
+  openHourlyBreakdownIco.value = null
+  hourlyBreakdownAnchorRect.value = null
+}
+
 const monthStats = computed(() => {
   const prefix = `${viewYear.value}-${String(viewMonth.value + 1).padStart(2,'0')}-`
   const days = cleaningDays.value.filter(d => d.date.startsWith(prefix))
@@ -216,6 +295,7 @@ async function openDayPopover(cell, event) {
     closeDayPopover()
     return
   }
+  closeHourlyBreakdown()
   if (event && event.currentTarget && event.currentTarget.getBoundingClientRect) {
     popoverAnchorRect.value = event.currentTarget.getBoundingClientRect()
   } else {
@@ -269,6 +349,7 @@ const popoverAnchorStyle = computed(() => {
 
 function handleViewportChange() {
   if (openPopoverDate.value) closeDayPopover()
+  if (openHourlyBreakdownIco.value) closeHourlyBreakdown()
 }
 
 onMounted(() => {
@@ -378,7 +459,20 @@ onBeforeUnmount(() => {
           <dl class="hs-row-body">
             <div class="hs-metric">
               <dt class="hs-metric-label">Zatím odpracováno</dt>
-              <dd class="hs-metric-value">{{ summaryHours(row) }}</dd>
+              <dd class="hs-metric-value">
+                <button
+                  type="button"
+                  :id="`hourly-breakdown-trigger-${row.ico}`"
+                  class="hs-hours-trigger"
+                  :class="{ 'is-open': openHourlyBreakdownIco === row.ico }"
+                  :aria-haspopup="true"
+                  :aria-expanded="openHourlyBreakdownIco === row.ico"
+                  @click="openHourlyBreakdown(row.ico, $event)"
+                >
+                  {{ summaryHours(row) }}
+                  <ChevronDown :size="14" aria-hidden="true" />
+                </button>
+              </dd>
             </div>
             <div v-if="row.hourlyRate && row.hourlyRate > 0" class="hs-metric">
               <dt class="hs-metric-label">Sazba</dt>
@@ -567,6 +661,42 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </div>
+
+      <!-- Hourly breakdown popover — per-day total for a single IČO. -->
+      <div
+        v-if="breakdownRow"
+        id="hourly-breakdown-backdrop"
+        class="day-popover-backdrop"
+        @click="closeHourlyBreakdown"
+      />
+      <div
+        v-if="breakdownRow"
+        id="hourly-breakdown-popover"
+        class="day-popover hourly-breakdown-popover"
+        :style="hourlyBreakdownAnchorStyle"
+      >
+        <div class="day-popover-header">
+          {{ breakdownRow.companyName }} · {{ monthLabel }}
+        </div>
+        <ul v-if="breakdownDays.length > 0" class="hourly-breakdown-list">
+          <li
+            v-for="d in breakdownDays"
+            :key="d.date"
+            :id="`hourly-breakdown-day-${d.date}`"
+            class="hourly-breakdown-row"
+          >
+            <span class="hb-date">{{ formatBreakdownDate(d.date) }}</span>
+            <span class="hb-hours">{{ formatDuration(d.minutes) }}</span>
+          </li>
+        </ul>
+        <div v-else class="hourly-breakdown-empty">
+          <CalendarIcon :size="22" aria-hidden="true" />
+          <p class="hb-empty-title">Zatím žádné úklidy</p>
+          <p class="hb-empty-hint">
+            Jakmile proběhne první úklid v tomto měsíci, uvidíte ho tady.
+          </p>
+        </div>
+      </div>
     </Teleport>
   </div>
 </template>
@@ -704,6 +834,94 @@ onBeforeUnmount(() => {
 .hs-amount .hs-metric-value {
   color: var(--color-accent);
 }
+.hs-hours-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 0;
+  margin: -2px 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px dashed var(--color-gray-300);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+}
+.hs-hours-trigger:hover,
+.hs-hours-trigger:focus-visible {
+  border-bottom-color: var(--color-mid);
+  color: var(--color-mid);
+  outline: none;
+}
+.hs-hours-trigger.is-open {
+  border-bottom-color: var(--color-mid);
+  color: var(--color-mid);
+}
+.hs-hours-trigger svg {
+  transition: transform 0.15s ease;
+}
+.hs-hours-trigger.is-open svg {
+  transform: rotate(180deg);
+}
+
+/* Breakdown popover: reuses the day-popover container but overrides for the
+   hourly list & empty state. */
+.hourly-breakdown-popover {
+  min-width: 240px;
+}
+.hourly-breakdown-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.hourly-breakdown-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-gray-100);
+}
+.hourly-breakdown-row:last-child { border-bottom: none; }
+.hb-date {
+  font-size: 12px;
+  color: var(--color-gray-700);
+  font-weight: 500;
+}
+.hb-hours {
+  font-size: 13px;
+  color: var(--color-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hourly-breakdown-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px 16px;
+  color: var(--color-gray-500);
+}
+.hourly-breakdown-empty svg {
+  color: var(--color-mid);
+  margin-bottom: 8px;
+}
+.hb-empty-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.hb-empty-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .hs-footnote {
   margin: 12px 0 0;
   font-size: var(--fs-xs);
