@@ -582,4 +582,223 @@ class CompanyRepositoryTest extends DatabaseTestCase
         $this->assertArrayHasKey('billing_model', $captured);
         $this->assertNull($captured['billing_model']);
     }
+
+    // normaliseHourlyRate tests
+
+    public function testNormaliseHourlyRateAcceptsPositiveInteger(): void
+    {
+        $this->assertSame('250.00', CompanyRepository::normaliseHourlyRate(250));
+    }
+
+    public function testNormaliseHourlyRateAcceptsPositiveFloat(): void
+    {
+        $this->assertSame('250.50', CompanyRepository::normaliseHourlyRate(250.5));
+        $this->assertSame('99.99', CompanyRepository::normaliseHourlyRate(99.99));
+    }
+
+    public function testNormaliseHourlyRateAcceptsNumericString(): void
+    {
+        $this->assertSame('250.00', CompanyRepository::normaliseHourlyRate('250'));
+        $this->assertSame('250.50', CompanyRepository::normaliseHourlyRate('250.50'));
+        $this->assertSame('250.50', CompanyRepository::normaliseHourlyRate(' 250.50 '));
+    }
+
+    public function testNormaliseHourlyRateRejectsCommaDecimalSeparator(): void
+    {
+        // FE uses <input type="number">, which strips commas before submit.
+        // Mirroring that strictness here keeps FE pre-validation and BE in lockstep.
+        $this->assertNull(CompanyRepository::normaliseHourlyRate('250,50'));
+    }
+
+    public function testNormaliseHourlyRateAcceptsZero(): void
+    {
+        $this->assertSame('0.00', CompanyRepository::normaliseHourlyRate(0));
+        $this->assertSame('0.00', CompanyRepository::normaliseHourlyRate('0'));
+    }
+
+    public function testNormaliseHourlyRateReturnsNullForNullAndEmpty(): void
+    {
+        $this->assertNull(CompanyRepository::normaliseHourlyRate(null));
+        $this->assertNull(CompanyRepository::normaliseHourlyRate(''));
+        $this->assertNull(CompanyRepository::normaliseHourlyRate('   '));
+    }
+
+    public function testNormaliseHourlyRateReturnsNullForNegative(): void
+    {
+        $this->assertNull(CompanyRepository::normaliseHourlyRate(-1));
+        $this->assertNull(CompanyRepository::normaliseHourlyRate('-250.50'));
+    }
+
+    public function testNormaliseHourlyRateReturnsNullForNonNumeric(): void
+    {
+        $this->assertNull(CompanyRepository::normaliseHourlyRate('abc'));
+        $this->assertNull(CompanyRepository::normaliseHourlyRate('250abc'));
+        $this->assertNull(CompanyRepository::normaliseHourlyRate('evil-injection'));
+    }
+
+    public function testNormaliseHourlyRateReturnsNullForBoolAndArray(): void
+    {
+        $this->assertNull(CompanyRepository::normaliseHourlyRate(true));
+        $this->assertNull(CompanyRepository::normaliseHourlyRate(false));
+        $this->assertNull(CompanyRepository::normaliseHourlyRate([250]));
+    }
+
+    public function testNormaliseHourlyRateReturnsNullForOverflow(): void
+    {
+        // DECIMAL(10,2) caps at 99999999.99 — anything beyond would silently
+        // overflow on insert, so we reject it up-front.
+        $this->assertNull(CompanyRepository::normaliseHourlyRate(100000000));
+        $this->assertNull(CompanyRepository::normaliseHourlyRate(999999999.99));
+    }
+
+    // hourly_rate round-trip through update()
+
+    public function testUpdateNormalisesHourlyRateBeforeBindingValue(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->repository->update(7, ['billing_model' => 'hourly', 'hourly_rate' => 250.5]);
+
+        $this->assertSame('250.50', $captured['hourly_rate'] ?? 'missing');
+    }
+
+    public function testUpdateForcesHourlyRateToNullWhenBillingModelIsFixed(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        // Defense in depth: even if a stale FE payload sends both
+        // billing_model=fixed AND hourly_rate=250, the rate must be wiped.
+        $this->repository->update(7, ['billing_model' => 'fixed', 'hourly_rate' => 250]);
+
+        $this->assertArrayHasKey('hourly_rate', $captured);
+        $this->assertNull($captured['hourly_rate']);
+    }
+
+    public function testUpdateForcesHourlyRateToNullWhenBillingModelIsNull(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->repository->update(7, ['billing_model' => null, 'hourly_rate' => 250]);
+
+        $this->assertArrayHasKey('hourly_rate', $captured);
+        $this->assertNull($captured['hourly_rate']);
+    }
+
+    public function testUpdateCoercesNegativeHourlyRateToNull(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->repository->update(7, ['billing_model' => 'hourly', 'hourly_rate' => -50]);
+
+        $this->assertArrayHasKey('hourly_rate', $captured);
+        $this->assertNull($captured['hourly_rate']);
+    }
+
+    public function testCreatePersistsHourlyRateWhenBillingModelIsHourly(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'client_id' => 1,
+            'registration_number' => '12345678',
+            'name' => 'New Company',
+            'billing_model' => 'hourly',
+            'hourly_rate' => 250.5,
+        ]);
+
+        $this->assertSame('250.50', $captured['hourly_rate'] ?? 'missing');
+    }
+
+    public function testCreateForcesHourlyRateToNullWhenBillingModelIsNotHourly(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'client_id' => 1,
+            'registration_number' => '12345678',
+            'name' => 'New Company',
+            'billing_model' => 'fixed',
+            'hourly_rate' => 250,
+        ]);
+
+        $this->assertArrayHasKey('hourly_rate', $captured);
+        $this->assertNull($captured['hourly_rate']);
+    }
+
+    public function testCreatePersistsNullHourlyRateWhenOmitted(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'client_id' => 1,
+            'registration_number' => '12345678',
+            'name' => 'New Company',
+        ]);
+
+        $this->assertArrayHasKey('hourly_rate', $captured);
+        $this->assertNull($captured['hourly_rate']);
+    }
+
+    public function testUpdatePartialPayloadWithOnlyHourlyRateTrustsExistingBillingModel(): void
+    {
+        // When the caller omits billing_model from the partial update, we cannot
+        // know the row's current state, so the force-null invariant cannot fire
+        // here. The rate is written as-is. AdminController always sends both
+        // fields together, so this edge case is theoretical today — this test
+        // locks in the current behaviour so a future refactor catches the drift.
+        $captured = null;
+        $this->stmtMock->method('execute')->willReturnCallback(function ($params) use (&$captured) {
+            $captured = $params;
+            return true;
+        });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->repository->update(7, ['hourly_rate' => 250]);
+
+        $this->assertSame('250.00', $captured['hourly_rate'] ?? 'missing');
+        $this->assertArrayNotHasKey('billing_model', $captured);
+    }
 }

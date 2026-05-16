@@ -286,6 +286,15 @@ function validateForm() {
         }
       }
     })
+
+    if (ico.billingModel === 'hourly' && ico.hourlyRate !== null && ico.hourlyRate !== '') {
+      const rate = Number(ico.hourlyRate)
+      if (Number.isNaN(rate) || rate < 0) {
+        validationErrors[`icos.${i}.hourly_rate`] = 'Hodinová sazba musí být kladné číslo'
+      } else if (rate > 99999999.99) {
+        validationErrors[`icos.${i}.hourly_rate`] = 'Hodinová sazba je příliš vysoká'
+      }
+    }
   })
 
   // Contacts: email format if provided, name required if row touched, IČO required when scope=icos
@@ -496,7 +505,7 @@ function addLogin() {
 function removeLogin(id) { form.logins = form.logins.filter(l => l.id !== id) }
 
 function addIco() {
-  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrMode: 'off', idokladSyncEnabled: false, billingModel: null, contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], roundingRules: [], expanded: true })
+  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrMode: 'off', idokladSyncEnabled: false, billingModel: null, hourlyRate: null, contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], roundingRules: [], expanded: true })
 }
 
 // ── iDoklad manual sync ───────────────────────────────────────────────────────
@@ -826,6 +835,7 @@ async function save() {
         freshqr_mode: i.freshqrMode,
         idoklad_sync_enabled: i.idokladSyncEnabled,
         billing_model: i.billingModel,
+        hourly_rate: i.billingModel === 'hourly' ? i.hourlyRate : null,
         contract_file: i.contractFile,
         objects: i.objects.map(o => ({
           name: o.name,
@@ -927,6 +937,7 @@ function serializeForm() {
       freshqrMode: i.freshqrMode,
       idokladSyncEnabled: i.idokladSyncEnabled,
       billingModel: i.billingModel,
+      hourlyRate: i.hourlyRate ?? null,
       contractFile: i.contractFile,
       contractUploaded: i.contractUploaded,
       objects: i.objects.map(o => ({
@@ -1551,6 +1562,38 @@ onBeforeUnmount(() => {
                         <input :id="`ico-${ico.id}-billing-model-input-fixed`" type="radio" :name="`ico-${ico.id}-billing-model-input`" v-model="ico.billingModel" value="fixed" />
                         Paušál
                       </label>
+                    </div>
+
+                    <div
+                      v-if="ico.billingModel === 'hourly'"
+                      :id="`ico-${ico.id}-hourly-rate-group`"
+                      class="hourly-rate-group"
+                    >
+                      <label :for="`ico-${ico.id}-hourly-rate-input`" class="form-label hourly-rate-label">Sazba</label>
+                      <div class="input-with-suffix">
+                        <input
+                          :id="`ico-${ico.id}-hourly-rate-input`"
+                          v-model.number="ico.hourlyRate"
+                          type="number"
+                          inputmode="decimal"
+                          min="0"
+                          step="0.01"
+                          class="form-input"
+                          :class="{ 'input-error': validationErrors[`icos.${icoIndex}.hourly_rate`] }"
+                          placeholder="např. 250"
+                          :aria-invalid="!!validationErrors[`icos.${icoIndex}.hourly_rate`]"
+                          @input="clearFieldError(`icos.${icoIndex}.hourly_rate`)"
+                        />
+                        <span class="input-suffix" aria-hidden="true">Kč/hod</span>
+                      </div>
+                      <p
+                        v-if="validationErrors[`icos.${icoIndex}.hourly_rate`]"
+                        :id="`ico-${ico.id}-hourly-rate-error`"
+                        class="field-error"
+                        role="alert"
+                      >
+                        {{ validationErrors[`icos.${icoIndex}.hourly_rate`] }}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -2660,6 +2703,43 @@ onBeforeUnmount(() => {
 .radio-option:has(input:focus-visible) {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+.hourly-rate-group {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hourly-rate-label {
+  font-size: 13px;
+  color: var(--color-gray-600);
+}
+.input-with-suffix {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  max-width: 220px;
+}
+.input-with-suffix .form-input {
+  padding-right: 64px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.input-with-suffix .form-input::-webkit-inner-spin-button,
+.input-with-suffix .form-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.input-suffix {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: var(--color-gray-500);
+  pointer-events: none;
+  user-select: none;
 }
 
 /* IČO checkboxes */

@@ -31,6 +31,7 @@ class CompanyRepository
                 c.idoklad_sync_enabled,
                 c.freshqr_mode,
                 c.billing_model,
+                c.hourly_rate,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -59,6 +60,7 @@ class CompanyRepository
                 c.idoklad_sync_enabled,
                 c.freshqr_mode,
                 c.billing_model,
+                c.hourly_rate,
                 c.created_at,
                 c.updated_at
             FROM companies c
@@ -85,6 +87,7 @@ class CompanyRepository
                 idoklad_sync_enabled,
                 freshqr_mode,
                 billing_model,
+                hourly_rate,
                 created_at,
                 updated_at
             FROM companies
@@ -111,6 +114,7 @@ class CompanyRepository
                 c.idoklad_sync_enabled,
                 c.freshqr_mode,
                 c.billing_model,
+                c.hourly_rate,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -137,6 +141,7 @@ class CompanyRepository
                 c.idoklad_sync_enabled,
                 c.freshqr_mode,
                 c.billing_model,
+                c.hourly_rate,
                 c.created_at,
                 c.updated_at,
                 cl.display_name AS client_name
@@ -207,6 +212,7 @@ class CompanyRepository
                 idoklad_sync_enabled,
                 freshqr_mode,
                 billing_model,
+                hourly_rate,
                 created_at,
                 updated_at
             ) VALUES (
@@ -220,10 +226,16 @@ class CompanyRepository
                 :idoklad_sync_enabled,
                 :freshqr_mode,
                 :billing_model,
+                :hourly_rate,
                 NOW(),
                 NOW()
             )
         ');
+
+        $billingModel = self::normaliseBillingModel($data['billing_model'] ?? null);
+        $hourlyRate = $billingModel === 'hourly'
+            ? self::normaliseHourlyRate($data['hourly_rate'] ?? null)
+            : null;
 
         $stmt->execute([
             'client_id' => $data['client_id'],
@@ -235,7 +247,8 @@ class CompanyRepository
             'contract_pdf_path' => $data['contract_pdf_path'] ?? null,
             'idoklad_sync_enabled' => (int) (bool) ($data['idoklad_sync_enabled'] ?? false),
             'freshqr_mode' => self::normaliseFreshqrMode($data['freshqr_mode'] ?? null),
-            'billing_model' => self::normaliseBillingModel($data['billing_model'] ?? null),
+            'billing_model' => $billingModel,
+            'hourly_rate' => $hourlyRate,
         ]);
 
         return (int) $this->db->lastInsertId();
@@ -249,10 +262,23 @@ class CompanyRepository
         $allowedFields = [
             'client_id', 'registration_number', 'name', 'address',
             'contract_start_date', 'contract_end_date', 'contract_pdf_path',
-            'idoklad_sync_enabled', 'freshqr_mode', 'billing_model',
+            'idoklad_sync_enabled', 'freshqr_mode', 'billing_model', 'hourly_rate',
         ];
 
         $boolFields = ['idoklad_sync_enabled'];
+
+        // Enforce the invariant that hourly_rate is only meaningful when
+        // billing_model='hourly'. If billing_model is being set to anything
+        // else in this update, force hourly_rate to null even if the caller
+        // sent a value — defense in depth against a stale FE payload.
+        // Note: partial updates that omit billing_model trust the caller; the
+        // row's current state is not consulted here. AdminController always
+        // sends both fields together, so this is non-issue in practice.
+        if (array_key_exists('billing_model', $data)
+            && self::normaliseBillingModel($data['billing_model']) !== 'hourly'
+        ) {
+            $data['hourly_rate'] = null;
+        }
 
         foreach ($allowedFields as $field) {
             if (array_key_exists($field, $data)) {
@@ -261,6 +287,8 @@ class CompanyRepository
                     $params[$field] = self::normaliseFreshqrMode($data[$field]);
                 } elseif ($field === 'billing_model') {
                     $params[$field] = self::normaliseBillingModel($data[$field]);
+                } elseif ($field === 'hourly_rate') {
+                    $params[$field] = self::normaliseHourlyRate($data[$field]);
                 } elseif (in_array($field, $boolFields, true)) {
                     $params[$field] = (int) (bool) $data[$field];
                 } else {
@@ -322,6 +350,7 @@ class CompanyRepository
                 c.idoklad_sync_enabled,
                 c.freshqr_mode,
                 c.billing_model,
+                c.hourly_rate,
                 c.created_at,
                 c.updated_at
             FROM companies c
@@ -382,6 +411,30 @@ class CompanyRepository
             return null;
         }
         return in_array($value, ['hourly', 'fixed'], true) ? $value : null;
+    }
+
+    /**
+     * Coerce caller-supplied hourly_rate into a normalised DECIMAL(10,2) string
+     * or NULL. Anything non-numeric, negative, or out of DECIMAL(10,2) range
+     * collapses to NULL so a typo or stale FE payload can never break the row.
+     * Always returns 2 decimals so DB representation is consistent.
+     */
+    public static function normaliseHourlyRate(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_bool($value) || is_array($value)) {
+            return null;
+        }
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+        $float = filter_var($value, FILTER_VALIDATE_FLOAT);
+        if ($float === false || $float < 0 || $float > 99999999.99) {
+            return null;
+        }
+        return number_format($float, 2, '.', '');
     }
 
     public function hasActiveContract(int $id): bool

@@ -275,6 +275,24 @@ class AdminController extends Controller
                 $errors["{$path}.billing_model"][] = 'Neplatný fakturační model';
             }
 
+            // hourly_rate is optional even when billing_model='hourly'. Only
+            // reject negative or non-numeric values; null/empty stays as NULL.
+            // Cap at DECIMAL(10,2) ceiling to avoid silent overflow.
+            if (array_key_exists('hourly_rate', $icoData)
+                && $icoData['hourly_rate'] !== null
+                && $icoData['hourly_rate'] !== ''
+            ) {
+                $rawRate = is_string($icoData['hourly_rate'])
+                    ? trim($icoData['hourly_rate'])
+                    : $icoData['hourly_rate'];
+                $rateFloat = filter_var($rawRate, FILTER_VALIDATE_FLOAT);
+                if ($rateFloat === false || $rateFloat < 0) {
+                    $errors["{$path}.hourly_rate"][] = 'Hodinová sazba musí být kladné číslo';
+                } elseif ($rateFloat > 99999999.99) {
+                    $errors["{$path}.hourly_rate"][] = 'Hodinová sazba je příliš vysoká';
+                }
+            }
+
             $objects = is_array($icoData['objects'] ?? null) ? $icoData['objects'] : [];
             foreach ($objects as $j => $obj) {
                 if (!is_array($obj)) {
@@ -574,6 +592,9 @@ class AdminController extends Controller
                 'freshqrMode' => $company['freshqr_mode'] ?? 'off',
                 'idokladSyncEnabled' => (bool) ($company['idoklad_sync_enabled'] ?? false),
                 'billingModel' => $company['billing_model'] ?? null,
+                'hourlyRate' => isset($company['hourly_rate']) && $company['hourly_rate'] !== null
+                    ? (float) $company['hourly_rate']
+                    : null,
                 'contractUploaded' => !empty($contractPath),
                 'contractFile' => $this->storage->resolveProxyUrl($contractPath),
                 'objects' => $objects,
@@ -714,6 +735,7 @@ class AdminController extends Controller
                         'idoklad_sync_enabled' => (bool) ($icoData['idoklad_sync_enabled'] ?? false),
                         'freshqr_mode' => $icoData['freshqr_mode'] ?? 'off',
                         'billing_model' => $icoData['billing_model'] ?? null,
+                        'hourly_rate' => $icoData['hourly_rate'] ?? null,
                     ]);
                 } catch (\PDOException $e) {
                     throw $this->reclassifyUniqueViolation(
@@ -952,6 +974,7 @@ class AdminController extends Controller
                             'idoklad_sync_enabled' => (int) (bool) ($icoData['idoklad_sync_enabled'] ?? false),
                             'freshqr_mode' => $icoData['freshqr_mode'] ?? 'off',
                             'billing_model' => $icoData['billing_model'] ?? null,
+                            'hourly_rate' => $icoData['hourly_rate'] ?? null,
                         ]);
                     } catch (\PDOException $e) {
                         throw $this->reclassifyUniqueViolation(
@@ -972,6 +995,7 @@ class AdminController extends Controller
                             'idoklad_sync_enabled' => (int) (bool) ($icoData['idoklad_sync_enabled'] ?? false),
                             'freshqr_mode' => $icoData['freshqr_mode'] ?? 'off',
                             'billing_model' => $icoData['billing_model'] ?? null,
+                            'hourly_rate' => $icoData['hourly_rate'] ?? null,
                         ]);
                     } catch (\PDOException $e) {
                         throw $this->reclassifyUniqueViolation(
