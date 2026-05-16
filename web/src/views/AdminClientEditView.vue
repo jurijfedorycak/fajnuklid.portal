@@ -2361,7 +2361,6 @@ onBeforeUnmount(() => {
 .edit-page {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
 }
 
 /* Top bar — mobile-first: back + actions on row 1, title spans row 2; single row ≥640px */
@@ -2474,7 +2473,10 @@ onBeforeUnmount(() => {
     overflow: visible;
     width: 200px;
     flex-shrink: 0;
+    align-self: flex-start;
+    position: sticky;
     top: 20px;
+    max-height: calc(100vh - 40px);
     padding: 0;
     margin: 0;
     background: transparent;

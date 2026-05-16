@@ -37,8 +37,7 @@ const sidebarOpen = ref(false)
 /* Mobile-first: no sidebar margin, topbar visible, smaller padding */
 .app-layout {
   display: flex;
-  height: 100%;
-  min-height: 100vh;
+  height: 100vh;
 }
 
 .sidebar-overlay {
@@ -59,8 +58,9 @@ const sidebarOpen = ref(false)
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
   overflow: hidden;
+  min-width: 0;
 }
 
 .main-content {
