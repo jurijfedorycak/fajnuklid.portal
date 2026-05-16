@@ -198,4 +198,136 @@ class FreshQRClient
         }
         return $response['data'];
     }
+
+    /**
+     * Fetch in-progress (TimeTo IS NULL) scans for the last few days and
+     * reshape them into the same record format as getProjectReports().
+     *
+     * Why we need this: /v1/reports/projects reads from a materialized cache
+     * that filters out rows whose last_scan_time is null, so cleanings that
+     * are currently happening never appear in that endpoint. The
+     * /v1/reports/attendance-raw endpoint queries the live Attendance table
+     * directly and DOES expose open scans, but uses a different field shape
+     * (`TimeFrom` / `TimeTo` / `CompanyEmployeeId` / `TaskName1`) and omits
+     * `personal_number`. We map CompanyEmployeeId → personal_number via
+     * /v1/employees, then emit records that the service layer can merge with
+     * getProjectReports() output without branching.
+     *
+     * Returns []|null. null signals a transient failure on either underlying
+     * call — callers can degrade gracefully (skip the augmentation, still show
+     * the cached historical data).
+     *
+     * @return list<array<string,mixed>>|null
+     */
+    public function getOngoingProjectReports(): ?array
+    {
+        // Two days covers today + any cross-midnight cleaning that started
+        // yesterday and is still open. Bigger windows just waste payload —
+        // attendance-raw's filtered-list is fully scanned client-side.
+        $raw = $this->request('GET', '/v1/reports/attendance-raw', ['days' => 2]);
+        if ($raw === null) {
+            return null;
+        }
+
+        if (!isset($raw['data']) || !is_array($raw['data'])) {
+            return [];
+        }
+
+        $ongoing = [];
+        foreach ($raw['data'] as $row) {
+            if (!is_array($row) || ($row['TimeTo'] ?? null) !== null) {
+                continue;
+            }
+            $ongoing[] = $row;
+        }
+
+        if ($ongoing === []) {
+            return [];
+        }
+
+        $idToPersonal = $this->fetchEmployeePersonalIdMap();
+        if ($idToPersonal === null) {
+            // Couldn't resolve the personal_number mapping — the rest of the
+            // pipeline keys off personal_number for both the allow-list and
+            // the per-IČO mode lookup, so emitting unmapped records would
+            // either be dropped (best case) or break matching. Treat as a
+            // transient failure.
+            return null;
+        }
+
+        $result = [];
+        foreach ($ongoing as $row) {
+            $reshaped = self::reshapeRawAttendanceRecord($row, $idToPersonal);
+            if ($reshaped !== null) {
+                $result[] = $reshaped;
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Map FreshQR's CompanyEmployeeId (used in attendance-raw rows) to the
+     * `personal_number` value the rest of the integration matches against.
+     * Employees without a personal_number assigned are intentionally absent
+     * from the map — they're filtered out at the matching step anyway.
+     *
+     * FreshQR's /v1/employees endpoint returns the entire active employee
+     * list in one response (no LIMIT/OFFSET, no page params accepted) — see
+     * QrAttendanceWeb/public-api/v1/endpoints/employees.php handleGetEmployees().
+     * Should that contract ever change, this method has to grow paging support.
+     *
+     * @return array<int,string>|null  null = transient API failure
+     */
+    private function fetchEmployeePersonalIdMap(): ?array
+    {
+        $response = $this->request('GET', '/v1/employees', []);
+        if ($response === null) {
+            return null;
+        }
+        if (!isset($response['data']) || !is_array($response['data'])) {
+            return [];
+        }
+        $map = [];
+        foreach ($response['data'] as $e) {
+            if (!is_array($e)) {
+                continue;
+            }
+            $id = isset($e['id']) ? (int) $e['id'] : 0;
+            $personal = $e['personal_number'] ?? null;
+            if ($id <= 0 || !is_string($personal) || $personal === '') {
+                continue;
+            }
+            $map[$id] = $personal;
+        }
+        return $map;
+    }
+
+    /**
+     * @param array<string,mixed> $row             attendance-raw record
+     * @param array<int,string>   $idToPersonal    CompanyEmployeeId → personal_number
+     * @return array<string,mixed>|null
+     */
+    private static function reshapeRawAttendanceRecord(array $row, array $idToPersonal): ?array
+    {
+        $timeFrom = $row['TimeFrom'] ?? null;
+        if (!is_string($timeFrom) || !preg_match('/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/', $timeFrom, $m)) {
+            return null;
+        }
+        $taskName = $row['TaskName1'] ?? null;
+        if (!is_string($taskName) || $taskName === '') {
+            return null;
+        }
+        $companyEmployeeId = isset($row['CompanyEmployeeId']) ? (int) $row['CompanyEmployeeId'] : 0;
+        $personal = $idToPersonal[$companyEmployeeId] ?? null;
+        if ($personal === null) {
+            return null;
+        }
+        return [
+            'date' => $m[1],
+            'project' => ['name' => $taskName],
+            'employee' => ['personal_number' => $personal],
+            'first_scan_time' => $m[2],
+            'last_scan_time' => null,
+        ];
+    }
 }

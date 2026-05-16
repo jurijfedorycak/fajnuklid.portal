@@ -31,14 +31,12 @@ use App\Repositories\EmployeeRepository;
  *                       worker's display name and start/end scan times.
  *      The `cleanings[]` array is always present in the output so the FE has a
  *      stable shape — empty when no detailed-mode IČO matched the day.
- *   4. A cleaning is "ongoing" only when ALL of these hold:
+ *   4. A cleaning is "ongoing" when BOTH of these hold:
  *        a. The cleaning date equals today's date (in Europe/Prague — see
  *           index.php where the timezone is pinned).
- *        b. The record itself has not been scanned out — last_scan_time is
- *           missing or equal to first_scan_time. A different last_scan_time
- *           means the cleaner already left this project.
- *        c. The employee has not moved on to another project since (their
- *           latest activity for the day is still on this record).
+ *        b. The record's `last_scan_time` is null/empty or equal to
+ *           `first_scan_time` (FreshQR's "still on-site" sentinel). A
+ *           different last_scan_time means the cleaner scanned out here.
  *      Per-cleaning `ongoing` is surfaced in detailed mode so the FE never has
  *      to infer it from a null endTime — that signal is unreliable because
  *      single-scan past-day records also have null endTime.
@@ -150,6 +148,22 @@ class FreshQRService
             ];
         }
 
+        $today = self::today();
+
+        // /v1/reports/projects reads a materialized cache that excludes rows
+        // with null last_scan_time, so today's in-progress cleanings never
+        // appear there. When the user is looking at the current month we hit
+        // the live /v1/reports/attendance-raw endpoint and append any open
+        // scans before running buildCleaningDays — that's what produces the
+        // orange "Probíhá" indicator. Past/future months never have ongoing
+        // activity to surface, so the extra round-trip is skipped.
+        if (self::yearMonthIsCurrent($year, $month, $today)) {
+            $ongoingRecords = $this->client->getOngoingProjectReports();
+            if (is_array($ongoingRecords) && $ongoingRecords !== []) {
+                $records = array_merge($records, $ongoingRecords);
+            }
+        }
+
         $allowedPersonalIds = array_fill_keys($this->employeeRepo->getAllPersonalIds(), true);
 
         // Look up display names only when at least one IČO is in detailed mode —
@@ -171,7 +185,7 @@ class FreshQRService
             $modeByIco,
             $allowedPersonalIds,
             $displayNames,
-            self::today(),
+            $today,
             $roundingRulesByIco
         );
 
@@ -239,12 +253,12 @@ class FreshQRService
     /**
      * Collapse FreshQR per-employee records into one entry per date.
      *
-     * Two passes: first we find each employee's latest scan-time per day across
-     * ALL their records (even ones on non-matching projects), so we know
-     * whether they moved on to somewhere else. Then we build the output and
-     * flag a record as "ongoing" only when (a) it's today, (b) the cleaner
-     * hasn't scanned out at THIS project, and (c) the employee hasn't moved on
-     * elsewhere.
+     * A record is flagged as "ongoing" when (a) it's today AND (b) the cleaner
+     * hasn't scanned out at THIS project — i.e. last_scan_time is missing or
+     * equal to first_scan_time. The portal trusts FreshQR's null TimeTo as the
+     * source of truth: a forgotten scan-out at IČO A followed by a scan-in at
+     * IČO B leaves A's record without an end-time, and A genuinely remains
+     * "open" until the cleaner returns to close it.
      *
      * Each output day carries a `cleanings[]` array — populated from records
      * whose IČO matched a 'detailed' mode entry, empty otherwise. Per-cleaning
@@ -268,8 +282,6 @@ class FreshQRService
         string $today,
         array $roundingRulesByIco = []
     ): array {
-        $latestScanPerEmployeeDay = self::indexLatestScanPerEmployeeDay($records);
-
         $byDate = [];
 
         foreach ($records as $record) {
@@ -304,13 +316,7 @@ class FreshQRService
             }
 
             $isOngoing = $date === $today
-                && !self::isScannedOutAtThisProject($record)
-                && self::isLatestScanForEmployeeDay(
-                    $record,
-                    (string) $personalNumber,
-                    $date,
-                    $latestScanPerEmployeeDay
-                );
+                && !self::isScannedOutAtThisProject($record);
 
             if (!isset($byDate[$date])) {
                 $byDate[$date] = [
@@ -431,121 +437,14 @@ class FreshQRService
     }
 
     /**
-     * Build a lookup of the latest scan time for each (personal_number, date)
-     * pair. Used to detect whether an employee has moved to another project
-     * after an earlier one: the record with the greatest scan time wins, the
-     * others are considered finished.
-     *
-     * The map covers ALL records (not just those matching a portal IČO) —
-     * because if the employee scanned in at a non-matching project later on,
-     * that still ends the earlier matching one. Records with no scan time at
-     * all are represented by an empty string; ties (same scan time on two
-     * records) leave all tied records as "latest", which is fine — the
-     * aggregated `ongoing` flag is an OR across the day.
-     *
-     * Stored values are pre-normalised to HH:MM:SS (or '' when missing) so the
-     * downstream `strcmp` is a like-for-like comparison even if FreshQR mixes
-     * HH:MM:SS and full ISO 8601 timestamps across records.
-     *
-     * @param array<array<string,mixed>> $records
-     * @return array<string,string> key = "personal_number|YYYY-MM-DD", value = HH:MM:SS or ''
-     */
-    private static function indexLatestScanPerEmployeeDay(array $records): array
-    {
-        $latest = [];
-
-        foreach ($records as $record) {
-            $date = $record['date'] ?? null;
-            if (!is_string($date) || !self::isValidDate($date)) {
-                continue;
-            }
-            // Cross-midnight records get dropped in buildCleaningDays — keep
-            // the index consistent so an anomalous scan can't override the
-            // legitimate latest-scan for the same employee/day.
-            if (!self::recordIsSingleDay($record, $date)) {
-                continue;
-            }
-            $personalNumber = $record['employee']['personal_number'] ?? null;
-            if ($personalNumber === null || $personalNumber === '') {
-                continue;
-            }
-
-            $key = (string) $personalNumber . '|' . $date;
-            $scanTime = self::extractScanTime($record);
-
-            if (!isset($latest[$key]) || strcmp($scanTime, $latest[$key]) > 0) {
-                $latest[$key] = $scanTime;
-            }
-        }
-
-        return $latest;
-    }
-
-    /**
-     * True iff this record's scan time equals the latest known scan time for
-     * the same (employee, date). If no record for this employee-day has a scan
-     * time at all (map entry is ''), every record is considered latest and the
-     * method falls back to the old "today → ongoing" behaviour — better than
-     * silently dropping the ongoing flag when FreshQR omits the time.
-     *
-     * @param array<string,mixed> $record
-     * @param array<string,string> $latestScanPerEmployeeDay
-     */
-    private static function isLatestScanForEmployeeDay(
-        array $record,
-        string $personalNumber,
-        string $date,
-        array $latestScanPerEmployeeDay
-    ): bool {
-        $key = $personalNumber . '|' . $date;
-        $latest = $latestScanPerEmployeeDay[$key] ?? '';
-        $scanTime = self::extractScanTime($record);
-
-        return $scanTime === $latest;
-    }
-
-    /**
-     * Pull the record's latest scan time and normalise it to a uniformly
-     * sortable HH:MM:00 string (minute-precision only — seconds are dropped
-     * so jitter doesn't flip equality). Prefers last_scan_time (the most
-     * recent activity at that project); falls back to first_scan_time.
-     * Returns '' when neither is present or both fail to parse — callers
-     * comparing scan times treat the empty string as "earliest known".
-     *
-     * Normalisation is critical because FreshQR may emit HH:MM:SS for some
-     * records and full ISO 8601 timestamps for others; a raw strcmp across
-     * mixed formats places "2026-..." before "10:00:00" lexically and flips
-     * the latest-scan logic. Going through formatScanTimeToHm strips both
-     * formats to a common HH:MM, then we re-append :00 to stay lexically
-     * comparable against any HH:MM:SS data the rest of the codebase may
-     * surface.
-     *
-     * Callers that need sub-minute precision should NOT use this helper —
-     * `computeDurationMinutes` works off the HH:MM `formatScanTimeToHm`
-     * output directly and already rounds duration to whole minutes.
-     *
-     * @param array<string,mixed> $record
-     */
-    private static function extractScanTime(array $record): string
-    {
-        foreach (['last_scan_time', 'first_scan_time'] as $field) {
-            $value = $record[$field] ?? null;
-            if (!is_string($value) || $value === '') {
-                continue;
-            }
-            $normalised = self::normaliseScanTimeForCompare($value);
-            if ($normalised !== '') {
-                return $normalised;
-            }
-        }
-        return '';
-    }
-
-    /**
      * Coerce a raw FreshQR scan time string into HH:MM:SS for lexical
      * comparison. Built on top of formatScanTimeToHm so both HH:MM[:SS] and
      * ISO 8601 forms collapse to the same shape. Returns '' for unparseable
      * input so the comparison treats it as "no time recorded".
+     *
+     * Used by isScannedOutAtThisProject and computeEndTime to compare
+     * first_scan_time against last_scan_time uniformly regardless of which
+     * timestamp shape FreshQR chose for either field on a given record.
      */
     private static function normaliseScanTimeForCompare(string $raw): string
     {
@@ -709,6 +608,21 @@ class FreshQRService
     private static function today(): string
     {
         return (new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague')))->format('Y-m-d');
+    }
+
+    /**
+     * True iff the (year, month) the user is viewing is the current calendar
+     * month in Europe/Prague. Used to gate the live attendance-raw call —
+     * ongoing scans can only ever fall on today, so past/future months don't
+     * benefit from the extra round-trip.
+     */
+    private static function yearMonthIsCurrent(int $year, int $month, string $today): bool
+    {
+        $parts = explode('-', $today);
+        if (count($parts) < 2) {
+            return false;
+        }
+        return $year === (int) $parts[0] && $month === (int) $parts[1];
     }
 
     /**

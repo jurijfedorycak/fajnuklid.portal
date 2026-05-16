@@ -403,11 +403,11 @@ class FreshQRServiceTest extends TestCase
         $this->assertTrue($result[0]['ongoing']);
     }
 
-    public function testBuildCleaningDaysDoesNotFlagOngoingWhenEmployeeMovedToAnotherProject(): void
+    public function testBuildCleaningDaysDoesNotFlagOngoingWhenScannedOutAtThisProject(): void
     {
-        // Bug scenario: employee cleaned client A (matching IČO) this morning,
-        // then scanned in at a different client's project. Client A must not
-        // still see "ongoing" — the cleaning is finished.
+        // The matching record has both scan times set to different values →
+        // the cleaner explicitly scanned out at this project, so the cleaning
+        // is finished even though it's today.
         $records = [
             [
                 'date' => '2026-04-21',
@@ -415,13 +415,6 @@ class FreshQRServiceTest extends TestCase
                 'employee' => ['personal_number' => 'EMP001'],
                 'first_scan_time' => '07:00:00',
                 'last_scan_time' => '10:00:00',
-            ],
-            [
-                'date' => '2026-04-21',
-                'project' => ['name' => 'Other 99999999 Office'],
-                'employee' => ['personal_number' => 'EMP001'],
-                'first_scan_time' => '11:30:00',
-                'last_scan_time' => '11:30:00',
             ],
         ];
 
@@ -432,18 +425,11 @@ class FreshQRServiceTest extends TestCase
         $this->assertFalse($result[0]['ongoing']);
     }
 
-    public function testBuildCleaningDaysFlagsOngoingWhenEmployeeIsStillAtMatchingProject(): void
+    public function testBuildCleaningDaysFlagsOngoingWhenSingleScanAtMatchingProject(): void
     {
-        // Mirror of the previous test: if the latest scan is on the matching
-        // project, it IS ongoing.
+        // Single-scan record at the matching project: first == last → FreshQR's
+        // "still on-site" sentinel → TimeTo is effectively null → ongoing.
         $records = [
-            [
-                'date' => '2026-04-21',
-                'project' => ['name' => 'Other 99999999 Office'],
-                'employee' => ['personal_number' => 'EMP001'],
-                'first_scan_time' => '07:00:00',
-                'last_scan_time' => '10:00:00',
-            ],
             [
                 'date' => '2026-04-21',
                 'project' => ['name' => 'Customer 12345678 HQ'],
@@ -459,27 +445,25 @@ class FreshQRServiceTest extends TestCase
         $this->assertTrue($result[0]['ongoing']);
     }
 
-    public function testBuildCleaningDaysFlagsOngoingWhenAnotherEmployeeIsStillAtProjectEvenIfOneMoved(): void
+    public function testBuildCleaningDaysFlagsOngoingWhenAtLeastOneEmployeeIsStillOnSite(): void
     {
-        // Two employees on the matching project today. EMP001 moved on, EMP002
-        // is still there → the day is still ongoing overall.
+        // Two employees today at the matching project. EMP001 scanned out
+        // (first ≠ last), EMP002 is still on-site (single scan). The day's
+        // aggregate `ongoing` flag is the OR across cleanings, so EMP002 keeps
+        // the day open even though EMP001 is finished.
         $records = [
             [
                 'date' => '2026-04-21',
                 'project' => ['name' => '12345678 Office'],
                 'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '07:00:00',
                 'last_scan_time' => '09:00:00',
-            ],
-            [
-                'date' => '2026-04-21',
-                'project' => ['name' => 'Other 99999999 Office'],
-                'employee' => ['personal_number' => 'EMP001'],
-                'last_scan_time' => '11:00:00',
             ],
             [
                 'date' => '2026-04-21',
                 'project' => ['name' => '12345678 Office'],
                 'employee' => ['personal_number' => 'EMP002'],
+                'first_scan_time' => '10:30:00',
                 'last_scan_time' => '10:30:00',
             ],
         ];
@@ -495,16 +479,16 @@ class FreshQRServiceTest extends TestCase
         $this->assertTrue($result[0]['ongoing']);
     }
 
-    public function testBuildCleaningDaysDoesNotFlagOngoingForPastDateEvenIfLatestScan(): void
+    public function testBuildCleaningDaysDoesNotFlagOngoingForPastDate(): void
     {
-        // Even the most-recent scan on a past date isn't "ongoing" — the whole
-        // "ongoing" concept only applies to today.
+        // The "ongoing" flag only applies to today — a record on a past day
+        // with TimeTo null (single scan or arrival-only) is still finished.
         $records = [
             [
                 'date' => '2026-04-20',
                 'project' => ['name' => '12345678 Office'],
                 'employee' => ['personal_number' => 'EMP001'],
-                'last_scan_time' => '15:00:00',
+                'first_scan_time' => '08:00:00',
             ],
         ];
 
@@ -514,11 +498,14 @@ class FreshQRServiceTest extends TestCase
         $this->assertFalse($result[0]['ongoing']);
     }
 
-    public function testBuildCleaningDaysUsesFirstScanTimeWhenLastScanTimeMissing(): void
+    public function testBuildCleaningDaysFlagsArrivalOnlyRecordAsOngoingEvenWhenEmployeeScannedElsewhere(): void
     {
-        // If last_scan_time is absent, fall back to first_scan_time so an
-        // arrival-only record can still be compared against records that have
-        // both times.
+        // Simplified ongoing rule: the portal trusts FreshQR's null TimeTo on
+        // THIS record. A later scan-in at another project does NOT close this
+        // cleaning — the cleaner may have forgotten to scan out at the matching
+        // project, and per FreshQR's data the cleaning is still open. The day
+        // therefore stays ongoing until the matching record itself records a
+        // scan-out.
         $records = [
             [
                 'date' => '2026-04-21',
@@ -537,14 +524,15 @@ class FreshQRServiceTest extends TestCase
         $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
 
         $this->assertCount(1, $result);
-        $this->assertFalse($result[0]['ongoing']);
+        $this->assertTrue($result[0]['ongoing']);
     }
 
-    public function testBuildCleaningDaysRecordWithScanTimeBeatsRecordWithNoneForSameEmployee(): void
+    public function testBuildCleaningDaysFlagsRecordWithNoScanTimesAsOngoingOnToday(): void
     {
-        // Asymmetric data: the matching-project record has no scan time, the
-        // later non-matching record has one. The non-matching record wins the
-        // "latest" comparison and finishes the matching one.
+        // Edge case: matching record has no scan times at all. Under the
+        // simplified rule TimeTo is null → on today's date this counts as
+        // ongoing. A later scan at a non-matching project is irrelevant to
+        // the matching record's status.
         $records = [
             [
                 'date' => '2026-04-21',
@@ -562,33 +550,32 @@ class FreshQRServiceTest extends TestCase
         $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
 
         $this->assertCount(1, $result);
-        $this->assertFalse($result[0]['ongoing']);
+        $this->assertTrue($result[0]['ongoing']);
     }
 
-    public function testBuildCleaningDaysHandlesIsoTimestampScanTimes(): void
+    public function testBuildCleaningDaysHandlesIsoTimestampScanOut(): void
     {
         // Defensive: if FreshQR ever returns full ISO timestamps instead of
-        // HH:MM:SS, lexical comparison still sorts them chronologically as
-        // long as the format is consistent across records.
+        // HH:MM:SS, isScannedOutAtThisProject must still detect a true scan-out
+        // (first ≠ last after normalisation). Mixed formats on the same record
+        // must collapse to the same HH:MM comparison.
         $records = [
             [
                 'date' => '2026-04-21',
                 'project' => ['name' => '12345678 Office'],
                 'employee' => ['personal_number' => 'EMP001'],
-                'last_scan_time' => '2026-04-21T09:00:00Z',
-            ],
-            [
-                'date' => '2026-04-21',
-                'project' => ['name' => 'Other 99999999 Office'],
-                'employee' => ['personal_number' => 'EMP001'],
-                'last_scan_time' => '2026-04-21T12:00:00Z',
+                'first_scan_time' => '08:00:00',
+                'last_scan_time' => '2026-04-21T11:00:00Z',
             ],
         ];
 
         $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
 
         $this->assertCount(1, $result);
-        $this->assertFalse($result[0]['ongoing']);
+        $this->assertFalse(
+            $result[0]['ongoing'],
+            'ISO-format last_scan_time different from first_scan_time must close the cleaning'
+        );
     }
 
     public function testBuildCleaningDaysDropsRecordWhereFirstScanDateDiffersFromDate(): void
@@ -651,11 +638,11 @@ class FreshQRServiceTest extends TestCase
         $this->assertEquals('2026-04-21', $result[0]['date']);
     }
 
-    public function testBuildCleaningDaysCrossMidnightRecordDoesNotPolluteLatestScanIndex(): void
+    public function testBuildCleaningDaysCrossMidnightRecordIsDropped(): void
     {
-        // The single-day filter also runs inside the latest-scan index, so an
-        // anomalous cross-midnight scan can't be picked up as the employee's
-        // "latest activity" — the legitimate same-day record still wins.
+        // The single-day filter drops anomalous cross-midnight scans before
+        // they reach the output. The legitimate same-day record at the matching
+        // project still appears and stays ongoing on its own merit (TimeTo null).
         $records = [
             [
                 'date' => '2026-04-21',
@@ -708,15 +695,14 @@ class FreshQRServiceTest extends TestCase
         $this->assertNull($cleaning['endTime'], 'endTime must agree with ongoing — no contradictory state');
     }
 
-    public function testBuildCleaningDaysHandlesMixedIsoAndHhmmssScanTimes(): void
+    public function testBuildCleaningDaysScanOutAtMatchingProjectIsFinishedRegardlessOfOtherRecords(): void
     {
-        // Regression: lexical strcmp('10:00:00', '2026-04-21T...') ranks the
-        // ISO timestamp as "later" because '2' > '1', so the comparison flipped
-        // and the matching record was wrongly kept as ongoing. The fix
-        // normalises both formats to HH:MM:SS before comparing.
+        // The matching record was scanned out (first ≠ last). Activity at
+        // another project for the same employee is irrelevant under the
+        // simplified rule — the matching record's own TimeTo is set, so the
+        // cleaning is finished.
         $records = [
             [
-                // Matching IČO — HH:MM:SS format at the matching project
                 'date' => '2026-04-21',
                 'project' => ['name' => '12345678 Office'],
                 'employee' => ['personal_number' => 'EMP001'],
@@ -724,7 +710,6 @@ class FreshQRServiceTest extends TestCase
                 'last_scan_time' => '10:00:00',
             ],
             [
-                // Non-matching IČO — ISO format, later in the day
                 'date' => '2026-04-21',
                 'project' => ['name' => 'Other 99999999 Office'],
                 'employee' => ['personal_number' => 'EMP001'],
@@ -736,40 +721,7 @@ class FreshQRServiceTest extends TestCase
         $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
 
         $this->assertCount(1, $result);
-        // The non-matching ISO record really is later (11:30 vs 10:00), so the
-        // matching record is finished — both because it was scanned out AND
-        // because the employee moved on.
         $this->assertFalse($result[0]['ongoing']);
-    }
-
-    public function testBuildCleaningDaysOtherEmployeeElsewhereDoesNotAffectThisEmployeesStatus(): void
-    {
-        // EMP001 is still at the matching project today. EMP002 moved on from
-        // a different project. EMP002's move must not finish EMP001's record.
-        $records = [
-            [
-                'date' => '2026-04-21',
-                'project' => ['name' => '12345678 Office'],
-                'employee' => ['personal_number' => 'EMP001'],
-                'last_scan_time' => '09:00:00',
-            ],
-            [
-                'date' => '2026-04-21',
-                'project' => ['name' => 'Other 99999999 Office'],
-                'employee' => ['personal_number' => 'EMP002'],
-                'last_scan_time' => '11:00:00',
-            ],
-        ];
-
-        $result = self::callBuild(
-            $records,
-            ['12345678'],
-            ['EMP001' => 0, 'EMP002' => 0],
-            '2026-04-21'
-        );
-
-        $this->assertCount(1, $result);
-        $this->assertTrue($result[0]['ongoing']);
     }
 
     public function testBuildCleaningDaysDeduplicatesSameDayMultipleEmployees(): void
@@ -1602,5 +1554,142 @@ class FreshQRServiceTest extends TestCase
 
         $this->assertFalse($result['active']);
         $this->assertEquals([], $result['cleaningDays']);
+    }
+
+    // Live ongoing-scan augmentation — bridges the gap between FreshQR's cached
+    // /v1/reports/projects (excludes null TimeTo) and the live attendance-raw
+    // feed used to surface today's in-progress cleanings.
+
+    public function testGetCleaningDaysForCompaniesMergesOngoingScansForCurrentMonth(): void
+    {
+        // When the user views the current month, the service must call
+        // getOngoingProjectReports() and merge its records before computing
+        // cleaningDays — otherwise today's open cleanings stay invisible.
+        $today = (new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague')))->format('Y-m-d');
+        [$y, $m] = array_map('intval', explode('-', $today));
+
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getProjectReports')->willReturn([]);
+        $this->clientMock->expects($this->once())
+            ->method('getOngoingProjectReports')
+            ->willReturn([
+                [
+                    'date' => $today,
+                    'project' => ['name' => '12345678 Office'],
+                    'employee' => ['personal_number' => 'EMP001'],
+                    'first_scan_time' => '18:00:00',
+                    'last_scan_time' => null,
+                ],
+            ]);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $result = $this->service->getCleaningDaysForCompanies(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            $y,
+            $m
+        );
+
+        $this->assertTrue($result['active']);
+        $this->assertCount(1, $result['cleaningDays']);
+        $this->assertSame($today, $result['cleaningDays'][0]['date']);
+        $this->assertTrue($result['cleaningDays'][0]['ongoing']);
+    }
+
+    public function testGetCleaningDaysForCompaniesSkipsOngoingFetchForPastMonth(): void
+    {
+        // Past months can't have ongoing activity — calling the live endpoint
+        // would just waste an HTTP round-trip. The service must skip it.
+        $today = (new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague')))->format('Y-m-d');
+        $past = (new \DateTimeImmutable($today . ' -2 months'));
+        $pastYear = (int) $past->format('Y');
+        $pastMonth = (int) $past->format('n');
+
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getProjectReports')->willReturn([]);
+        $this->clientMock->expects($this->never())->method('getOngoingProjectReports');
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $this->service->getCleaningDaysForCompanies(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            $pastYear,
+            $pastMonth
+        );
+    }
+
+    public function testGetCleaningDaysForCompaniesBasicModePrivacyHoldsThroughOngoingMerge(): void
+    {
+        // Critical privacy guarantee: an ongoing scan merged into the records
+        // list for a basic-mode IČO must still produce an EMPTY cleanings[]
+        // — basic mode only ever reveals the day-level `ongoing` flag, never
+        // employee identity or scan times. Regression risk lives in the new
+        // merge path, so guard it explicitly.
+        $today = (new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague')))->format('Y-m-d');
+        [$y, $m] = array_map('intval', explode('-', $today));
+
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getProjectReports')->willReturn([]);
+        $this->clientMock->method('getOngoingProjectReports')->willReturn([
+            [
+                'date' => $today,
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '18:00:00',
+                'last_scan_time' => null,
+            ],
+        ]);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+        // Display-name lookup must not be called for basic-only setups — even
+        // when an ongoing record exists, the merge path must not flip the
+        // disclosure level.
+        $this->employeeRepoMock->expects($this->never())->method('findDisplayNamesByPersonalIds');
+
+        $result = $this->service->getCleaningDaysForCompanies(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            $y,
+            $m
+        );
+
+        $this->assertCount(1, $result['cleaningDays']);
+        $day = $result['cleaningDays'][0];
+        $this->assertSame($today, $day['date']);
+        $this->assertTrue($day['ongoing'], 'Day-level ongoing flag still propagates in basic mode');
+        $this->assertSame([], $day['cleanings'], 'Basic-mode IČO must not leak per-cleaning details');
+
+        $serialised = json_encode($result);
+        $this->assertStringNotContainsString('EMP001', $serialised, 'personal_number must not leak');
+        $this->assertStringNotContainsString('18:00', $serialised, 'scan time must not leak');
+    }
+
+    public function testGetCleaningDaysForCompaniesToleratesOngoingFetchFailure(): void
+    {
+        // attendance-raw / employees can fail transiently — the calendar must
+        // still render the cached historical data. getOngoingProjectReports()
+        // signals failure with null; the service treats it as "no ongoing
+        // records this turn" rather than blanking out the calendar.
+        $today = (new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague')))->format('Y-m-d');
+        [$y, $m] = array_map('intval', explode('-', $today));
+
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getProjectReports')->willReturn([
+            [
+                'date' => $today,
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '08:00:00',
+                'last_scan_time' => '10:00:00',
+            ],
+        ]);
+        $this->clientMock->method('getOngoingProjectReports')->willReturn(null);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $result = $this->service->getCleaningDaysForCompanies(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            $y,
+            $m
+        );
+
+        $this->assertTrue($result['active']);
+        $this->assertCount(1, $result['cleaningDays']);
+        $this->assertFalse($result['cleaningDays'][0]['ongoing'], 'Scanned-out historical record stays finished');
     }
 }
