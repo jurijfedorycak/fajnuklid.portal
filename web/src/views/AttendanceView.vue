@@ -43,8 +43,20 @@ const openPopoverDate = ref(null)
 const popoverItems = ref([])
 const popoverLoading = ref(false)
 const popoverAnchorRect = ref(null)
+const popoverMode = ref(null)
 const openHourlyBreakdownIco = ref(null)
 const hourlyBreakdownAnchorRect = ref(null)
+
+// Device hover capability — captured once at setup. Drives whether mouseenter
+// on a day cell with detailed cleanings opens the popover; touch-only devices
+// keep the existing click-to-open behaviour.
+const supportsHover = typeof window !== 'undefined'
+  && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches === true
+
+let hoverOpenTimer = null
+let hoverCloseTimer = null
+const HOVER_OPEN_DELAY_MS = 120
+const HOVER_CLOSE_DELAY_MS = 150
 
 // `today` is a reactive ref, refreshed on visibility change and on a low-frequency
 // interval, so a calendar left open past midnight stops marking yesterday as "today"
@@ -358,14 +370,10 @@ function goToday() {
   refreshToday()
 }
 
-async function openDayPopover(cell, event) {
+async function showDayPopover(cell, event, mode) {
   // Open whenever the day has anything to show — cleanings (Detailed mode) or
   // maintenance requests. Empty days are still inert.
   if (!cell.requests.total && !cell.cleaningsCount) return
-  if (openPopoverDate.value === cell.key) {
-    closeDayPopover()
-    return
-  }
   closeHourlyBreakdown()
   if (event && event.currentTarget && event.currentTarget.getBoundingClientRect) {
     popoverAnchorRect.value = event.currentTarget.getBoundingClientRect()
@@ -373,6 +381,7 @@ async function openDayPopover(cell, event) {
     popoverAnchorRect.value = null
   }
   openPopoverDate.value = cell.key
+  popoverMode.value = mode
   popoverItems.value = []
   if (!cell.requests.total) {
     // No requests to fetch — the popover is just the cleanings section.
@@ -390,6 +399,68 @@ async function openDayPopover(cell, event) {
   }
 }
 
+function pinDayPopover(cell, event) {
+  if (openPopoverDate.value === cell.key && popoverMode.value === 'pinned') {
+    closeDayPopover()
+    return
+  }
+  showDayPopover(cell, event, 'pinned')
+}
+
+function peekDayPopover(cell, event) {
+  showDayPopover(cell, event, 'hover')
+}
+
+function onCellClick(cell, event) {
+  // Hover-peek upgrade: a hovered popover on the same cell becomes pinned on
+  // click, so moving the mouse away no longer closes it. Cancel any pending
+  // hover-close timer so the upgraded popover sticks.
+  if (popoverMode.value === 'hover' && openPopoverDate.value === cell.key) {
+    clearTimeout(hoverOpenTimer); hoverOpenTimer = null
+    clearTimeout(hoverCloseTimer); hoverCloseTimer = null
+    popoverMode.value = 'pinned'
+    return
+  }
+  pinDayPopover(cell, event)
+}
+
+function onCellMouseEnter(cell, event) {
+  if (!supportsHover) return
+  // Per-cell signal for "Personál a časy" data: backend only emits non-empty
+  // cleanings[] for IČOs in detailed mode. Other cells keep click-only.
+  if (!cell.cleaningsCount) return
+  if (popoverMode.value === 'pinned') return
+  clearTimeout(hoverCloseTimer); hoverCloseTimer = null
+  // Capture rect now — `event.currentTarget` is nulled out by the time the
+  // timer fires (synthetic events are recycled).
+  const rect = event?.currentTarget?.getBoundingClientRect?.() ?? null
+  const switchingFromOtherHover = popoverMode.value === 'hover' && openPopoverDate.value !== cell.key
+  const delay = switchingFromOtherHover ? 0 : HOVER_OPEN_DELAY_MS
+  clearTimeout(hoverOpenTimer)
+  hoverOpenTimer = setTimeout(() => {
+    peekDayPopover(cell, { currentTarget: { getBoundingClientRect: () => rect } })
+  }, delay)
+}
+
+function onCellMouseLeave() {
+  if (!supportsHover) return
+  clearTimeout(hoverOpenTimer); hoverOpenTimer = null
+  if (popoverMode.value !== 'hover') return
+  clearTimeout(hoverCloseTimer)
+  hoverCloseTimer = setTimeout(closeDayPopover, HOVER_CLOSE_DELAY_MS)
+}
+
+function onPopoverMouseEnter() {
+  if (popoverMode.value !== 'hover') return
+  clearTimeout(hoverCloseTimer); hoverCloseTimer = null
+}
+
+function onPopoverMouseLeave() {
+  if (popoverMode.value !== 'hover') return
+  clearTimeout(hoverCloseTimer)
+  hoverCloseTimer = setTimeout(closeDayPopover, HOVER_CLOSE_DELAY_MS)
+}
+
 function statusMeta(key) {
   return REQUEST_STATUSES.find(s => s.key === key) || { label: key, badge: 'badge-gray' }
 }
@@ -397,6 +468,9 @@ function statusMeta(key) {
 function closeDayPopover() {
   openPopoverDate.value = null
   popoverAnchorRect.value = null
+  popoverMode.value = null
+  if (hoverOpenTimer !== null) { clearTimeout(hoverOpenTimer); hoverOpenTimer = null }
+  if (hoverCloseTimer !== null) { clearTimeout(hoverCloseTimer); hoverCloseTimer = null }
 }
 
 function goToRequest(id) {
@@ -446,6 +520,8 @@ onBeforeUnmount(() => {
     clearInterval(todayInterval)
     todayInterval = null
   }
+  if (hoverOpenTimer !== null) { clearTimeout(hoverOpenTimer); hoverOpenTimer = null }
+  if (hoverCloseTimer !== null) { clearTimeout(hoverCloseTimer); hoverCloseTimer = null }
 })
 </script>
 
@@ -651,7 +727,9 @@ onBeforeUnmount(() => {
               cell.priorityStatus ? `day-priority-${cell.priorityStatus}` : '',
             ]"
             :title="cell.requests.total > 0 ? buildRequestTooltip(cell.requests) : (cell.hasCleaning ? (cell.hasNote ? 'Úklid proběhl (s poznámkou)' : 'Úklid proběhl') : '')"
-            @click="openDayPopover(cell, $event)"
+            @click="onCellClick(cell, $event)"
+            @mouseenter="onCellMouseEnter(cell, $event)"
+            @mouseleave="onCellMouseLeave"
           >
             <span class="day-num">{{ cell.day }}</span>
             <span v-if="cell.hasCleaning && !cell.ongoing" class="day-icon done-icon">
@@ -690,7 +768,7 @@ onBeforeUnmount(() => {
 
     <Teleport to="body">
       <div
-        v-if="activeCell"
+        v-if="activeCell && popoverMode === 'pinned'"
         id="day-popover-backdrop"
         class="day-popover-backdrop"
         @click="closeDayPopover"
@@ -700,6 +778,8 @@ onBeforeUnmount(() => {
         id="day-popover"
         class="day-popover"
         :style="popoverAnchorStyle"
+        @mouseenter="onPopoverMouseEnter"
+        @mouseleave="onPopoverMouseLeave"
       >
         <template v-if="activeCell.cleanings && activeCell.cleanings.length">
           <div :id="`day-popover-header-cleanings-${activeCell.key}`" class="day-popover-header">Úklidy · {{ activeCell.day }}.{{ viewMonth + 1 }}.</div>

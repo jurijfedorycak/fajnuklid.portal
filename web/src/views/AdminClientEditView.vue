@@ -2407,6 +2407,7 @@ onBeforeUnmount(() => {
 .edit-page {
   display: flex;
   flex-direction: column;
+  min-height: 100%;
 }
 
 /* Top bar — mobile-first: back + actions on row 1, title spans row 2; single row ≥640px */
@@ -2479,14 +2480,24 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
-/* Layout — single column on every viewport; section nav is a horizontal sticky chip-bar above the form */
+/* Split layout — mobile-first: single column, horizontal chip nav sticks below page header */
 .edit-layout {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
+  align-items: stretch;
+  flex: 1;
 }
 
-/* Section nav — horizontal scrollable chip bar, sticky at the top of the scroll viewport */
+@media (min-width: 1024px) {
+  .edit-layout {
+    flex-direction: row;
+    gap: 24px;
+    align-items: flex-start;
+  }
+}
+
+/* Section nav — horizontal scrollable chip bar on mobile, sticky vertical sidebar on desktop */
 .section-nav {
   display: flex;
   flex-direction: row;
@@ -2499,8 +2510,25 @@ onBeforeUnmount(() => {
   z-index: 10;
   background: var(--page-bg);
   padding: 8px 0;
-  margin: 0;
-  border-bottom: 1px solid var(--color-gray-100);
+  margin: 0 -4px;
+}
+
+@media (min-width: 1024px) {
+  .section-nav {
+    flex-direction: column;
+    gap: 2px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    width: 200px;
+    flex-shrink: 0;
+    align-self: flex-start;
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 40px);
+    padding: 0;
+    margin: 0;
+    background: transparent;
+  }
 }
 
 .snav-item {
@@ -2522,6 +2550,17 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+@media (min-width: 1024px) {
+  .snav-item {
+    border-radius: 8px;
+    padding: 9px 12px;
+    gap: 9px;
+    background: none;
+    width: 100%;
+    white-space: normal;
+  }
+}
+
 .snav-item:hover {
   background: var(--color-gray-100);
   color: var(--color-primary);
@@ -2541,15 +2580,12 @@ onBeforeUnmount(() => {
   color: var(--color-success);
 }
 
-/* Form content — plain block flow */
+/* Form content */
 .form-content {
+  flex: 1;
   min-width: 0;
-}
-
-@media (min-width: 1024px) {
-  .form-content {
-    max-width: 1100px;
-  }
+  display: flex;
+  flex-direction: column;
 }
 
 .form-section {
