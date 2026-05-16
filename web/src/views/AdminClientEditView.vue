@@ -1594,6 +1594,19 @@ onBeforeUnmount(() => {
                       >
                         {{ validationErrors[`icos.${icoIndex}.hourly_rate`] }}
                       </p>
+                      <div
+                        v-if="ico.freshqrMode !== 'detailed'"
+                        :id="`ico-${ico.id}-hourly-summary-warning`"
+                        class="alert alert-warning hourly-summary-warning"
+                      >
+                        <AlertTriangle :size="14" />
+                        <span>
+                          Klient neuvidí hodinový souhrn — pro výpočet hodin
+                          potřebujeme časy úklidů, které jsou součástí režimu
+                          FreshQR „Personál a časy“. V aktuálním režimu se v
+                          docházce zobrazí jen kalendář bez vyúčtování.
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2716,6 +2729,11 @@ onBeforeUnmount(() => {
 .hourly-rate-label {
   font-size: 13px;
   color: var(--color-gray-600);
+}
+.hourly-summary-warning {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 .input-with-suffix {
   position: relative;

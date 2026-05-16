@@ -8,6 +8,7 @@ use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\ClientRepository;
+use App\Services\AttendanceSummaryService;
 use App\Services\DemoAttendanceService;
 use App\Services\FreshQRService;
 
@@ -44,6 +45,10 @@ class AttendanceController extends Controller
             Response::success([
                 'freshqrActive' => true,
                 'cleaningDays' => $cleaningDays,
+                'hourlySummary' => AttendanceSummaryService::buildHourlySummary(
+                    DemoAttendanceService::syntheticCompanies(),
+                    $cleaningDays
+                ),
                 'error' => null,
                 'year' => $year,
                 'month' => $month,
@@ -53,6 +58,14 @@ class AttendanceController extends Controller
 
         $result = $this->freshqr->getCleaningDaysForUser($userId, $year, $month);
 
+        // Summary uses the pre-strip data so IČOs without rounding rules can
+        // fall back to rawMinutes. Companies are surfaced by the service so we
+        // don't re-query them here.
+        $hourlySummary = AttendanceSummaryService::buildHourlySummary(
+            $result['companies'] ?? [],
+            $result['cleaningDays']
+        );
+
         $isAdmin = (bool) ($user['is_admin'] ?? false);
         $cleaningDays = $isAdmin
             ? $result['cleaningDays']
@@ -61,6 +74,7 @@ class AttendanceController extends Controller
         Response::success([
             'freshqrActive' => $result['active'],
             'cleaningDays' => $cleaningDays,
+            'hourlySummary' => $hourlySummary,
             'error' => $result['error'] ?? null,
             'year' => $year,
             'month' => $month,

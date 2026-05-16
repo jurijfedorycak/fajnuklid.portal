@@ -18,6 +18,7 @@ const loading = ref(true)
 const error = ref(null)
 const upstreamError = ref(null)
 const cleaningDays = ref([])
+const hourlySummary = ref([])
 const freshqrActive = ref(false)
 const requestsByDay = ref({})
 const openPopoverDate = ref(null)
@@ -43,6 +44,7 @@ async function fetchAttendance() {
     const response = await attendanceService.getAttendance(viewYear.value, viewMonth.value + 1)
     if (response.success) {
       cleaningDays.value = response.data.cleaningDays || []
+      hourlySummary.value = response.data.hourlySummary || []
       freshqrActive.value = response.data.freshqrActive || false
       upstreamError.value = response.data.error || null
     } else {
@@ -150,6 +152,38 @@ const calendarDays = computed(() => {
 })
 
 const monthLabel = computed(() => `${MONTHS[viewMonth.value]} ${viewYear.value}`)
+
+// The summary is shown only when the selected month is the current calendar
+// month. Past months are hidden on purpose: invoiced totals can diverge from
+// the raw FreshQR sum (manual adjustments, renegotiated rates, complaint
+// credits) and we don't want clients comparing a provisional figure against
+// the real invoice. Future months are hidden because they're always zero.
+const isCurrentMonth = computed(() =>
+  viewYear.value === today.getFullYear() && viewMonth.value === today.getMonth()
+)
+
+const hourlySummaryHasRate = computed(() =>
+  hourlySummary.value.some(r => r && typeof r.hourlyRate === 'number' && r.hourlyRate > 0)
+)
+
+const czkFormatter = new Intl.NumberFormat('cs-CZ', {
+  style: 'currency',
+  currency: 'CZK',
+  maximumFractionDigits: 2,
+})
+function formatCzk(amount) {
+  if (!Number.isFinite(amount)) return ''
+  return czkFormatter.format(amount)
+}
+
+function summaryHours(row) {
+  return formatDuration(row.totalMinutes) || '0 h'
+}
+
+function summaryAmount(row) {
+  if (!row.hourlyRate || row.hourlyRate <= 0) return null
+  return formatCzk((row.totalMinutes / 60) * row.hourlyRate)
+}
 
 const monthStats = computed(() => {
   const prefix = `${viewYear.value}-${String(viewMonth.value + 1).padStart(2,'0')}-`
@@ -317,6 +351,54 @@ onBeforeUnmount(() => {
         </span>
         <span>Víc úklidů v jednom dni</span>
       </div>
+    </div>
+
+    <!-- Hourly billing summary — one row per IČO on Hodinová sazba. Only
+         visible when viewing the current month (see isCurrentMonth comment). -->
+    <div
+      v-if="hourlySummary.length > 0 && isCurrentMonth"
+      id="hourly-summary-card"
+      class="card hourly-summary-card"
+    >
+      <div class="hs-header">
+        <h2 class="hs-title">Hodinové vyúčtování</h2>
+        <span class="hs-month">{{ monthLabel }}</span>
+      </div>
+      <ul class="hs-list">
+        <li
+          v-for="row in hourlySummary"
+          :key="row.ico"
+          :id="`hourly-summary-row-${row.ico}`"
+          class="hs-row"
+        >
+          <div class="hs-row-head">
+            <span class="hs-company">{{ row.companyName }}</span>
+            <span class="hs-ico">IČO {{ row.ico }}</span>
+          </div>
+          <dl class="hs-row-body">
+            <div class="hs-metric">
+              <dt class="hs-metric-label">Zatím odpracováno</dt>
+              <dd class="hs-metric-value">{{ summaryHours(row) }}</dd>
+            </div>
+            <div v-if="row.hourlyRate && row.hourlyRate > 0" class="hs-metric">
+              <dt class="hs-metric-label">Sazba</dt>
+              <dd class="hs-metric-value hs-rate">{{ formatCzk(row.hourlyRate) }}/hod</dd>
+            </div>
+            <div v-if="summaryAmount(row)" class="hs-metric hs-amount">
+              <dt class="hs-metric-label">Předběžně k fakturaci</dt>
+              <dd class="hs-metric-value">{{ summaryAmount(row) }}</dd>
+            </div>
+          </dl>
+        </li>
+      </ul>
+      <p
+        v-if="hourlySummaryHasRate"
+        id="hourly-summary-footnote"
+        class="hs-footnote"
+      >
+        Údaje jsou orientační, podle dat z FreshQR. Konečné vyúčtování obdržíte
+        po skončení měsíce.
+      </p>
     </div>
 
     <!-- Calendar card -->
@@ -515,6 +597,119 @@ onBeforeUnmount(() => {
 .legend-dot.done    { background: #d1e7dd; border: 1.5px solid #198754; }
 .legend-dot.ongoing { background: #fff0d6; border: 1.5px solid #e67e00; }
 .legend-dot.empty   { background: var(--color-gray-100); border: 1.5px solid var(--color-gray-300); }
+
+/* Hourly billing summary — mobile-first; rows stack vertically on phones and
+   metrics sit side-by-side from 640px. Cards reuse the global .card class. */
+.hourly-summary-card {
+  padding: var(--space-lg);
+  margin-bottom: 16px;
+}
+.hs-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+}
+.hs-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0;
+}
+.hs-month {
+  font-size: var(--fs-sm);
+  color: var(--color-gray-500);
+  font-weight: 500;
+}
+.hs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hs-row {
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-gray-200);
+  padding: 12px;
+  background: var(--color-white);
+}
+.hs-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.hs-company {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.hs-ico {
+  font-size: var(--fs-xs);
+  color: var(--color-gray-500);
+  font-variant-numeric: tabular-nums;
+}
+.hs-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+@media (min-width: 640px) {
+  .hs-row-body {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+}
+.hs-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+@media (min-width: 640px) {
+  .hs-metric {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 2px;
+  }
+}
+.hs-metric-label {
+  font-size: var(--fs-xs);
+  color: var(--color-gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  margin: 0;
+}
+.hs-metric-value {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+.hs-rate {
+  color: var(--color-gray-700);
+  font-weight: 500;
+}
+.hs-amount .hs-metric-value {
+  color: var(--color-accent);
+}
+.hs-footnote {
+  margin: 12px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--color-gray-500);
+  line-height: 1.4;
+}
 
 /* Calendar wrapper */
 .cal-card { padding: var(--space-lg); }

@@ -14,10 +14,10 @@ namespace App\Services;
  * FreshQR-driven view.
  *
  * Each emitted day carries a `cleanings[]` array — same shape as the real
- * Detailed-mode FreshQR output — so the demo client gets the richest portal
- * experience without depending on a live FreshQR connection. Two synthetic
- * employees alternate, and one weekly day carries a sample note so admins can
- * showcase the notes feature.
+ * Detailed-mode FreshQR output (including `rawMinutes` / `roundedMinutes`) so
+ * downstream code (calendar popover, hourly summary) flows through a single
+ * code path. Two synthetic employees alternate, and one weekly day carries a
+ * sample note so admins can showcase the notes feature.
  */
 class DemoAttendanceService
 {
@@ -26,7 +26,25 @@ class DemoAttendanceService
         ['name' => 'Petr K.', 'startTime' => '13:00', 'endTime' => '15:30'],
     ];
 
-    private const DEMO_ICO = '12345678';
+    public const DEMO_ICO = '12345678';
+    public const DEMO_COMPANY_NAME = 'Ukázková firma s.r.o.';
+    public const DEMO_HOURLY_RATE = '250.00';
+
+    /**
+     * Companies-shape row matching CompanyRepository output, for callers that
+     * need to run summary helpers on demo data without going through the DB.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function syntheticCompanies(): array
+    {
+        return [[
+            'registration_number' => self::DEMO_ICO,
+            'name' => self::DEMO_COMPANY_NAME,
+            'billing_model' => 'hourly',
+            'hourly_rate' => self::DEMO_HOURLY_RATE,
+        ]];
+    }
 
     /**
      * Build the cleaningDays list for a single calendar month under the demo schedule.
@@ -59,20 +77,18 @@ class DemoAttendanceService
                     // Today: morning cleaning is finished, afternoon one is "still on-site"
                     // (endTime null) — gives the demo a believable mid-day mix.
                     'cleanings' => [
-                        [
-                            'employee'  => self::DEMO_EMPLOYEES[0]['name'],
-                            'startTime' => self::DEMO_EMPLOYEES[0]['startTime'],
-                            'endTime'   => self::DEMO_EMPLOYEES[0]['endTime'],
-                            'note'      => null,
-                            'ico'       => self::DEMO_ICO,
-                        ],
-                        [
-                            'employee'  => self::DEMO_EMPLOYEES[1]['name'],
-                            'startTime' => self::DEMO_EMPLOYEES[1]['startTime'],
-                            'endTime'   => null,
-                            'note'      => null,
-                            'ico'       => self::DEMO_ICO,
-                        ],
+                        self::buildCleaning(
+                            self::DEMO_EMPLOYEES[0]['name'],
+                            self::DEMO_EMPLOYEES[0]['startTime'],
+                            self::DEMO_EMPLOYEES[0]['endTime'],
+                            null
+                        ),
+                        self::buildCleaning(
+                            self::DEMO_EMPLOYEES[1]['name'],
+                            self::DEMO_EMPLOYEES[1]['startTime'],
+                            null,
+                            null
+                        ),
                     ],
                 ];
                 continue;
@@ -132,17 +148,42 @@ class DemoAttendanceService
 
         $cleanings = [];
         foreach ($employees as $emp) {
-            $cleanings[] = [
-                'employee'  => $emp['name'],
-                'startTime' => $emp['startTime'],
-                'endTime'   => $emp['endTime'],
-                'note'      => $note,
-                'ico'       => self::DEMO_ICO,
-            ];
+            $cleanings[] = self::buildCleaning(
+                $emp['name'],
+                $emp['startTime'],
+                $emp['endTime'],
+                $note
+            );
             // Notes are shown once per day, not duplicated across each entry —
             // mimics the real backend where a note is attached to one record.
             $note = null;
         }
         return $cleanings;
+    }
+
+    /**
+     * Build one cleaning entry in the shape FreshQRService produces in detailed
+     * mode. `roundedMinutes` stays null — demo IČO has no rounding rules — so
+     * the FE renders the raw time range, same as a real Detailed-mode IČO
+     * without rules. `rawMinutes` is computed when both ends are known so the
+     * hourly summary helper has something to sum on demo accounts.
+     *
+     * @return array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,rawMinutes:?int,roundedMinutes:?int}
+     */
+    private static function buildCleaning(
+        string $employee,
+        ?string $startTime,
+        ?string $endTime,
+        ?string $note
+    ): array {
+        return [
+            'employee'       => $employee,
+            'startTime'      => $startTime,
+            'endTime'        => $endTime,
+            'note'           => $note,
+            'ico'            => self::DEMO_ICO,
+            'rawMinutes'     => FreshQRService::computeDurationMinutes($startTime, $endTime),
+            'roundedMinutes' => null,
+        ];
     }
 }

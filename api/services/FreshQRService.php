@@ -85,8 +85,13 @@ class FreshQRService
      *     ],
      *     ...
      *   ],
+     *   'companies'        => array<array<string,mixed>>,  // user's company rows (empty when not yet loaded)
      *   'error'            => string | null,
      * ]
+     *
+     * Companies are surfaced so callers (e.g. AttendanceController for the
+     * hourly summary) can reuse the rows this service already loaded — avoids
+     * an extra CompanyRepository::findByUserId() per request.
      *
      * When FreshQR isn't configured, the user has no IČOs, or no IČO is in a
      * non-off mode, the method degrades gracefully to active=false so the FE
@@ -95,14 +100,14 @@ class FreshQRService
     public function getCleaningDaysForUser(int $userId, int $year, int $month): array
     {
         if (!$this->client->isConfigured()) {
-            return ['active' => false, 'cleaningDays' => [], 'error' => null];
+            return ['active' => false, 'cleaningDays' => [], 'companies' => [], 'error' => null];
         }
 
         $companies = $this->companyRepo->findByUserId($userId);
         $modeByIco = self::buildModeByIcoMap($companies);
 
         if (empty($modeByIco)) {
-            return ['active' => false, 'cleaningDays' => [], 'error' => null];
+            return ['active' => false, 'cleaningDays' => [], 'companies' => $companies, 'error' => null];
         }
 
         $this->client->resetLastError();
@@ -115,6 +120,7 @@ class FreshQRService
             return [
                 'active' => true,
                 'cleaningDays' => [],
+                'companies' => $companies,
                 'error' => 'Docházku se nepodařilo načíst. Zkuste to prosím později.',
             ];
         }
@@ -147,6 +153,7 @@ class FreshQRService
         return [
             'active' => true,
             'cleaningDays' => $cleaningDays,
+            'companies' => $companies,
             'error' => null,
         ];
     }
