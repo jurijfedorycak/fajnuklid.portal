@@ -665,6 +665,7 @@ class AdminController extends Controller
         }
 
         Response::success([
+            'id' => (int) $client['id'],
             'clientId' => $client['client_id'],
             'displayName' => $client['display_name'],
             'greeting' => $client['greeting'] ?? '',

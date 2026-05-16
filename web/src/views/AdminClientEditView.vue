@@ -384,6 +384,7 @@ function uid() { return crypto.randomUUID() }
 
 // ── Form state ────────────────────────────────────────────────────────────────
 const form = reactive({
+  dbId:        null,
   clientId:    '',
   displayName: '',
   greeting:    '',
@@ -440,6 +441,7 @@ onMounted(async () => {
       const response = await adminService.getClient(route.params.id)
       if (response.success) {
         const data = response.data
+        form.dbId = typeof data.id === 'number' ? data.id : null
         form.clientId = data.clientId || ''
         form.displayName = data.displayName || ''
         form.greeting = data.greeting || ''
@@ -629,6 +631,25 @@ function roundingPreview(ico) {
       return `${s} min → ${formatDurationCs(rounded) || '0 min'}`
     })
     .join(', ')
+}
+
+// FreshQR client preview: opens /dochazka with the current client's DB id in a
+// new tab so admins can verify what customers will see after saving FreshQR
+// mode and rounding settings. The button is gated on the existence of a saved
+// client (form.dbId) — preview reads persisted settings, so it doesn't help
+// while editing a brand-new client.
+const canOpenFreshqrPreview = computed(() =>
+  !isNew.value && form.dbId !== null && form.icos.some(i => i.freshqrMode && i.freshqrMode !== 'off')
+)
+
+function openFreshqrPreview() {
+  if (!canOpenFreshqrPreview.value) return
+  // Build with router so hash-mode setups stay consistent with the live app.
+  const href = router.resolve({
+    name: 'Attendance',
+    query: { previewClientId: form.dbId },
+  }).href
+  window.open(href, '_blank', 'noopener')
 }
 
 function addStaff() {
@@ -1421,9 +1442,21 @@ onBeforeUnmount(() => {
         <section id="sec-icos" class="form-section">
           <div class="sec-header-row">
             <h2 class="sec-title"><Building2 :size="18" /> IČO &amp; Provozovny</h2>
-            <button id="btn-add-ico" class="btn btn-outline btn-sm" @click="addIco">
-              <Plus :size="14" /> Přidat IČO
-            </button>
+            <div class="sec-header-actions">
+              <button
+                v-if="canOpenFreshqrPreview"
+                id="btn-freshqr-preview"
+                class="btn btn-ghost btn-sm"
+                type="button"
+                title="Otevře docházku v novém okně přesně tak, jak ji uvidí klient s aktuálně uloženým FreshQR nastavením"
+                @click="openFreshqrPreview"
+              >
+                <Eye :size="14" /> Náhled FreshQR (jak to vidí klient)
+              </button>
+              <button id="btn-add-ico" class="btn btn-outline btn-sm" @click="addIco">
+                <Plus :size="14" /> Přidat IČO
+              </button>
+            </div>
           </div>
 
           <div v-if="form.icos.length === 0" class="empty-state-guide">
@@ -2573,6 +2606,15 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sec-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .sec-desc {

@@ -111,6 +111,24 @@ class FreshQRService
         }
 
         $companies = $this->companyRepo->findByUserId($userId);
+
+        return $this->getCleaningDaysForCompanies($companies, $year, $month);
+    }
+
+    /**
+     * Variant that takes a pre-loaded company list. Lets the admin "preview as
+     * client" flow pass the IČOs of an arbitrary client without granting the
+     * admin a company_users link to them — authorisation lives at the controller
+     * boundary, this method just maps companies → calendar.
+     *
+     * @param array<array<string,mixed>> $companies
+     */
+    public function getCleaningDaysForCompanies(array $companies, int $year, int $month): array
+    {
+        if (!$this->client->isConfigured()) {
+            return ['active' => false, 'cleaningDays' => [], 'companies' => $companies, 'error' => null];
+        }
+
         $modeByIco = self::buildModeByIcoMap($companies);
 
         if (empty($modeByIco)) {
@@ -121,9 +139,9 @@ class FreshQRService
         $records = $this->client->getProjectReports($year, $month);
 
         if ($records === null) {
-            // Configured and user has IČOs, but FreshQR is unreachable. Keep the
-            // calendar active so the FE doesn't fall back to onboarding UI; surface
-            // a generic error the FE can turn into a banner.
+            // Configured and the client has IČOs, but FreshQR is unreachable.
+            // Keep the calendar active so the FE doesn't fall back to onboarding
+            // UI; surface a generic error the FE can turn into a banner.
             return [
                 'active' => true,
                 'cleaningDays' => [],

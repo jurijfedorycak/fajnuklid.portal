@@ -1525,4 +1525,82 @@ class FreshQRServiceTest extends TestCase
 
         $this->assertEquals($sampleError, $this->service->getLastError());
     }
+
+    // getCleaningDaysForCompanies — used by the admin "preview as client" flow
+
+    public function testGetCleaningDaysForCompaniesReturnsInactiveWhenNotConfigured(): void
+    {
+        // The admin preview path must not bypass the FreshQR-not-configured guard;
+        // there'd be nothing to render and the FE would silently keep the
+        // calendar mounted with stale state.
+        $this->clientMock->method('isConfigured')->willReturn(false);
+        $this->companyRepoMock->expects($this->never())->method('findByUserId');
+
+        $result = $this->service->getCleaningDaysForCompanies(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            2026,
+            4
+        );
+
+        $this->assertFalse($result['active']);
+        $this->assertEquals([], $result['cleaningDays']);
+        $this->assertNull($result['error']);
+    }
+
+    public function testGetCleaningDaysForCompaniesSkipsUserLookup(): void
+    {
+        // Defining feature of this variant: it must NOT call findByUserId — the
+        // caller already has the company list (and intentionally so, since the
+        // admin previewing as client has no company_users link to them).
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->companyRepoMock->expects($this->never())->method('findByUserId');
+        $this->clientMock->method('getProjectReports')->willReturn([]);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $result = $this->service->getCleaningDaysForCompanies(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            2026,
+            4
+        );
+
+        $this->assertTrue($result['active']);
+    }
+
+    public function testGetCleaningDaysForCompaniesBuildsCalendarFromGivenCompanies(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getProjectReports')->willReturn([
+            [
+                'date' => '2026-04-10',
+                'project' => ['name' => '12345678 Main Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+            ],
+        ]);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $result = $this->service->getCleaningDaysForCompanies(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            2026,
+            4
+        );
+
+        $this->assertTrue($result['active']);
+        $this->assertCount(1, $result['cleaningDays']);
+        $this->assertEquals('2026-04-10', $result['cleaningDays'][0]['date']);
+    }
+
+    public function testGetCleaningDaysForCompaniesReturnsInactiveWhenAllIcosOff(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->expects($this->never())->method('getProjectReports');
+
+        $result = $this->service->getCleaningDaysForCompanies(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'off']],
+            2026,
+            4
+        );
+
+        $this->assertFalse($result['active']);
+        $this->assertEquals([], $result['cleaningDays']);
+    }
 }

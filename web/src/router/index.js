@@ -149,6 +149,12 @@ router.beforeEach((to) => {
 
   const clientOnlyRoutes = ['Dashboard', 'Invoices', 'Personnel', 'Contract', 'Attendance', 'Contact', 'Requests', 'NewRequest', 'RequestCreated', 'RequestDetail']
   if (isAdmin.value && clientOnlyRoutes.includes(to.name)) {
+    // Admins may stay on /dochazka when previewing a specific client's view —
+    // the page renders exactly what that client sees so admins can verify
+    // FreshQR mode + rounding settings before saving.
+    if (to.name === 'Attendance' && to.query.previewClientId) {
+      return
+    }
     return { name: 'Admin' }
   }
 

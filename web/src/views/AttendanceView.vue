@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail } from 'lucide-vue-next'
+import { useRouter, useRoute } from 'vue-router'
+import { ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail, Eye, X } from 'lucide-vue-next'
 import { attendanceService, maintenanceRequestService } from '../api'
 import { REQUEST_STATUSES } from '../api/services/maintenanceRequestService'
 import { useAuth } from '../stores/auth'
@@ -12,6 +12,24 @@ const { isAdmin } = useAuth()
 const PRIORITY_ORDER = ['resi_se', 'prijato', 'vyreseno']
 
 const router = useRouter()
+const route = useRoute()
+
+// Admin preview mode: when an admin opens /dochazka?previewClientId=42 from the
+// client edit page, the calendar renders exactly what that client sees (rounding
+// applied, raw times stripped) so the admin can verify FreshQR settings.
+const previewClientId = computed(() => {
+  const raw = route.query.previewClientId
+  if (raw === undefined || raw === null || raw === '') return null
+  const n = Number(raw)
+  return Number.isInteger(n) && n > 0 ? n : null
+})
+const isPreview = computed(() => previewClientId.value !== null && isAdmin.value)
+const previewClientName = ref(null)
+
+// In preview mode the admin should see the client's view, not the admin's audit
+// view — so the admin-only template branches (raw start/end times alongside
+// rounded duration) are suppressed even though the user is technically an admin.
+const showAdminDetails = computed(() => isAdmin.value && !isPreview.value)
 
 // State
 const loading = ref(true)
@@ -58,12 +76,17 @@ async function fetchAttendance() {
   loading.value = true
   error.value = null
   try {
-    const response = await attendanceService.getAttendance(viewYear.value, viewMonth.value + 1)
+    const response = await attendanceService.getAttendance(
+      viewYear.value,
+      viewMonth.value + 1,
+      previewClientId.value
+    )
     if (response.success) {
       cleaningDays.value = response.data.cleaningDays || []
       hourlySummary.value = response.data.hourlySummary || []
       freshqrActive.value = response.data.freshqrActive || false
       upstreamError.value = response.data.error || null
+      previewClientName.value = response.data.preview?.clientName || null
     } else {
       error.value = response.message || 'Nepodařilo se načíst data'
     }
@@ -75,6 +98,14 @@ async function fetchAttendance() {
 }
 
 async function fetchRequestsForMonth() {
+  // Preview mode renders only the FreshQR side of the customer view — maintenance
+  // requests are scoped to the logged-in user, so calling this endpoint as an
+  // admin would return the admin's own (empty) requests, not the previewed
+  // client's. Skipping the call keeps the preview honest.
+  if (isPreview.value) {
+    requestsByDay.value = {}
+    return
+  }
   try {
     const res = await maintenanceRequestService.getCalendar(viewYear.value, viewMonth.value + 1)
     if (res.success) {
@@ -98,9 +129,11 @@ async function loadAll() {
 
 onMounted(loadAll)
 
-// Refetch when month changes; close any open popover so it doesn't show stale
-// breakdown data (or anchor to a card that's about to disappear).
-watch([viewYear, viewMonth], () => {
+// Refetch when month changes or when the preview target changes mid-tab (e.g.
+// the admin navigates between two client previews without a full reload).
+// Close any open popover so it doesn't show stale breakdown data (or anchor to
+// a card that's about to disappear).
+watch([viewYear, viewMonth, previewClientId], () => {
   closeDayPopover()
   closeHourlyBreakdown()
   loadAll()
@@ -371,6 +404,15 @@ function goToRequest(id) {
   router.push(`/zadosti/${id}`)
 }
 
+function closePreview() {
+  // The preview link is opened with `noopener`, so `window.close()` would be
+  // blocked by the browser. Send the admin back to the client list — they can
+  // pick the next client from there. We deliberately don't push to a specific
+  // /admin/clients/:id because we don't have the client_id slug on hand
+  // (preview keys off the numeric DB id).
+  router.push('/admin/clients')
+}
+
 const activeCell = computed(() => {
   if (!openPopoverDate.value) return null
   return calendarDays.value.find(c => c && c.key === openPopoverDate.value) || null
@@ -418,6 +460,28 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
+    <!-- Admin preview banner: only rendered when an admin opened /dochazka with
+         a previewClientId query param. Bold, sticky-looking strip so the admin
+         can never confuse the preview with their own attendance data. -->
+    <div v-if="isPreview" id="attendance-preview-banner" class="preview-banner">
+      <div class="preview-banner-content">
+        <Eye :size="16" aria-hidden="true" />
+        <div class="preview-banner-text">
+          <strong>Náhled klientského pohledu</strong>
+          <span v-if="previewClientName">— {{ previewClientName }}</span>
+          <span class="preview-banner-hint">Zobrazujeme přesně to, co uvidí klient.</span>
+        </div>
+        <button
+          id="attendance-preview-close"
+          class="btn btn-ghost btn-sm preview-banner-close"
+          type="button"
+          @click="closePreview"
+        >
+          <X :size="14" aria-hidden="true" /> Ukončit náhled
+        </button>
+      </div>
+    </div>
+
     <div class="page-header">
       <div>
         <h1 class="page-title">Docházka</h1>
@@ -668,14 +732,14 @@ onBeforeUnmount(() => {
                      single-scan records also have null endTime, and rounding-rule
                      redaction nulls out endTime for finished cleanings too. -->
                 <template v-if="c.ongoing">
-                  <span v-if="isAdmin && c.startTime" class="cleaning-time-ongoing">
+                  <span v-if="showAdminDetails && c.startTime" class="cleaning-time-ongoing">
                     {{ c.startTime }} · Probíhá
                   </span>
                   <span v-else class="cleaning-time-ongoing">Probíhá</span>
                 </template>
                 <!-- Rules defined for this IČO: clients see only the billable duration; admins keep raw times alongside. -->
                 <template v-else-if="c.roundedMinutes != null">
-                  <span v-if="isAdmin" class="cleaning-time-range">
+                  <span v-if="showAdminDetails" class="cleaning-time-range">
                     <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }}</template>
                     <template v-else>—</template>
                     <span class="cleaning-time-billed">· Účtováno {{ formatDuration(c.roundedMinutes) }}</span>
@@ -760,6 +824,51 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Admin preview banner — mobile-first; strip sits above the page header and
+   reuses brand tokens so admins instantly recognise they are looking at a
+   client's view, not their own data. */
+.preview-banner {
+  background: var(--color-light);
+  border: 1px solid var(--color-mid);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  color: var(--color-primary);
+}
+.preview-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.preview-banner-text {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.preview-banner-text strong {
+  font-weight: 700;
+}
+.preview-banner-hint {
+  color: var(--color-gray-700);
+  font-size: 12px;
+}
+.preview-banner-close {
+  flex-shrink: 0;
+}
+@media (min-width: 640px) {
+  .preview-banner {
+    padding: 12px 16px;
+  }
+  .preview-banner-text {
+    font-size: 14px;
+  }
+}
+
 /* Legend */
 .legend {
   display: flex;
