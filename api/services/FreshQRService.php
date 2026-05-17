@@ -77,13 +77,16 @@ class FreshQRService
      *       'ongoing'   => bool,
      *       'cleanings' => [
      *         [
-     *           'employee'      => 'Anna N.',
-     *           'startTime'     => 'HH:mm',          // null when scan time absent
-     *           'endTime'       => 'HH:mm' | null,   // null when same as start (still on-site)
-     *           'note'          => string | null,    // FreshQR doesn't return notes today; surfaced as-is when it does
-     *           'ico'           => '12345678',
-     *           'rawMinutes'    => int | null,       // null when start/end times can't form a duration
-     *           'roundedMinutes'=> int | null,       // null when no rules defined or duration uncomputable
+     *           'employee'         => 'Anna N.',
+     *           'startTime'        => 'HH:mm',          // null when scan time absent
+     *           'endTime'          => 'HH:mm' | null,   // null when same as start (still on-site)
+     *           'note'             => string | null,    // FreshQR doesn't return notes today; surfaced as-is when it does
+     *           'ico'              => '12345678',
+     *           'rawMinutes'       => int | null,       // raw duration; null when uncomputable
+     *           'roundedMinutes'   => int | null,       // null when no rules apply (or duration uncomputable)
+     *           'roundedEndTime'   => 'HH:mm' | null,   // raw startTime + roundedMinutes (the controller swaps this in for client views)
+     *           'hasRoundingRules' => bool,             // true iff the IČO has rules configured (controls the client-view redactions)
+     *           'ongoing'          => bool,
      *         ],
      *         ...
      *       ],
@@ -335,19 +338,31 @@ class FreshQRService
                 $endTime = self::computeEndTime($record);
                 $rawMinutes = self::computeDurationMinutes($startTime, $endTime);
                 $rules = $roundingRulesByIco[$matchedIco] ?? [];
-                $roundedMinutes = ($rawMinutes !== null && $rules !== [])
+                $hasRoundingRules = $rules !== [];
+                $roundedMinutes = ($rawMinutes !== null && $hasRoundingRules)
                     ? TimeRoundingService::roundDuration($rawMinutes, $rules)
+                    : null;
+                // Shifted display end-time: when rounding changes the duration,
+                // the client-facing range must add up to the billed minutes or
+                // the math reads wrong. Anchor on the raw start (the cleaner's
+                // actual arrival is the audit-stable point) and re-derive end
+                // as start + rounded duration. The controller decides whether
+                // to swap this in for the raw endTime on a per-role basis.
+                $roundedEndTime = ($startTime !== null && $roundedMinutes !== null)
+                    ? self::shiftTimeByMinutes($startTime, $roundedMinutes)
                     : null;
 
                 $byDate[$date]['cleanings'][] = [
-                    'employee'       => $displayNamesByPersonalId[(string) $personalNumber] ?? (string) $personalNumber,
-                    'startTime'      => $startTime,
-                    'endTime'        => $endTime,
-                    'note'           => self::extractNote($record),
-                    'ico'            => $matchedIco,
-                    'rawMinutes'     => $rawMinutes,
-                    'roundedMinutes' => $roundedMinutes,
-                    'ongoing'        => $isOngoing,
+                    'employee'         => $displayNamesByPersonalId[(string) $personalNumber] ?? (string) $personalNumber,
+                    'startTime'        => $startTime,
+                    'endTime'          => $endTime,
+                    'note'             => self::extractNote($record),
+                    'ico'              => $matchedIco,
+                    'rawMinutes'       => $rawMinutes,
+                    'roundedMinutes'   => $roundedMinutes,
+                    'roundedEndTime'   => $roundedEndTime,
+                    'hasRoundingRules' => $hasRoundingRules,
+                    'ongoing'          => $isOngoing,
                 ];
             }
         }
@@ -707,5 +722,29 @@ class FreshQRService
             return null;
         }
         return $h * 60 + $min;
+    }
+
+    /**
+     * Add a duration in minutes to a HH:mm anchor and format the result back
+     * as HH:mm. Used to derive a display-only "rounded end time" that lines
+     * up with the billed duration, anchored on the raw scan-in time so the
+     * arrival point stays stable.
+     *
+     * Returns null for malformed inputs. Rolls into the next calendar day
+     * by collapsing to modulo 24h — Fajnúklid doesn't bill overnight visits
+     * (cross-midnight records get dropped upstream by recordIsSingleDay) so
+     * a same-day display value is the correct expectation here.
+     */
+    public static function shiftTimeByMinutes(string $hm, int $minutes): ?string
+    {
+        $base = self::parseHmToMinutes($hm);
+        if ($base === null) {
+            return null;
+        }
+        $total = ($base + $minutes) % (24 * 60);
+        if ($total < 0) {
+            $total += 24 * 60;
+        }
+        return sprintf('%02d:%02d', intdiv($total, 60), $total % 60);
     }
 }

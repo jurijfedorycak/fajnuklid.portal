@@ -1106,6 +1106,73 @@ class FreshQRServiceTest extends TestCase
         $cleaning = $result[0]['cleanings'][0];
         $this->assertSame(210, $cleaning['rawMinutes']);
         $this->assertSame(240, $cleaning['roundedMinutes']);
+        // Rounded end-time is anchored on raw start + rounded minutes — 08:00
+        // + 240 = 12:00. This is the value the controller swaps in for client
+        // views so the displayed range adds up to the billed duration.
+        $this->assertSame('12:00', $cleaning['roundedEndTime']);
+        $this->assertTrue($cleaning['hasRoundingRules']);
+    }
+
+    public function testBuildCleaningDaysExposesHasRoundingRulesEvenWhenRuleIsNoop(): void
+    {
+        // The flag must reflect "an IČO has rules configured", not "rounding
+        // changed the value this time". A direction=none rule still counts —
+        // the controller uses the flag to know whether to suppress ongoing
+        // TimeFrom, and that decision is about the IČO's config, not about
+        // any individual cleaning's outcome.
+        $records = [
+            [
+                'date' => '2026-04-10',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '08:00:00',
+                'last_scan_time' => '11:30:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays(
+            $records,
+            ['12345678' => 'detailed'],
+            ['EMP001' => 0],
+            ['EMP001' => 'Anna N.'],
+            '2026-04-21',
+            ['12345678' => [
+                ['threshold_minutes' => 0, 'interval_minutes' => 0, 'direction' => 'none'],
+            ]]
+        );
+
+        $cleaning = $result[0]['cleanings'][0];
+        $this->assertTrue($cleaning['hasRoundingRules'], 'Configured rule set, even direction=none, must set the flag');
+        $this->assertSame(210, $cleaning['rawMinutes']);
+        // direction=none → roundedMinutes stays at raw value, no shifted end-time
+        $this->assertSame(210, $cleaning['roundedMinutes']);
+        $this->assertSame('11:30', $cleaning['roundedEndTime'], 'Shifted end = raw start + raw duration when nothing changed');
+    }
+
+    public function testBuildCleaningDaysHasRoundingRulesFalseWhenNoRulesForIco(): void
+    {
+        $records = [
+            [
+                'date' => '2026-04-10',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '08:00:00',
+                'last_scan_time' => '11:30:00',
+            ],
+        ];
+
+        $result = FreshQRService::buildCleaningDays(
+            $records,
+            ['12345678' => 'detailed'],
+            ['EMP001' => 0],
+            ['EMP001' => 'Anna N.'],
+            '2026-04-21'
+            // no $roundingRulesByIco — defaults to empty
+        );
+
+        $cleaning = $result[0]['cleanings'][0];
+        $this->assertFalse($cleaning['hasRoundingRules']);
+        $this->assertNull($cleaning['roundedEndTime']);
     }
 
     public function testBuildCleaningDaysLeavesRoundedMinutesNullWhenNoRulesForIco(): void
@@ -1291,6 +1358,37 @@ class FreshQRServiceTest extends TestCase
         $this->assertNull(FreshQRService::formatScanTimeToHm(''));
         $this->assertNull(FreshQRService::formatScanTimeToHm('not-a-time'));
         $this->assertNull(FreshQRService::formatScanTimeToHm('25:99'));
+    }
+
+    // shiftTimeByMinutes — display-only HH:mm arithmetic used to compute the
+    // billable end-time anchored on the raw scan-in.
+
+    public function testShiftTimeByMinutesAddsForwardWithinSameDay(): void
+    {
+        $this->assertSame('11:00', FreshQRService::shiftTimeByMinutes('08:00', 180));
+        $this->assertSame('08:01', FreshQRService::shiftTimeByMinutes('08:00', 1));
+        $this->assertSame('08:00', FreshQRService::shiftTimeByMinutes('08:00', 0));
+    }
+
+    public function testShiftTimeByMinutesWrapsAtMidnight(): void
+    {
+        // Cross-midnight cleanings get dropped upstream, but the helper still
+        // needs deterministic wrap-around behaviour so callers can't crash on
+        // misconfigured rule sets (e.g. interval larger than a calendar day).
+        $this->assertSame('01:00', FreshQRService::shiftTimeByMinutes('23:00', 120));
+    }
+
+    public function testShiftTimeByMinutesAcceptsNegativeOffsets(): void
+    {
+        $this->assertSame('07:30', FreshQRService::shiftTimeByMinutes('08:00', -30));
+        $this->assertSame('23:30', FreshQRService::shiftTimeByMinutes('00:00', -30));
+    }
+
+    public function testShiftTimeByMinutesReturnsNullForMalformedInput(): void
+    {
+        $this->assertNull(FreshQRService::shiftTimeByMinutes('25:99', 30));
+        $this->assertNull(FreshQRService::shiftTimeByMinutes('not-a-time', 30));
+        $this->assertNull(FreshQRService::shiftTimeByMinutes('', 30));
     }
 
     // isConfigured / getLastError / getCleaningDaysForUser flows

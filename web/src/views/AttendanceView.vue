@@ -792,17 +792,21 @@ onBeforeUnmount(() => {
             >
               <div :id="`cleaning-time-${activeCell.key}-${i}`" class="cleaning-time">
                 <!-- Ongoing visit: backend sets c.ongoing only when the cleaning is
-                     today AND not scanned out AND the employee hasn't moved on.
-                     A null endTime alone is NOT a reliable ongoing signal — past-day
-                     single-scan records also have null endTime, and rounding-rule
-                     redaction nulls out endTime for finished cleanings too. -->
+                     today AND its TimeTo is null/equal-to-TimeFrom. A null endTime
+                     alone is NOT a reliable signal — past-day single-scan records
+                     also have null endTime. On IČOs with rounding rules the
+                     controller strips startTime here so the badge stays a pure
+                     "Probíhá" until the cleaning ends and the rounded display
+                     can be committed. -->
                 <template v-if="c.ongoing">
-                  <span v-if="showAdminDetails && c.startTime" class="cleaning-time-ongoing">
+                  <span v-if="c.startTime" class="cleaning-time-ongoing">
                     {{ c.startTime }} · Probíhá
                   </span>
                   <span v-else class="cleaning-time-ongoing">Probíhá</span>
                 </template>
-                <!-- Rules defined for this IČO: clients see only the billable duration; admins keep raw times alongside. -->
+                <!-- Rules defined for this IČO: clients see the rounded range
+                     (controller swaps endTime for the shifted value); admins keep
+                     the raw range alongside the explicit "Účtováno" label. -->
                 <template v-else-if="c.roundedMinutes != null">
                   <span v-if="showAdminDetails" class="cleaning-time-range">
                     <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }}</template>
@@ -810,7 +814,8 @@ onBeforeUnmount(() => {
                     <span class="cleaning-time-billed">· Účtováno {{ formatDuration(c.roundedMinutes) }}</span>
                   </span>
                   <span v-else class="cleaning-time-billed-only">
-                    Úklid · {{ formatDuration(c.roundedMinutes) }}
+                    <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }} · </template>
+                    {{ formatDuration(c.roundedMinutes) }}
                   </span>
                 </template>
                 <!-- No rounding rules configured: fall back to the legacy raw-time range. -->

@@ -81,9 +81,7 @@ class AttendanceController extends Controller
             $result['cleaningDays']
         );
 
-        $cleaningDays = $isAdmin
-            ? $result['cleaningDays']
-            : self::stripRawTimesWhenRounded($result['cleaningDays']);
+        $cleaningDays = self::applyRoundingRedactions($result['cleaningDays'], !$isAdmin);
 
         Response::success([
             'freshqrActive' => $result['active'],
@@ -101,9 +99,9 @@ class AttendanceController extends Controller
      * the admin can verify FreshQR mode + rounding settings before clients hit
      * the page.
      *
-     * Always applies the non-admin redaction (rawMinutes/startTime/endTime
-     * nulled when a rounded duration exists) — the whole point is to render the
-     * client's view, not the admin's audit view.
+     * Always applies the client-view redactions (rounded end-time swap, raw
+     * minutes hidden, ongoing-with-rules drops startTime) — the whole point is
+     * to render the client's view, not the admin's audit view.
      */
     private function respondWithPreview(int $clientId, int $year, int $month): void
     {
@@ -146,10 +144,10 @@ class AttendanceController extends Controller
         );
 
         // Preview is intentionally client-eye: even though the requester is an
-        // admin, raw times are stripped so what they see matches the customer's
-        // page byte-for-byte. Admins keep access to raw data in the regular
-        // (non-preview) calendar.
-        $cleaningDays = self::stripRawTimesWhenRounded($result['cleaningDays']);
+        // admin, the rounded display takes over here so what they see matches
+        // the customer's page byte-for-byte. Admins keep access to raw data in
+        // the regular (non-preview) calendar.
+        $cleaningDays = self::applyRoundingRedactions($result['cleaningDays'], true);
 
         Response::success([
             'freshqrActive' => $result['active'],
@@ -178,30 +176,56 @@ class AttendanceController extends Controller
     }
 
     /**
-     * Non-admin clients must never see raw scan times for cleanings whose IČO has
-     * rounding rules defined — the whole point of the feature is that the
-     * displayed duration is the billable one, not the wall-clock window. The
-     * service still returns the raw values so admins can audit, and so the
-     * service stays a pure mapping; this controller does the role-specific
-     * redaction at the API boundary.
+     * Apply role-aware display redactions tied to per-IČO rounding rules.
      *
-     * Note: `ongoing` is intentionally preserved. The FE uses it to decide
-     * between "Probíhá" and "Úklid · {duration}" — relying on a null endTime
-     * for that signal would mis-flag every rounded-and-stripped cleaning as
-     * ongoing.
+     * Two rules, applied in this order:
+     *
+     *   1. When the client view is requested AND the cleaning has a rounded
+     *      duration, swap `endTime` for `roundedEndTime` so the displayed
+     *      range (startTime → endTime) adds up to the billed duration. Null
+     *      out `rawMinutes` so the client never sees the un-rounded number
+     *      alongside the rounded one. `startTime` stays raw — the cleaner's
+     *      actual arrival is a stable anchor and never shifts.
+     *
+     *   2. For every role: if the cleaning is ongoing AND the IČO has any
+     *      rounding rules configured, null out `startTime`. The display
+     *      reasoning is data stability — the rounded `endTime` we'll show
+     *      after the cleaning ends depends on `startTime`, so committing to
+     *      a "started at X" while the rules haven't yet been applied invites
+     *      the value drifting once they kick in. Showing only "Probíhá"
+     *      while ongoing keeps the badge truthful.
+     *
+     * Always strips the internal `roundedEndTime` and `hasRoundingRules`
+     * fields — they're an interface between service and controller, never
+     * meant to cross the API boundary.
+     *
+     * Day-level `ongoing` flag is intentionally preserved, and the rules
+     * are per-cleaning, so a basic-mode day (empty cleanings[]) is unaffected.
      */
-    private static function stripRawTimesWhenRounded(array $cleaningDays): array
+    private static function applyRoundingRedactions(array $cleaningDays, bool $clientView): array
     {
         foreach ($cleaningDays as &$day) {
             if (!isset($day['cleanings']) || !is_array($day['cleanings'])) {
                 continue;
             }
             foreach ($day['cleanings'] as &$cleaning) {
-                if (($cleaning['roundedMinutes'] ?? null) !== null) {
-                    $cleaning['startTime'] = null;
-                    $cleaning['endTime'] = null;
+                $hasRules = (bool) ($cleaning['hasRoundingRules'] ?? false);
+                $roundedEnd = $cleaning['roundedEndTime'] ?? null;
+                $isOngoing = (bool) ($cleaning['ongoing'] ?? false);
+                $roundedMin = $cleaning['roundedMinutes'] ?? null;
+
+                if ($clientView && $roundedMin !== null) {
+                    if ($roundedEnd !== null) {
+                        $cleaning['endTime'] = $roundedEnd;
+                    }
                     $cleaning['rawMinutes'] = null;
                 }
+
+                if ($isOngoing && $hasRules) {
+                    $cleaning['startTime'] = null;
+                }
+
+                unset($cleaning['roundedEndTime'], $cleaning['hasRoundingRules']);
             }
             unset($cleaning);
         }

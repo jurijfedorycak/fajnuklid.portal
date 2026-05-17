@@ -171,7 +171,7 @@ class DemoAttendanceService
      * without rules. `rawMinutes` is computed when both ends are known so the
      * hourly summary helper has something to sum on demo accounts.
      *
-     * @return array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,rawMinutes:?int,roundedMinutes:?int,ongoing:bool}
+     * @return array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,rawMinutes:?int,roundedMinutes:?int,roundedEndTime:?string,hasRoundingRules:bool,ongoing:bool}
      */
     private static function buildCleaning(
         string $employee,
@@ -181,14 +181,18 @@ class DemoAttendanceService
         bool $ongoing
     ): array {
         return [
-            'employee'       => $employee,
-            'startTime'      => $startTime,
-            'endTime'        => $endTime,
-            'note'           => $note,
-            'ico'            => self::DEMO_ICO,
-            'rawMinutes'     => FreshQRService::computeDurationMinutes($startTime, $endTime),
-            'roundedMinutes' => null,
-            'ongoing'        => $ongoing,
+            'employee'         => $employee,
+            'startTime'        => $startTime,
+            'endTime'          => $endTime,
+            'note'             => $note,
+            'ico'              => self::DEMO_ICO,
+            'rawMinutes'       => FreshQRService::computeDurationMinutes($startTime, $endTime),
+            'roundedMinutes'   => null,
+            // Demo IČO has no rounding rules — these stay null/false so the
+            // controller's applyRoundingRedactions is a no-op for demo data.
+            'roundedEndTime'   => null,
+            'hasRoundingRules' => false,
+            'ongoing'          => $ongoing,
         ];
     }
 }

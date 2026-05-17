@@ -151,13 +151,15 @@ class DemoAttendanceServiceTest extends TestCase
             $this->assertNotEmpty($entry['cleanings'], "Demo entry {$entry['date']} must surface at least one cleaning");
             foreach ($entry['cleanings'] as $cleaning) {
                 $this->assertSame(
-                    ['employee', 'startTime', 'endTime', 'note', 'ico', 'rawMinutes', 'roundedMinutes', 'ongoing'],
+                    ['employee', 'startTime', 'endTime', 'note', 'ico', 'rawMinutes', 'roundedMinutes', 'roundedEndTime', 'hasRoundingRules', 'ongoing'],
                     array_keys($cleaning)
                 );
                 $this->assertIsString($cleaning['employee']);
                 $this->assertIsString($cleaning['startTime']);
                 $this->assertSame('12345678', $cleaning['ico']);
                 $this->assertNull($cleaning['roundedMinutes']);
+                $this->assertNull($cleaning['roundedEndTime']);
+                $this->assertFalse($cleaning['hasRoundingRules']);
                 if ($cleaning['endTime'] !== null) {
                     $this->assertGreaterThan(0, $cleaning['rawMinutes']);
                 }
