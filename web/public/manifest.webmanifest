@@ -1,0 +1,26 @@
+{
+  "name": "Fajn Úklid – Klientský portál",
+  "short_name": "Fajn Úklid",
+  "description": "Klientský portál FAJN ÚKLID – faktury, personál, smlouvy.",
+  "lang": "cs",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#162438",
+  "theme_color": "#162438",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
