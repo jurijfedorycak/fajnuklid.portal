@@ -17,7 +17,6 @@ import {
   ArrowRight,
   CheckCircle2,
   Loader2,
-  Clock,
   Check,
   ClipboardList,
   Plus,
@@ -417,16 +416,12 @@ function personnelNext() {
     personnelPage.value++;
 }
 
-// ── Cleaning summary ────────────────────────────────────────────────────────
-const cleaningStats = computed(() => {
-  const stats = { done: 0, ongoing: 0, scheduled: 0 };
-  for (const d of cleaningDays.value) {
-    if (d.status === "done") stats.done++;
-    else if (d.status === "ongoing") stats.ongoing++;
-    else if (d.status === "scheduled") stats.scheduled++;
-  }
-  return stats;
-});
+// ── Cleaning summary (per-month counts, computed from each calendar's cells) ─
+function countDone(cells) {
+  let n = 0;
+  for (const c of cells) if (c.status === "done") n++;
+  return n;
+}
 
 // True when the client has no data at all — used to show a WOW onboarding hero
 // instead of a wall of zeros on the brand-new client's first visit.
@@ -463,11 +458,60 @@ const currentMonthLabel = computed(
   () => `${MONTHS[todayMonth.value]} ${todayYear.value}`,
 );
 
-function cleaningDayNumber(dateStr) {
-  if (!dateStr) return "";
-  const parts = dateStr.split("-");
-  return parts[2] ? parseInt(parts[2], 10) : "";
+const WEEKDAYS_SHORT = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
+
+const cleaningByDate = computed(() => {
+  const map = new Map();
+  for (const d of cleaningDays.value) map.set(d.date, d);
+  return map;
+});
+
+function buildMonthCells(year, month, keyPrefix) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  // Convert JS Sun=0..Sat=6 to Mon-first Po=0..Ne=6 so cells align under the headers.
+  const leadingBlanks = (new Date(year, month, 1).getDay() + 6) % 7;
+
+  const cells = [];
+  for (let i = 0; i < leadingBlanks; i++) {
+    cells.push({ key: `${keyPrefix}-pre-${i}`, blank: true });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = formatISODate(new Date(year, month, d));
+    const cleaning = cleaningByDate.value.get(iso);
+    cells.push({
+      key: iso,
+      date: iso,
+      day: d,
+      isToday: iso === todayIso.value,
+      status: cleaning?.status || null,
+      note: cleaning?.note || null,
+    });
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push({ key: `${keyPrefix}-post-${cells.length}`, blank: true });
+  }
+  return cells;
 }
+
+const calendarCells = computed(() =>
+  buildMonthCells(todayYear.value, todayMonth.value, "cur"),
+);
+
+const prevMonthYear = computed(() =>
+  todayMonth.value === 0 ? todayYear.value - 1 : todayYear.value,
+);
+const prevMonthIndex = computed(() =>
+  todayMonth.value === 0 ? 11 : todayMonth.value - 1,
+);
+const prevMonthLabel = computed(
+  () => `${MONTHS[prevMonthIndex.value]} ${prevMonthYear.value}`,
+);
+const prevMonthCells = computed(() =>
+  buildMonthCells(prevMonthYear.value, prevMonthIndex.value, "prev"),
+);
+
+const currentDoneCount = computed(() => countDone(calendarCells.value));
+const prevDoneCount = computed(() => countDone(prevMonthCells.value));
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function formatISODate(d) {
@@ -930,7 +974,7 @@ function selectCompany(ico) {
         <article id="dashboard-cleaning-card" class="card cleaning-card">
           <div class="card-header-row">
             <h3 id="dashboard-cleaning-title" class="card-title">
-              Úklidy – {{ currentMonthLabel }}
+              Úklidy
             </h3>
             <RouterLink
               id="dashboard-cleaning-detail-link"
@@ -941,70 +985,109 @@ function selectCompany(ico) {
             </RouterLink>
           </div>
 
-          <div class="cleaning-summary">
-            <span class="cs-pill cs-done">
-              <CheckCircle2 :size="13" />
-              {{ cleaningStats.done }} proběhlo
-            </span>
-            <span v-if="cleaningStats.ongoing > 0" class="cs-pill cs-ongoing">
-              <Loader2 :size="13" class="spin" />
-              Právě probíhá
-            </span>
-            <span
-              v-if="cleaningStats.scheduled > 0"
-              class="cs-pill cs-scheduled"
-            >
-              <Clock :size="13" />
-              {{ cleaningStats.scheduled }} naplánované
-            </span>
-          </div>
-
-          <div
-            v-if="cleaningDays.length > 0"
-            id="dashboard-cleaning-strip"
-            class="day-strip"
-          >
+          <div class="cleaning-body">
             <div
-              v-for="cell in cleaningDays"
-              :key="cell.date"
-              :id="`dashboard-cleaning-day-${cell.date}`"
-              class="ds-cell"
-              :class="{
-                'ds-done': cell.status === 'done',
-                'ds-ongoing': cell.status === 'ongoing',
-                'ds-scheduled': cell.status === 'scheduled',
-              }"
-              :title="cell.note || cell.date"
+              v-if="cleaningDays.length > 0"
+              id="dashboard-cleaning-prev-calendar"
+              class="mini-calendar prev-calendar"
+              role="grid"
+              :aria-label="`Kalendář úklidů – ${prevMonthLabel}`"
             >
-              <span class="ds-num">{{ cleaningDayNumber(cell.date) }}</span>
-              <CheckCircle2
-                v-if="cell.status === 'done'"
-                :size="11"
-                class="ds-icon"
-              />
-              <Loader2
-                v-else-if="cell.status === 'ongoing'"
-                :size="11"
-                class="ds-icon spin"
-              />
-              <Clock
-                v-else-if="cell.status === 'scheduled'"
-                :size="11"
-                class="ds-icon"
-              />
+              <div class="mc-month-row">
+                <span class="mc-month-label" aria-hidden="true">{{
+                  prevMonthLabel
+                }}</span>
+                <span class="mc-month-stat">
+                  <CheckCircle2 :size="12" aria-hidden="true" />
+                  {{ prevDoneCount }} proběhlo
+                </span>
+              </div>
+              <div class="mc-header" role="row">
+                <span
+                  v-for="label in WEEKDAYS_SHORT"
+                  :key="`prev-${label}`"
+                  class="mc-weekday"
+                  role="columnheader"
+                  >{{ label }}</span
+                >
+              </div>
+              <div class="mc-grid">
+                <div
+                  v-for="cell in prevMonthCells"
+                  :key="cell.key"
+                  :id="cell.date ? `dashboard-cleaning-prev-${cell.date}` : null"
+                  class="mc-cell"
+                  :class="{
+                    'mc-blank': cell.blank,
+                    'mc-done': cell.status === 'done',
+                    'mc-ongoing': cell.status === 'ongoing',
+                    'mc-scheduled': cell.status === 'scheduled',
+                  }"
+                  :role="cell.blank ? 'presentation' : 'gridcell'"
+                  :title="cell.note || cell.date || ''"
+                >
+                  <span v-if="!cell.blank" class="mc-num">{{ cell.day }}</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div v-else id="dashboard-cleaning-empty" class="inline-empty">
-            <span class="inline-empty-icon">
-              <Calendar :size="22" aria-hidden="true" />
-            </span>
-            <span class="inline-empty-title">Zatím žádné úklidy</span>
-            <span class="inline-empty-desc">
-              Po prvním úklidu se tu rozsvítí zelené dny.
-              <RouterLink to="/dochazka" class="inline-empty-link"
-                >Otevřít kalendář</RouterLink
-              >
-            </span>
+            <div
+              v-if="cleaningDays.length > 0"
+              id="dashboard-cleaning-calendar"
+              class="mini-calendar current-calendar"
+              role="grid"
+              :aria-label="`Kalendář úklidů – ${currentMonthLabel}`"
+            >
+              <div class="mc-month-row">
+                <span class="mc-month-label" aria-hidden="true">{{
+                  currentMonthLabel
+                }}</span>
+                <span class="mc-month-stat">
+                  <CheckCircle2 :size="12" aria-hidden="true" />
+                  {{ currentDoneCount }} proběhlo
+                </span>
+              </div>
+              <div class="mc-header" role="row">
+                <span
+                  v-for="label in WEEKDAYS_SHORT"
+                  :key="label"
+                  class="mc-weekday"
+                  role="columnheader"
+                  >{{ label }}</span
+                >
+              </div>
+              <div class="mc-grid">
+                <div
+                  v-for="cell in calendarCells"
+                  :key="cell.key"
+                  :id="cell.date ? `dashboard-cleaning-day-${cell.date}` : null"
+                  class="mc-cell"
+                  :class="{
+                    'mc-blank': cell.blank,
+                    'mc-done': cell.status === 'done',
+                    'mc-ongoing': cell.status === 'ongoing',
+                    'mc-scheduled': cell.status === 'scheduled',
+                    'mc-today': cell.isToday,
+                  }"
+                  :role="cell.blank ? 'presentation' : 'gridcell'"
+                  :title="cell.note || cell.date || ''"
+                >
+                  <span v-if="!cell.blank" class="mc-num">{{ cell.day }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-else id="dashboard-cleaning-empty" class="inline-empty">
+              <span class="inline-empty-icon">
+                <Calendar :size="22" aria-hidden="true" />
+              </span>
+              <span class="inline-empty-title">Zatím žádné úklidy</span>
+              <span class="inline-empty-desc">
+                Po prvním úklidu se tu rozsvítí zelené dny.
+                <RouterLink to="/dochazka" class="inline-empty-link"
+                  >Otevřít kalendář</RouterLink
+                >
+              </span>
+            </div>
+
           </div>
         </article>
 
@@ -1194,6 +1277,16 @@ function selectCompany(ico) {
 </template>
 
 <style scoped>
+/* Tighter inter-section spacing on desktop — 24px stacks added up to dead air. */
+@media (min-width: 1024px) {
+  .dashboard-header,
+  .overview-card,
+  .requests-widget,
+  .dashboard-mid-row {
+    margin-bottom: 16px;
+  }
+}
+
 /* ── Loading state ──────────────────────────────────────────────────────── */
 .dashboard-error-state {
   display: flex;
@@ -1598,13 +1691,21 @@ function selectCompany(ico) {
 }
 
 /* ── Mid row ────────────────────────────────────────────────────────────── */
-/* Mobile-first: stacked. Two-column at lg. */
+/* Mobile-first: stacked. Two-column at lg.
+   align-items defaults to stretch so sibling cards have the same height on
+   desktop — keeps the row visually tidy when one card has more content. */
 .dashboard-mid-row {
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
   margin-bottom: 24px;
-  align-items: start;
+}
+
+/* Grid items default to min-width:auto, letting an intrinsically wide child
+   blow out the 1fr column. Force shrink to the column width so cards always
+   respect the viewport. */
+.dashboard-mid-row > * {
+  min-width: 0;
 }
 
 @media (min-width: 1024px) {
@@ -1640,116 +1741,185 @@ function selectCompany(ico) {
   color: var(--color-primary);
 }
 
-/* Cleaning card */
-.cleaning-summary {
+/* Cleaning card body: calendar on top + summary pills below on mobile;
+   side-by-side on desktop. Container queries (not viewport) drive the
+   transition so the layout reacts to the actual card width, which depends on
+   the surrounding grid and sidebar — not to the viewport width alone. */
+.cleaning-card {
+  container-type: inline-size;
+}
+
+.cleaning-body {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.cs-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
-  border-radius: var(--radius-pill);
-  font-size: 12px;
-  font-weight: 500;
+/* Prev month is hidden until the card is wide enough to fit two calendars.
+   Uses two-class selector so it wins over `.mini-calendar { display: flex }`. */
+.mini-calendar.prev-calendar {
+  display: none;
 }
 
-.cs-done {
-  background: var(--color-success-light);
-  color: var(--color-success);
-}
-
-.cs-ongoing {
-  background: var(--color-white);
-  color: var(--color-primary);
-  border: 1px solid var(--color-gray-200);
-}
-
-.cs-scheduled {
-  background: var(--color-light);
-  color: var(--color-primary);
-}
-
-/* Mobile-first: horizontal scroll with snap; wraps on desktop. */
-.day-strip {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  scroll-snap-type: x proximity;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 4px;
-  margin-right: -16px;
-  padding-right: 16px;
-}
-
-@media (min-width: 768px) {
-  .day-strip {
-    flex-wrap: wrap;
-    overflow-x: visible;
-    margin-right: 0;
-    padding-right: 0;
+/* At ~480px container width the card can fit two month calendars side-by-side
+   (prev + current). Each gets an equal-width slot, capped at 340px so cells
+   never balloon on ultrawide screens. */
+@container (min-width: 480px) {
+  .cleaning-body {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 28px;
+  }
+  .mini-calendar.prev-calendar {
+    display: flex;
+  }
+  /* Each calendar gets equal flex grow up to ~400px; bigger ceiling than the
+     mobile-centered 340 cap so wide-desktop card areas don't leave a giant
+     ring of empty space around two tiny calendars. */
+  .cleaning-body .mini-calendar,
+  .cleaning-body #dashboard-cleaning-empty {
+    flex: 1 1 0;
+    max-width: 400px;
+    margin-inline: 0;
   }
 }
 
-.ds-cell {
+/* Two further bumps as the card grows — both the inter-calendar gap and the
+   side breathing room scale up so the layout never feels cramped or marooned
+   in dead space. */
+@container (min-width: 680px) {
+  .cleaning-body {
+    gap: 48px;
+  }
+}
+
+@container (min-width: 900px) {
+  .cleaning-body {
+    gap: 72px;
+  }
+}
+
+@container (min-width: 1100px) {
+  .cleaning-body {
+    gap: 104px;
+  }
+}
+
+/* Mini month calendar: 7-column grid aligned to weekday headers. Lets clients
+   read the rhythm of the month at a glance — gaps between cleanings, day-of-week
+   patterns, position of today. max-width keeps cells compact on wide desktops;
+   margin-inline auto centers the calendar in cards wider than 340px. */
+.mini-calendar {
   display: flex;
   flex-direction: column;
+  /* Vertical rhythm inside a calendar: month-row (14) → weekday row (8) → grid.
+     The asymmetric pair is intentional — it separates the calendar label from
+     the table-like body more clearly than a uniform gap. */
+  gap: 8px;
+  width: 100%;
+  max-width: 340px;
+  margin-inline: auto;
+}
+
+/* Month row: month label + per-month done count badge. Each calendar carries
+   its own count so wide-desktop's two-month layout shows totals separately.
+   Flush with the grid edges so the label aligns with the leftmost cell column
+   and the badge with the rightmost — the row reads as a header for the grid. */
+.mc-month-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.mc-month-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-primary);
+  letter-spacing: -0.01em;
+  text-transform: capitalize;
+}
+
+.mc-month-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-success);
+  background: var(--color-success-light);
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.mc-header,
+.mc-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.mc-weekday {
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-gray-500);
+  padding: 2px 0;
+}
+
+.mc-cell {
+  aspect-ratio: 1 / 1;
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  width: 52px;
-  height: 60px;
-  border-radius: var(--radius-md);
-  flex-shrink: 0;
-  scroll-snap-align: start;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-gray-500);
   transition: transform 0.12s ease;
 }
 
-.ds-cell:hover {
-  transform: translateY(-2px);
+.mc-blank {
+  visibility: hidden;
 }
 
-.ds-num {
-  font-size: 16px;
-  font-weight: 600;
+.mc-num {
   line-height: 1;
-  color: var(--color-primary);
 }
 
-.ds-done {
+.mc-done {
   background: var(--color-success-light);
-}
-
-.ds-done .ds-icon {
   color: var(--color-success);
+  font-weight: 600;
 }
 
-.ds-ongoing {
+.mc-ongoing {
   background: var(--color-white);
-  border: 1.5px solid var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--color-primary);
 }
 
-.ds-ongoing .ds-icon {
+.mc-scheduled {
+  background: var(--color-light);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.mc-today {
+  box-shadow: inset 0 0 0 1.5px var(--color-accent);
   color: var(--color-primary);
 }
 
-.ds-scheduled {
-  background: var(--color-light);
-}
-
-.ds-scheduled .ds-icon {
-  color: var(--color-accent);
-}
-
-.cleaning-empty {
-  font-size: 13px;
-  color: var(--color-gray-500);
-  padding: 16px 0;
+/* Today + cleaning status: accent ring on top of the status background. */
+.mc-today.mc-done,
+.mc-today.mc-scheduled {
+  box-shadow: inset 0 0 0 1.5px var(--color-accent);
 }
 
 .inline-empty-link {
@@ -1815,6 +1985,34 @@ function selectCompany(ico) {
   text-align: center;
 }
 
+/* Cards in a row are stretched to equal height — make each card a flex column
+   so its content can center vertically in the available space instead of
+   leaving white space at the bottom. */
+.personnel-card,
+.cleaning-card,
+.chart-card,
+.recent-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.personnel-card .personnel-list,
+.personnel-card #dashboard-personnel-empty {
+  flex: 1;
+  justify-content: center;
+}
+
+.cleaning-card .cleaning-body {
+  flex: 1;
+  justify-content: center;
+}
+
+.chart-card #dashboard-chart-empty,
+.recent-card #dashboard-recent-empty {
+  flex: 1;
+  justify-content: center;
+}
+
 .personnel-list {
   display: flex;
   flex-direction: column;
@@ -1851,17 +2049,22 @@ function selectCompany(ico) {
 }
 
 /* ── Bottom row ─────────────────────────────────────────────────────────── */
-/* Mobile-first: stacked, chart comes first. Two-column at lg. */
+/* Mobile-first: stacked, chart comes first. Two-column at lg.
+   align-items defaults to stretch so sibling cards have the same height. */
 .dashboard-bottom-row {
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
-  align-items: start;
+}
+
+/* See note on .dashboard-mid-row > * — same grid-item min-width:auto trap. */
+.dashboard-bottom-row > * {
+  min-width: 0;
 }
 
 @media (min-width: 1024px) {
   .dashboard-bottom-row {
-    grid-template-columns: 320px 1fr;
+    grid-template-columns: 280px 1fr;
   }
 }
 
@@ -1871,7 +2074,7 @@ function selectCompany(ico) {
 
 /* Mobile: square chart capped so it doesn't dominate a phone screen.
    Tablet: lift the cap so the chart scales with its card.
-   Desktop (lg): side-by-side layout — chart-wrap is 320px wide; use a fixed height. */
+   Desktop (lg): side-by-side layout — fixed height, sized to feel compact next to the legend. */
 .chart-wrap {
   position: relative;
   aspect-ratio: 1 / 1;
@@ -1888,7 +2091,7 @@ function selectCompany(ico) {
 @media (min-width: 1024px) {
   .chart-wrap {
     aspect-ratio: auto;
-    height: 200px;
+    height: 160px;
     margin: 0;
   }
 }
@@ -1951,6 +2154,4 @@ function selectCompany(ico) {
   }
 }
 
-/* ── Responsive ─────────────────────────────────────────────────────────── */
-/* Grids/popover/day-strip/chart handled mobile-first above. */
 </style>
