@@ -2524,7 +2524,8 @@ onBeforeUnmount(() => {
 @media (min-width: 1024px) {
   .section-nav {
     position: fixed;
-    top: 52px;
+    /* Sit below the topbar (~60px content + 32px page padding) so its title isn't clipped at scroll=0 */
+    top: 112px;
     left: calc(var(--sidebar-width) + 32px);
     width: 200px;
     flex-direction: column;

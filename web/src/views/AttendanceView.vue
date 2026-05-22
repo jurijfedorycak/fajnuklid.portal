@@ -1256,6 +1256,11 @@ onBeforeUnmount(() => {
 @media (min-width: 480px) {
   .cal-grid { gap: 6px; }
 }
+/* Cap grid width on wide viewports so day cells don't balloon (aspect-ratio: 1 would
+   otherwise make each cell ~230px on a 1920px screen). */
+@media (min-width: 1024px) {
+  .cal-grid { max-width: 720px; margin-left: auto; margin-right: auto; }
+}
 .wd-header {
   text-align: center;
   font-size: 12px;
