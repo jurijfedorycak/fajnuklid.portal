@@ -1,6 +1,12 @@
 <script setup>
 import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { Capacitor } from '@capacitor/core'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import markerIconUrl from 'leaflet/dist/images/marker-icon.png'
+import markerIconRetinaUrl from 'leaflet/dist/images/marker-icon-2x.png'
+import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png'
 import { adminService } from '../api'
 import { extractFilename, downloadFile } from '../utils/fileUtils'
 import { formatDurationCs } from '../utils/duration'
@@ -12,6 +18,18 @@ import {
   Globe, Shield, Copy, Loader2, HelpCircle, Lightbulb, Search, X, KeyRound,
   RefreshCw, XCircle,
 } from 'lucide-vue-next'
+
+// Leaflet's default marker icon resolves URLs relative to its own source path,
+// which Vite rewrites at build time — the production bundle then 404s on the
+// PNGs. Bundle the assets explicitly so the icons survive the build.
+delete L.Icon.Default.prototype._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconUrl: markerIconUrl,
+  iconRetinaUrl: markerIconRetinaUrl,
+  shadowUrl: markerShadowUrl,
+})
+
+const isNativeApp = Capacitor.isNativePlatform()
 
 const route  = useRoute()
 const router = useRouter()
@@ -643,13 +661,12 @@ const canOpenFreshqrPreview = computed(() =>
 )
 
 function openFreshqrPreview() {
-  if (!canOpenFreshqrPreview.value) return
-  // Build with router so hash-mode setups stay consistent with the live app.
+  if (!canOpenFreshqrPreview.value || isNativeApp) return
   const href = router.resolve({
     name: 'Attendance',
     query: { previewClientId: form.dbId },
   }).href
-  window.open(href, '_blank', 'noopener')
+  window.open(href, '_blank', 'noopener,noreferrer')
 }
 
 function addStaff() {
@@ -780,17 +797,17 @@ async function geocodeAddress(obj) {
 
 // ── Leaflet interactive map (custom directive) ───────────────────────────────
 function initLeafletMap(el, obj) {
-  if (!window.L || !obj || obj.lat == null || obj.lng == null) return
+  if (!obj || obj.lat == null || obj.lng == null) return
   if (!el._lmap) {
-    const map = window.L.map(el, {
+    const map = L.map(el, {
       attributionControl: false,
       zoomControl: true,
     }).setView([obj.lat, obj.lng], 16)
-    window.L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
       subdomains: 'abcd',
     }).addTo(map)
-    const marker = window.L.marker([obj.lat, obj.lng], { draggable: true }).addTo(map)
+    const marker = L.marker([obj.lat, obj.lng], { draggable: true }).addTo(map)
     marker.on('dragend', () => {
       const ll = marker.getLatLng()
       obj.lat = +ll.lat.toFixed(6)
@@ -1444,7 +1461,7 @@ onBeforeUnmount(() => {
             <h2 class="sec-title"><Building2 :size="18" /> IČO &amp; Provozovny</h2>
             <div class="sec-header-actions">
               <button
-                v-if="canOpenFreshqrPreview"
+                v-if="canOpenFreshqrPreview && !isNativeApp"
                 id="btn-freshqr-preview"
                 class="btn btn-ghost btn-sm"
                 type="button"

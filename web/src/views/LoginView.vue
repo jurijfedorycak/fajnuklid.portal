@@ -14,6 +14,7 @@ import {
   Shield
 } from 'lucide-vue-next'
 import { useAuth } from '../stores/auth'
+import { handleExternalClick } from '../utils/openExternal'
 import logoSrc from '../assets/logo.svg'
 
 const router = useRouter()
@@ -135,6 +136,7 @@ const benefits = [
               href="https://fajnuklid.cz"
               target="_blank"
               rel="noopener noreferrer"
+              @click="handleExternalClick($event, 'https://fajnuklid.cz')"
             >
               Zjistěte více o našich službách
             </a>
@@ -253,6 +255,7 @@ const benefits = [
 .login-page {
   min-height: 100vh;
   background: var(--gradient-auth-bg);
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 .login-container {

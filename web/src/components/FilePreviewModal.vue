@@ -114,7 +114,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   z-index: 9999;
-  padding: 20px;
+  padding: max(20px, env(safe-area-inset-top, 0)) max(20px, env(safe-area-inset-right, 0)) max(20px, env(safe-area-inset-bottom, 0)) max(20px, env(safe-area-inset-left, 0));
 }
 
 .file-preview-modal {

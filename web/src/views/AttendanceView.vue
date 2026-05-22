@@ -1367,9 +1367,9 @@ onBeforeUnmount(() => {
 .day-popover {
   position: fixed;
   top: auto;
-  bottom: 16px;
-  left: 16px;
-  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0));
+  left: calc(16px + env(safe-area-inset-left, 0));
+  right: calc(16px + env(safe-area-inset-right, 0));
   transform: none;
   z-index: 9991;
   background: var(--color-white);

@@ -7,17 +7,30 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "icons": "node scripts/generate-icons.mjs"
+    "icons": "node scripts/generate-icons.mjs",
+    "cap:sync": "vite build && cap sync",
+    "cap:ios": "vite build && cap sync ios && cap open ios",
+    "cap:android": "vite build && cap sync android && cap open android"
   },
   "dependencies": {
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/browser": "^6.0.4",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/ios": "^6.2.0",
+    "@capacitor/splash-screen": "^6.0.3",
+    "@capacitor/status-bar": "^6.0.2",
     "axios": "^1.7.7",
     "chart.js": "^4.5.1",
+    "leaflet": "^1.9.4",
     "lucide-vue-next": "^0.475.0",
     "vue": "^3.5.13",
     "vue-chartjs": "^5.3.2",
     "vue-router": "^4.4.5"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^6.2.0",
     "@vitejs/plugin-vue": "^5.2.1",
     "sharp": "^0.34.5",
     "vite": "^5.4.11"

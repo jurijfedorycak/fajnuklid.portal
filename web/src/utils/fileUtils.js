@@ -96,6 +96,10 @@ export async function downloadFile(url, filename) {
     document.body.removeChild(link)
     window.URL.revokeObjectURL(objectUrl)
   } catch {
-    window.open(url, '_blank')
+    // Fallback when fetch fails (CORS, network, etc): route through the
+    // platform-aware opener so Capacitor uses the in-app browser instead of
+    // a no-op _blank.
+    const { openExternal } = await import('./openExternal')
+    await openExternal(url)
   }
 }

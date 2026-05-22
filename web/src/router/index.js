@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuth } from '../stores/auth'
 
 const routes = [
@@ -128,7 +128,10 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  // Hash history keeps the route inside location.hash so refreshes/deep-links
+  // resolve to index.html on both the deployed web (where there's no server-
+  // side rewrite) and the Capacitor WebView (which has no server at all).
+  history: createWebHashHistory(),
   routes,
 })
 

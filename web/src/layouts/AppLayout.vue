@@ -70,12 +70,14 @@ const sidebarOpen = ref(false)
 .main-content {
   flex: 1;
   min-height: 0;
-  padding: var(--space-lg) var(--space-lg);
+  /* The app shell is position:fixed so body padding can't see the home indicator
+     — keep the inset on the scroll container itself instead. */
+  padding: var(--space-lg) var(--space-lg) calc(var(--space-lg) + env(safe-area-inset-bottom, 0));
   overflow-y: auto;
 }
 @media (min-width: 480px) {
   .main-content {
-    padding: var(--space-xl) var(--space-xl);
+    padding: var(--space-xl) var(--space-xl) calc(var(--space-xl) + env(safe-area-inset-bottom, 0));
   }
 }
 
@@ -84,7 +86,7 @@ const sidebarOpen = ref(false)
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 16px;
+  padding: calc(12px + env(safe-area-inset-top, 0)) calc(16px + env(safe-area-inset-right, 0)) 12px calc(16px + env(safe-area-inset-left, 0));
   background: var(--color-primary);
   color: white;
   position: sticky;

@@ -23,24 +23,22 @@ apiClient.interceptors.request.use(
   }
 )
 
-// Response interceptor - only wipe auth on a *token* 401, not any 401.
-// A 401 from /auth/me or /auth/login means our stored token is bad and the session
-// should be cleared. A 401 from some other endpoint could be a genuine permission
-// response for a logged-in user (e.g. backend legacy code using AuthException for
-// "no client assigned") — clearing auth there causes a login-redirect loop.
+// A 401 from /auth/me is the only signal that our stored token has expired —
+// wipe and full-reload so the auth store's module-level refs re-initialise
+// from empty localStorage. Soft router.replace would leave token.value
+// truthy until checkAuth's catch ran, and the guard would still treat the
+// user as authenticated. /auth/login 401 (bad credentials) and other 401s
+// (e.g. legacy AuthException for "no client assigned") must propagate so
+// the caller can render its own error UI.
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      const url = error.config?.url || ''
-      const isTokenEndpoint = url.includes('/auth/me') || url.includes('/auth/login')
-      if (isTokenEndpoint) {
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('auth_user')
-        if (window.location.pathname !== '/') {
-          window.location.assign('/')
-        }
-      }
+    if (error.response?.status === 401 && (error.config?.url || '').includes('/auth/me')) {
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('auth_user')
+      // replace (not assign) so back-button can't return to the half-loaded
+      // protected page that just retriggered the same 401.
+      window.location.replace('/')
     }
     return Promise.reject(error)
   }

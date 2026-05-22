@@ -2,6 +2,7 @@
 import { Phone, Mail, MapPin, ChevronDown, ChevronUp, Clock, Loader2, Users } from 'lucide-vue-next'
 import { ref, onMounted } from 'vue'
 import { contactService } from '../api'
+import { handleExternalClick } from '../utils/openExternal'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
 
 // State
@@ -123,6 +124,7 @@ function whatsappUrl(phone) {
             rel="noopener noreferrer"
             class="contact-btn contact-btn-whatsapp"
             :title="'Napsat na WhatsApp ' + c.phone"
+            @click="handleExternalClick($event, whatsappUrl(c.phone))"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M19.11 4.91A10.05 10.05 0 0 0 12.04 2C6.55 2 2.08 6.47 2.08 11.96c0 1.76.46 3.47 1.34 4.98L2 22l5.2-1.36a9.93 9.93 0 0 0 4.84 1.23h.01c5.49 0 9.96-4.47 9.96-9.96 0-2.66-1.04-5.16-2.9-7zM12.05 20.2h-.01a8.27 8.27 0 0 1-4.21-1.15l-.3-.18-3.09.81.82-3.01-.2-.31a8.24 8.24 0 0 1-1.27-4.4c0-4.56 3.71-8.27 8.28-8.27 2.21 0 4.29.86 5.85 2.43a8.21 8.21 0 0 1 2.43 5.86c0 4.56-3.72 8.27-8.3 8.27zm4.54-6.19c-.25-.13-1.47-.73-1.7-.81-.23-.08-.4-.13-.56.13-.17.25-.65.81-.79.98-.15.17-.29.19-.54.06-.25-.12-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.39-1.72-.15-.25-.02-.39.11-.51.11-.11.25-.29.37-.43.12-.15.16-.25.25-.41.08-.17.04-.31-.02-.43-.06-.13-.56-1.34-.76-1.84-.2-.49-.41-.42-.56-.43-.14-.01-.31-.01-.48-.01-.17 0-.43.06-.66.31-.23.25-.86.85-.86 2.06 0 1.22.88 2.39 1 2.56.12.17 1.74 2.65 4.21 3.71.59.25 1.05.4 1.4.52.59.19 1.13.16 1.55.1.47-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.15-1.18-.06-.11-.23-.17-.48-.29z"/>

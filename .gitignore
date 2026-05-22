@@ -82,3 +82,17 @@ playwright-output/
 *.bak
 *.tmp
 *.temp
+
+# ===================
+# Capacitor native builds — sources committed, build outputs ignored
+# ===================
+web/ios/App/Pods/
+web/ios/App/build/
+web/ios/DerivedData/
+web/android/.gradle/
+web/android/build/
+web/android/app/build/
+web/android/captures/
+web/android/local.properties
+web/android/app/release/
+*.iml
