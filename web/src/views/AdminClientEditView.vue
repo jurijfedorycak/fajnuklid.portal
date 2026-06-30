@@ -209,6 +209,15 @@ function validateForm() {
     validationErrors['greeting'] = 'Pozdrav může mít nejvýše 100 znaků'
   }
 
+  const waGroupUrl = form.whatsappGroupUrl?.trim() || ''
+  if (waGroupUrl) {
+    if (waGroupUrl.length > 500) {
+      validationErrors['whatsapp_group_url'] = 'Odkaz může mít nejvýše 500 znaků'
+    } else if (!/^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+$/.test(waGroupUrl)) {
+      validationErrors['whatsapp_group_url'] = 'Zadejte platný odkaz na WhatsApp skupinu (https://chat.whatsapp.com/...)'
+    }
+  }
+
   if (isNew.value) {
     const clientId = form.clientId?.trim() || ''
     if (!clientId) {
@@ -406,6 +415,7 @@ const form = reactive({
   clientId:    '',
   displayName: '',
   greeting:    '',
+  whatsappGroupUrl: '',
   notes:       '',
   active:      true,
   isDemo:      false,
@@ -463,6 +473,7 @@ onMounted(async () => {
         form.clientId = data.clientId || ''
         form.displayName = data.displayName || ''
         form.greeting = data.greeting || ''
+        form.whatsappGroupUrl = data.whatsappGroupUrl || ''
         form.notes = data.notes || ''
         form.active = data.active ?? true
         form.isDemo = data.isDemo ?? false
@@ -910,6 +921,7 @@ async function save() {
       client_id: form.clientId,
       display_name: form.displayName,
       greeting: form.greeting,
+      whatsapp_group_url: form.whatsappGroupUrl,
       notes: form.notes,
       active: form.active,
       is_demo: form.isDemo,
@@ -1254,6 +1266,26 @@ onBeforeUnmount(() => {
               <AlertTriangle :size="12" /> {{ validationErrors['greeting'] }}
             </p>
             <p v-else id="hint-greeting" class="field-hint">Použije se v osobním pozdravu na úvodní stránce klienta, např. „Dobré ráno, pane Nováku“. Nepovinné — pokud zůstane prázdné, použije se název firmy.</p>
+          </div>
+
+          <div class="form-group">
+            <label id="label-whatsappGroupUrl" for="input-whatsappGroupUrl" class="form-label">Odkaz na WhatsApp skupinu</label>
+            <input
+              id="input-whatsappGroupUrl"
+              v-model="form.whatsappGroupUrl"
+              type="url"
+              class="form-input"
+              :class="{ 'input-error': validationErrors['whatsapp_group_url'] }"
+              placeholder="https://chat.whatsapp.com/..."
+              maxlength="500"
+              :aria-invalid="!!validationErrors['whatsapp_group_url']"
+              :aria-describedby="validationErrors['whatsapp_group_url'] ? 'error-whatsappGroupUrl' : 'hint-whatsappGroupUrl'"
+              @input="clearFieldError('whatsapp_group_url')"
+            />
+            <p v-if="validationErrors['whatsapp_group_url']" id="error-whatsappGroupUrl" class="field-error" role="alert">
+              <AlertTriangle :size="12" /> {{ validationErrors['whatsapp_group_url'] }}
+            </p>
+            <p v-else id="hint-whatsappGroupUrl" class="field-hint">Odkaz získáte ve WhatsAppu: Údaje o skupině → Pozvat přes odkaz. Pokud je vyplněný, klientovi se v portálu zobrazí tlačítko pro vstup do skupiny.</p>
           </div>
 
           <div class="form-group">

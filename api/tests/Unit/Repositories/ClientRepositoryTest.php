@@ -533,4 +533,122 @@ class ClientRepositoryTest extends DatabaseTestCase
 
         $this->assertStringNotContainsString('greeting', $sqlSeen);
     }
+
+    // whatsapp_group_url binding tests
+
+    public function testCreatePersistsTrimmedWhatsappGroupUrl(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'client_id' => 'CLT003',
+            'display_name' => 'New Client',
+            'whatsapp_group_url' => '  https://chat.whatsapp.com/AbC123  ',
+        ]);
+
+        $this->assertSame('https://chat.whatsapp.com/AbC123', $captured['whatsapp_group_url']);
+    }
+
+    public function testCreateNormalizesEmptyWhatsappGroupUrlToNull(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'client_id' => 'CLT003',
+            'display_name' => 'New Client',
+            'whatsapp_group_url' => '   ',
+        ]);
+
+        $this->assertNull($captured['whatsapp_group_url']);
+    }
+
+    public function testCreateDefaultsWhatsappGroupUrlToNullWhenOmitted(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'client_id' => 'CLT003',
+            'display_name' => 'New Client',
+        ]);
+
+        $this->assertNull($captured['whatsapp_group_url']);
+    }
+
+    public function testUpdatePersistsWhatsappGroupUrlWhenProvided(): void
+    {
+        $captured = null;
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        $result = $this->repository->update(1, ['whatsapp_group_url' => 'https://chat.whatsapp.com/XyZ789']);
+
+        $this->assertTrue($result);
+        $this->assertStringContainsString('whatsapp_group_url = :whatsapp_group_url', $sqlSeen);
+        $this->assertSame('https://chat.whatsapp.com/XyZ789', $captured['whatsapp_group_url']);
+    }
+
+    public function testUpdateNormalizesEmptyWhatsappGroupUrlToNull(): void
+    {
+        $captured = null;
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        // Admin clears the field — empty string must reach the DB as NULL so the
+        // portal hides the WhatsApp group button again.
+        $this->repository->update(1, ['whatsapp_group_url' => '']);
+
+        $this->assertNull($captured['whatsapp_group_url']);
+    }
+
+    public function testUpdateOmitsWhatsappGroupUrlFromSqlWhenNotProvided(): void
+    {
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        $this->repository->update(1, ['display_name' => 'Renamed']);
+
+        $this->assertStringNotContainsString('whatsapp_group_url', $sqlSeen);
+    }
 }

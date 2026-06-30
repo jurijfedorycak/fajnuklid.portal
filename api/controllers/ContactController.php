@@ -7,22 +7,28 @@ namespace App\Controllers;
 use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
+use App\Repositories\ClientRepository;
 use App\Repositories\StaffContactRepository;
 use App\Services\R2StorageService;
 
 class ContactController extends Controller
 {
     private StaffContactRepository $staffContactRepo;
+    private ClientRepository $clientRepo;
     private R2StorageService $storage;
 
     public function __construct()
     {
         $this->staffContactRepo = new StaffContactRepository();
+        $this->clientRepo = new ClientRepository();
         $this->storage = new R2StorageService();
     }
 
     public function index(Request $request): void
     {
+        $user = $request->getUser();
+        $client = $this->clientRepo->findByUserId((int) $user['id']);
+
         // Get all Fajnuklid staff contacts
         $staffContacts = $this->staffContactRepo->findAll();
 
@@ -51,6 +57,7 @@ class ContactController extends Controller
         Response::success([
             'contacts' => $contacts,
             'companies' => $companies,
+            'whatsappGroupUrl' => $client['whatsapp_group_url'] ?? null,
         ]);
     }
 }

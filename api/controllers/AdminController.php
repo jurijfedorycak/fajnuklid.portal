@@ -183,6 +183,22 @@ class AdminController extends Controller
             }
         }
 
+        if (array_key_exists('whatsapp_group_url', $payload)) {
+            $rawWaUrl = $payload['whatsapp_group_url'];
+            if ($rawWaUrl !== null && !is_scalar($rawWaUrl)) {
+                $errors['whatsapp_group_url'][] = 'Odkaz musí být text';
+            } else {
+                $waUrl = trim((string) ($rawWaUrl ?? ''));
+                if ($waUrl !== '') {
+                    if (mb_strlen($waUrl) > 500) {
+                        $errors['whatsapp_group_url'][] = 'Odkaz může mít nejvýše 500 znaků';
+                    } elseif (!preg_match('#^https://chat\.whatsapp\.com/[A-Za-z0-9]+$#', $waUrl)) {
+                        $errors['whatsapp_group_url'][] = 'Zadejte platný odkaz na WhatsApp skupinu (https://chat.whatsapp.com/...)';
+                    }
+                }
+            }
+        }
+
         // client_id is immutable after creation — only validate on create path.
         if ($isCreate) {
             $clientId = isset($payload['client_id']) ? trim((string) $payload['client_id']) : '';
@@ -670,6 +686,7 @@ class AdminController extends Controller
             'clientId' => $client['client_id'],
             'displayName' => $client['display_name'],
             'greeting' => $client['greeting'] ?? '',
+            'whatsappGroupUrl' => $client['whatsapp_group_url'] ?? '',
             'notes' => '',
             'active' => $hasActiveLogin,
             'isDemo' => (bool) ($client['is_demo'] ?? false),
@@ -693,6 +710,7 @@ class AdminController extends Controller
             'client_id' => trim((string) ($payload['client_id'] ?? '')),
             'display_name' => trim((string) ($payload['display_name'] ?? '')),
             'greeting' => is_scalar($payload['greeting'] ?? null) ? trim((string) $payload['greeting']) : '',
+            'whatsapp_group_url' => is_scalar($payload['whatsapp_group_url'] ?? null) ? trim((string) $payload['whatsapp_group_url']) : '',
             'is_demo' => (bool) ($payload['is_demo'] ?? false),
         ];
 
@@ -916,6 +934,9 @@ class AdminController extends Controller
         }
         if (array_key_exists('greeting', $payload)) {
             $data['greeting'] = is_scalar($payload['greeting']) ? trim((string) $payload['greeting']) : '';
+        }
+        if (array_key_exists('whatsapp_group_url', $payload)) {
+            $data['whatsapp_group_url'] = is_scalar($payload['whatsapp_group_url']) ? trim((string) $payload['whatsapp_group_url']) : '';
         }
 
         $db = \App\Config\Database::getConnection();

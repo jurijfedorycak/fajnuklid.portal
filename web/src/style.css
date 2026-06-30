@@ -43,6 +43,10 @@
   --color-warning: #f59e0b;
   --color-warning-light: #fffbeb;
 
+  /* WhatsApp brand */
+  --color-whatsapp: #128C7E;
+  --color-whatsapp-dark: #075E54;
+
   /* Sidebar light theme */
   --sidebar-bg: var(--color-white);
   --sidebar-text: var(--color-gray-800);
