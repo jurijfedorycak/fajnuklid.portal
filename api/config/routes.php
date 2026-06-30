@@ -38,9 +38,9 @@ $router->group(['middleware' => [AuthMiddleware::class]], function (Router $rout
     // Personnel - staff grouped by location
     $router->get('/personnel', 'PersonnelController@index');
 
-    // Contract - contract info + download
+    // Smlouvy a dokumenty - documents grouped per company + per-document download
     $router->get('/contract', 'ContractController@index');
-    $router->get('/contract/download', 'ContractController@download');
+    $router->get('/documents/{id}/download', 'ContractController@downloadDocument');
 
     // Contacts - Fajnuklid staff contacts
     $router->get('/contacts', 'ContactController@index');
@@ -90,6 +90,11 @@ $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class],
 
     // Manual iDoklad sync for a single company (read-only fetch; admin-only trigger)
     $router->post('/companies/{id}/idoklad-sync', 'AdminController@syncIdokladForCompany');
+
+    // Company documents (smlouvy a dokumenty) - upload, rename/recategorise, delete
+    $router->post('/companies/{id}/documents', 'AdminController@uploadCompanyDocument');
+    $router->put('/documents/{id}', 'AdminController@updateCompanyDocument');
+    $router->delete('/documents/{id}', 'AdminController@deleteCompanyDocument');
 
     // Employees
     $router->get('/employees', 'AdminController@listEmployees');

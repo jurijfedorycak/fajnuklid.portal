@@ -70,6 +70,32 @@ export const adminService = {
     return response.data
   },
 
+  // Company documents (smlouvy a dokumenty)
+  async uploadCompanyDocument(companyId, file, title, documentType) {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('title', title)
+    if (documentType) formData.append('document_type', documentType)
+
+    const response = await apiClient.post(`/admin/companies/${companyId}/documents`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data?.data
+  },
+
+  async updateCompanyDocument(documentId, { title, documentType }) {
+    const response = await apiClient.put(`/admin/documents/${documentId}`, {
+      title,
+      document_type: documentType,
+    })
+    return response.data?.data
+  },
+
+  async deleteCompanyDocument(documentId) {
+    const response = await apiClient.delete(`/admin/documents/${documentId}`)
+    return response.data
+  },
+
   // Employees
   async getEmployees(page = 1, perPage = 20, search = null) {
     const params = { page, per_page: perPage }

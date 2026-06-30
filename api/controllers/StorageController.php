@@ -35,6 +35,19 @@ class StorageController extends Controller
             'mimes' => ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'],
             'maxSize' => 10 * 1024 * 1024,
         ],
+        // Keep in sync with CompanyDocumentService::ALLOWED_MIMES / MAX_BYTES.
+        'company-documents' => [
+            'mimes' => [
+                'application/pdf',
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'image/jpeg',
+                'image/png',
+            ],
+            'maxSize' => 10 * 1024 * 1024,
+        ],
     ];
 
     public function __construct()

@@ -25,7 +25,7 @@ const clientNavItems = computed(() => [
   { name: 'Přehled',      route: '/prehled',   icon: LayoutDashboard },
   { name: 'Faktury',      route: '/faktury',   icon: FileText },
   { name: 'Personál',     route: '/personal',  icon: Users },
-  { name: 'Smlouva',      route: '/smlouva',   icon: FileSignature },
+  { name: 'Smlouvy a dokumenty', route: '/smlouva', icon: FileSignature },
   ...(attendanceEnabled.value ? [{ name: 'Docházka', route: '/dochazka', icon: Clock }] : []),
   { name: 'Požadavky a reklamace', route: '/zadosti', icon: ClipboardList },
   { name: 'Kontakt',      route: '/kontakt',   icon: Phone },

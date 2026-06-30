@@ -9,110 +9,99 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\CompanyRepository;
 use App\Repositories\StaffContactRepository;
+use App\Services\CompanyDocumentService;
 use App\Services\R2StorageService;
 use App\Exceptions\NotFoundException;
 
+/**
+ * Serves the client "Smlouvy a dokumenty" page: every document uploaded to each of the
+ * user's companies (IČO), grouped per company. Files are streamed through an
+ * authenticated, ownership-checked endpoint rather than a public proxy URL.
+ */
 class ContractController extends Controller
 {
     private CompanyRepository $companyRepo;
     private StaffContactRepository $staffContactRepo;
+    private CompanyDocumentService $documents;
     private R2StorageService $storage;
 
     public function __construct()
     {
         $this->companyRepo = new CompanyRepository();
         $this->staffContactRepo = new StaffContactRepository();
+        $this->documents = new CompanyDocumentService();
         $this->storage = new R2StorageService();
     }
 
     public function index(Request $request): void
     {
         $user = $request->getUser();
-        $userId = $user['id'];
+        $userId = (int) $user['id'];
 
-        // Get user's companies
         $companies = $this->companyRepo->findByUserId($userId);
+        $companyIds = array_map(static fn ($c) => (int) $c['id'], $companies);
+        $documentsByCompany = $this->documents->listForCompaniesGrouped($companyIds);
 
-        // Use the first company as the primary contract source.
-        // Multi-company support can iterate via separate calls when added.
-        $primary = $companies[0] ?? null;
+        $companyPayload = [];
+        $totalDocuments = 0;
+        foreach ($companies as $company) {
+            $cid = (int) $company['id'];
+            $docs = $documentsByCompany[$cid] ?? [];
+            $totalDocuments += count($docs);
+            $companyPayload[] = [
+                'id' => $cid,
+                'name' => $company['name'] ?? null,
+                'registrationNumber' => $company['registration_number'] ?? null,
+                'documents' => $docs,
+            ];
+        }
 
-        $contractStored = $primary['contract_pdf_path'] ?? null;
-        $contract = [
-            'contractsEnabled' => $primary !== null,
-            'hasPdf' => $primary !== null && !empty($contractStored),
-            'companyId' => $primary['id'] ?? null,
-            'companyName' => $primary['name'] ?? null,
-            'registrationNumber' => $primary['registration_number'] ?? null,
-            // basename on a raw URL would include the signed-request query string — normalize first.
-            'filename' => !empty($contractStored)
-                ? basename($this->storage->extractKey($contractStored))
-                : null,
-            'uploadedAt' => $primary['updated_at'] ?? null,
-            'startDate' => $primary['contract_start_date'] ?? null,
-            'endDate' => $primary['contract_end_date'] ?? null,
+        $result = [
+            'contractsEnabled' => $companies !== [],
+            'hasDocuments' => $totalDocuments > 0,
+            'companies' => $companyPayload,
         ];
 
-        // Get Fajnuklid contact for missing-contract situation
+        // Contact card for the empty / pending state.
         $staffContacts = $this->staffContactRepo->findAll();
         if (!empty($staffContacts)) {
-            $contract['contact'] = [
+            $result['contact'] = [
                 'name' => $staffContacts[0]['name'],
                 'phone' => $staffContacts[0]['phone'],
                 'email' => $staffContacts[0]['email'],
             ];
         }
 
-        Response::success($contract);
+        Response::success($result);
     }
 
-    public function download(Request $request): void
+    /**
+     * Stream a single document. Authorisation: the document's company must belong to the
+     * authenticated user. Used by the client portal preview/download.
+     */
+    public function downloadDocument(Request $request): void
     {
         $user = $request->getUser();
-        $userId = $user['id'];
-        $companyId = (int) $request->query('company_id');
+        $userId = (int) $user['id'];
+        $documentId = (int) $request->param('id');
 
-        if (!$companyId) {
-            throw new NotFoundException('ID firmy nebylo zadáno');
+        $document = $this->documents->findById($documentId);
+        if ($document === null) {
+            throw new NotFoundException('Dokument nebyl nalezen');
         }
 
-        // Verify user has access to this company
-        $userCompanies = $this->companyRepo->findByUserId($userId);
-        $company = null;
-        foreach ($userCompanies as $c) {
-            if ((int) $c['id'] === $companyId) {
-                $company = $c;
-                break;
-            }
+        $userCompanyIds = array_map(
+            static fn ($c) => (int) $c['id'],
+            $this->companyRepo->findByUserId($userId)
+        );
+        if (!in_array((int) $document['company_id'], $userCompanyIds, true)) {
+            // Same 404 as a missing document — never reveal that someone else's id exists.
+            throw new NotFoundException('Dokument nebyl nalezen');
         }
 
-        if (!$company) {
-            throw new NotFoundException('Firma nebyla nalezena');
-        }
+        $file = $this->documents->getFileForDownload($document);
 
-        if (empty($company['contract_pdf_path'])) {
-            throw new NotFoundException('Smlouva není k dispozici');
-        }
-
-        $filePath = $company['contract_pdf_path'];
-
-        $isLocalPath = str_starts_with($filePath, '/') || (bool) preg_match('/^[A-Za-z]:/', $filePath);
-
-        if ($isLocalPath) {
-            $realPath = realpath($filePath);
-            $uploadsDir = realpath(dirname(__DIR__) . '/uploads');
-            if ($realPath === false || $uploadsDir === false || !str_starts_with($realPath, $uploadsDir)) {
-                throw new NotFoundException('Soubor smlouvy nebyl nalezen');
-            }
-            $content = file_get_contents($realPath);
-            $filename = basename($realPath);
-        } else {
-            // Legacy rows may hold a full URL instead of the bare key; normalize first.
-            $key = $this->storage->extractKey($filePath);
-            $content = $this->storage->getContent($key);
-            $filename = basename($key);
-        }
-
-        Response::pdf($content, $filename);
+        $asAttachment = $request->query('dl') === '1';
+        Response::stream($file['content'], $file['mimeType'], $file['filename'], $asAttachment);
     }
 }
