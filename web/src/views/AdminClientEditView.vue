@@ -8,7 +8,7 @@ import markerIconUrl from 'leaflet/dist/images/marker-icon.png'
 import markerIconRetinaUrl from 'leaflet/dist/images/marker-icon-2x.png'
 import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png'
 import { adminService } from '../api'
-import { extractFilename, downloadFile } from '../utils/fileUtils'
+import { downloadFile } from '../utils/fileUtils'
 import { formatDurationCs } from '../utils/duration'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
 import {
@@ -16,7 +16,7 @@ import {
   Lock, Phone, Mail, FileSignature, Clock, ChevronDown, ChevronUp,
   Eye, EyeOff, Upload, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight,
   Globe, Shield, Copy, Loader2, HelpCircle, Lightbulb, Search, X, KeyRound,
-  RefreshCw, XCircle,
+  RefreshCw, XCircle, FileText, FileSpreadsheet, Image as ImageIcon, Pencil,
 } from 'lucide-vue-next'
 
 // Leaflet's default marker icon resolves URLs relative to its own source path,
@@ -250,7 +250,7 @@ function validateForm() {
   const seenIcos = new Map()
   form.icos.forEach((ico, i) => {
     const icoNum = (ico.ico || '').trim()
-    const hasAnyContent = icoNum || ico.officialName?.trim() || ico.objects?.length > 0 || ico.contractFile
+    const hasAnyContent = icoNum || ico.officialName?.trim() || ico.objects?.length > 0 || ico.documents?.length > 0
     if (!icoNum) {
       if (hasAnyContent) {
         validationErrors[`icos.${i}.ico`] = 'IČO je povinné'
@@ -472,8 +472,10 @@ onMounted(async () => {
           companyId: i.id || null,
           id: uid(),
           expanded: false,
-          contractOriginalName: i.contractFile ? extractFilename(i.contractFile) : null,
-          uploadingContract: false,
+          documents: i.documents || [],
+          docTitle: '',
+          docType: '',
+          uploadingDoc: false,
           objects: (i.objects || []).map(o => ({ ...o, id: uid(), expanded: false })),
           roundingRules: (i.roundingRules || []).map(r => ({
             id: uid(),
@@ -525,7 +527,7 @@ function addLogin() {
 function removeLogin(id) { form.logins = form.logins.filter(l => l.id !== id) }
 
 function addIco() {
-  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrMode: 'off', idokladSyncEnabled: false, billingModel: null, hourlyRate: null, contractUploaded: false, contractFile: null, contractOriginalName: null, uploadingContract: false, objects: [], roundingRules: [], expanded: true })
+  form.icos.push({ id: uid(), companyId: null, ico: '', officialName: '', freshqrMode: 'off', idokladSyncEnabled: false, billingModel: null, hourlyRate: null, documents: [], docTitle: '', docType: '', uploadingDoc: false, objects: [], roundingRules: [], expanded: true })
 }
 
 // ── iDoklad manual sync ───────────────────────────────────────────────────────
@@ -715,58 +717,110 @@ function addContact() {
 }
 function removeContact(id) { form.contacts = form.contacts.filter(c => c.id !== id) }
 
-// ── Contract upload ──────────────────────────────────────────────────────────
-async function handleContractUpload(ico, event) {
+// ── Company documents (smlouvy a dokumenty) ────────────────────────────────────
+// Documents are managed immediately against their own endpoints (independent of the
+// client form's save/dirty state), so a company must be saved (have a companyId) first.
+const DOCUMENT_TYPE_SUGGESTIONS = [
+  'Hlavní smlouva',
+  'Dodatek',
+  'Zimní údržba',
+  'Rozšíření frekvence',
+  'Rozšíření prostor',
+  'Harmonogram',
+]
+
+async function handleDocumentUpload(ico, event) {
   const file = event.target.files?.[0]
-  if (!file || ico.uploadingContract) return
   event.target.value = ''
-  ico.uploadingContract = true
-  ico.contractOriginalName = file.name
-  const prevFile = ico.contractFile
-  const prevUploaded = ico.contractUploaded
+  if (!file || ico.uploadingDoc) return
+
+  const title = (ico.docTitle || '').trim()
+  if (!title) {
+    error.value = 'Zadejte název dokumentu před nahráním'
+    return
+  }
+  if (!ico.companyId) {
+    error.value = 'Nejdříve uložte klienta, poté lze nahrávat dokumenty'
+    return
+  }
+
+  ico.uploadingDoc = true
   try {
-    const entity = ico.companyId ? { type: 'company', id: ico.companyId, field: 'contract_pdf_path' } : null
-    const url = await adminService.uploadFile(file, 'employee-contracts', entity)
-    if (url) {
-      ico.contractFile = url
-      ico.contractUploaded = true
-      if (ico.companyId) markClean()
-      showToast('success', 'Smlouva nahrána')
+    const doc = await adminService.uploadCompanyDocument(ico.companyId, file, title, (ico.docType || '').trim())
+    if (doc) {
+      ico.documents.push(doc)
+      ico.docTitle = ''
+      ico.docType = ''
+      showToast('success', 'Dokument nahrán')
     } else {
-      ico.contractFile = prevFile
-      ico.contractUploaded = prevUploaded
-      ico.contractOriginalName = null
-      error.value = 'Nahrání smlouvy selhalo'
+      error.value = 'Nahrání dokumentu selhalo'
     }
   } catch (err) {
-    ico.contractFile = prevFile
-    ico.contractUploaded = prevUploaded
-    ico.contractOriginalName = null
-    error.value = err.response?.data?.message || err.message || 'Nahrání smlouvy selhalo'
+    error.value = err.response?.data?.message || err.message || 'Nahrání dokumentu selhalo'
   } finally {
-    ico.uploadingContract = false
+    ico.uploadingDoc = false
   }
 }
 
-async function removeContract(ico) {
-  const prevFile = ico.contractFile
-  const prevUploaded = ico.contractUploaded
-  const prevName = ico.contractOriginalName
-  ico.contractUploaded = false
-  ico.contractFile = null
-  ico.contractOriginalName = null
-  if (ico.companyId) {
-    try {
-      await adminService.removeFile('company', ico.companyId, 'contract_pdf_path')
-      markClean()
-      showToast('success', 'Smlouva odebrána')
-    } catch {
-      ico.contractFile = prevFile
-      ico.contractUploaded = prevUploaded
-      ico.contractOriginalName = prevName
-      error.value = 'Odebrání smlouvy selhalo'
-    }
+async function removeDocument(ico, doc) {
+  const idx = ico.documents.findIndex(d => d.id === doc.id)
+  if (idx === -1) return
+  const [removed] = ico.documents.splice(idx, 1)
+  try {
+    await adminService.deleteCompanyDocument(doc.id)
+    showToast('success', 'Dokument odebrán')
+  } catch {
+    ico.documents.splice(idx, 0, removed)
+    error.value = 'Odebrání dokumentu selhalo'
   }
+}
+
+// Inline edit state (no native prompt/alert — see project rules). Only one document is
+// edited at a time across the whole form.
+const editingDocId = ref(null)
+const editDocTitle = ref('')
+const editDocType = ref('')
+const savingDocEdit = ref(false)
+
+function startEditDocument(doc) {
+  editingDocId.value = doc.id
+  editDocTitle.value = doc.title
+  editDocType.value = doc.documentType || ''
+}
+
+function cancelEditDocument() {
+  editingDocId.value = null
+  editDocTitle.value = ''
+  editDocType.value = ''
+}
+
+async function saveEditDocument(doc) {
+  const title = editDocTitle.value.trim()
+  if (!title) {
+    error.value = 'Název dokumentu nesmí být prázdný'
+    return
+  }
+  savingDocEdit.value = true
+  try {
+    const updated = await adminService.updateCompanyDocument(doc.id, {
+      title,
+      documentType: editDocType.value.trim(),
+    })
+    if (updated) Object.assign(doc, updated)
+    cancelEditDocument()
+    showToast('success', 'Dokument upraven')
+  } catch (err) {
+    error.value = err.response?.data?.message || err.message || 'Úprava dokumentu selhala'
+  } finally {
+    savingDocEdit.value = false
+  }
+}
+
+function documentIcon(mimeType) {
+  if (mimeType === 'application/pdf') return FileText
+  if (mimeType?.startsWith('image/')) return ImageIcon
+  if (mimeType?.includes('spreadsheet') || mimeType?.includes('ms-excel')) return FileSpreadsheet
+  return FileText
 }
 
 // ── Map helpers ───────────────────────────────────────────────────────────────
@@ -874,7 +928,6 @@ async function save() {
         idoklad_sync_enabled: i.idokladSyncEnabled,
         billing_model: i.billingModel,
         hourly_rate: i.billingModel === 'hourly' ? i.hourlyRate : null,
-        contract_file: i.contractFile,
         objects: i.objects.map(o => ({
           name: o.name,
           address: o.address,
@@ -954,8 +1007,9 @@ function toggleIcoRestriction(login, ico) {
 
 // ── Unsaved changes tracking ──────────────────────────────────────────────────
 // Serializes only persisted data fields, excluding UI-only transient state
-// (expanded, uploadingContract, showPass, geocoding, etc.) so dirty detection
-// reflects real user edits rather than UI interactions.
+// (expanded, uploadingDoc, showPass, geocoding, etc.) so dirty detection
+// reflects real user edits rather than UI interactions. Documents are managed via their
+// own endpoints (not the form save), so they are intentionally absent here.
 function serializeForm() {
   return JSON.stringify({
     clientId: form.clientId,
@@ -976,8 +1030,6 @@ function serializeForm() {
       idokladSyncEnabled: i.idokladSyncEnabled,
       billingModel: i.billingModel,
       hourlyRate: i.hourlyRate ?? null,
-      contractFile: i.contractFile,
-      contractUploaded: i.contractUploaded,
       objects: i.objects.map(o => ({
         name: o.name,
         address: o.address,
@@ -1519,7 +1571,7 @@ onBeforeUnmount(() => {
                   <span v-if="ico.freshqrMode && ico.freshqrMode !== 'off'" class="badge badge-success" style="font-size:11px;">
                     FreshQR · {{ ico.freshqrMode === 'detailed' ? 'Personál a časy' : 'Pouze datum' }}
                   </span>
-                  <span v-if="ico.contractUploaded" class="badge badge-gray" style="font-size:11px;">Smlouva ✓</span>
+                  <span v-if="ico.documents.length > 0" class="badge badge-gray" style="font-size:11px;">{{ ico.documents.length }} dokumentů</span>
                   <button class="btn btn-ghost btn-sm danger-hover" @click.stop="removeIco(ico.id)"><Trash2 :size="14" /></button>
                   <ChevronUp v-if="ico.expanded" :size="16" class="text-muted" />
                   <ChevronDown v-else :size="16" class="text-muted" />
@@ -1744,45 +1796,132 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <!-- Contract upload -->
-                <div class="contract-upload-section">
+                <!-- Documents (smlouvy a dokumenty) -->
+                <div class="documents-section">
                   <div class="form-label" style="margin-bottom:8px;">
-                    <FileSignature :size="14" style="vertical-align:middle;" /> Smlouva (PDF)
+                    <FileSignature :size="14" style="vertical-align:middle;" /> Smlouvy a dokumenty
                   </div>
-                  <div v-if="ico.contractUploaded" class="contract-uploaded">
-                    <div class="contract-file-row">
-                      <FileSignature :size="16" class="text-success" />
-                      <span class="fw-500 file-link" @click="openPreview(ico.contractFile, ico.contractOriginalName || extractFilename(ico.contractFile))">{{ ico.contractOriginalName || extractFilename(ico.contractFile) }}</span>
-                      <div class="file-actions">
-                        <button class="btn btn-ghost btn-sm" aria-label="Stáhnout smlouvu" @click="downloadFile(ico.contractFile, ico.contractOriginalName || extractFilename(ico.contractFile))">
-                          <Download :size="13" />
-                        </button>
-                        <button class="btn btn-ghost btn-sm" aria-label="Odebrat smlouvu" @click="removeContract(ico)">
-                          <Trash2 :size="13" />
-                        </button>
+
+                  <div v-if="!ico.companyId" class="empty-list-hint" style="padding:12px;">
+                    Nejdříve uložte klienta, poté zde můžete nahrávat dokumenty.
+                  </div>
+
+                  <template v-else>
+                    <div v-if="ico.documents.length === 0" class="empty-list-hint" style="padding:12px;">
+                      Žádné dokumenty. Klient uvidí výzvu ke kontaktu, dokud nějaký nenahrajete.
+                    </div>
+
+                    <ul v-else class="admin-doc-list">
+                      <li
+                        v-for="doc in ico.documents"
+                        :id="`admin-doc-${doc.id}`"
+                        :key="doc.id"
+                        class="admin-doc-row"
+                      >
+                        <template v-if="editingDocId === doc.id">
+                          <component :is="documentIcon(doc.mimeType)" :size="16" class="text-mid admin-doc-icon" />
+                          <div class="admin-doc-edit">
+                            <input
+                              :id="`admin-doc-edit-title-${doc.id}`"
+                              v-model="editDocTitle"
+                              type="text"
+                              class="form-input"
+                              placeholder="Název dokumentu"
+                              maxlength="255"
+                              @keydown.enter="saveEditDocument(doc)"
+                            />
+                            <input
+                              :id="`admin-doc-edit-type-${doc.id}`"
+                              v-model="editDocType"
+                              type="text"
+                              class="form-input"
+                              :list="`doc-type-options-${icoIndex}`"
+                              placeholder="Typ (volitelné)"
+                              maxlength="100"
+                              @keydown.enter="saveEditDocument(doc)"
+                            />
+                          </div>
+                          <div class="file-actions">
+                            <button class="btn btn-ghost btn-sm" :disabled="savingDocEdit" aria-label="Uložit" @click="saveEditDocument(doc)">
+                              <Loader2 v-if="savingDocEdit" :size="13" class="spin" />
+                              <CheckCircle2 v-else :size="13" />
+                            </button>
+                            <button class="btn btn-ghost btn-sm" aria-label="Zrušit úpravu" @click="cancelEditDocument">
+                              <X :size="13" />
+                            </button>
+                          </div>
+                        </template>
+                        <template v-else>
+                          <component :is="documentIcon(doc.mimeType)" :size="16" class="text-mid admin-doc-icon" />
+                          <div class="admin-doc-info">
+                            <span class="fw-500 file-link" @click="openPreview(doc.url, doc.filename)">{{ doc.title }}</span>
+                            <span class="admin-doc-meta">
+                              <span v-if="doc.documentType" class="badge badge-gray admin-doc-type">{{ doc.documentType }}</span>
+                              {{ doc.filename }}
+                            </span>
+                          </div>
+                          <div class="file-actions">
+                            <button class="btn btn-ghost btn-sm" :aria-label="`Upravit ${doc.title}`" @click="startEditDocument(doc)">
+                              <Pencil :size="13" />
+                            </button>
+                            <button class="btn btn-ghost btn-sm" :aria-label="`Stáhnout ${doc.title}`" @click="downloadFile(doc.url, doc.filename)">
+                              <Download :size="13" />
+                            </button>
+                            <button class="btn btn-ghost btn-sm danger-hover" :aria-label="`Odebrat ${doc.title}`" @click="removeDocument(ico, doc)">
+                              <Trash2 :size="13" />
+                            </button>
+                          </div>
+                        </template>
+                      </li>
+                    </ul>
+
+                    <div class="admin-doc-add">
+                      <div class="field-grid-2">
+                        <div class="form-group" style="margin-bottom:0;">
+                          <label class="form-label" :for="`doc-title-${icoIndex}`">Název dokumentu *</label>
+                          <input
+                            :id="`doc-title-${icoIndex}`"
+                            v-model="ico.docTitle"
+                            type="text"
+                            class="form-input"
+                            placeholder="Hlavní smlouva, Dodatek č. 1..."
+                            maxlength="255"
+                          />
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                          <label class="form-label" :for="`doc-type-${icoIndex}`">Typ dokumentu</label>
+                          <input
+                            :id="`doc-type-${icoIndex}`"
+                            v-model="ico.docType"
+                            type="text"
+                            class="form-input"
+                            :list="`doc-type-options-${icoIndex}`"
+                            placeholder="Volitelné — kategorie"
+                            maxlength="100"
+                          />
+                          <datalist :id="`doc-type-options-${icoIndex}`">
+                            <option v-for="t in DOCUMENT_TYPE_SUGGESTIONS" :key="t" :value="t" />
+                          </datalist>
+                        </div>
                       </div>
+                      <label
+                        class="btn btn-primary btn-sm admin-doc-upload-btn"
+                        :class="{ 'is-disabled': ico.uploadingDoc || !ico.docTitle.trim() }"
+                        style="cursor:pointer; margin-top:10px;"
+                      >
+                        <Loader2 v-if="ico.uploadingDoc" :size="14" class="spin" />
+                        <Upload v-else :size="14" />
+                        {{ ico.uploadingDoc ? 'Nahrávám...' : 'Nahrát dokument' }}
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+                          style="display:none;"
+                          :disabled="ico.uploadingDoc || !ico.docTitle.trim()"
+                          @change="e => handleDocumentUpload(ico, e)"
+                        />
+                      </label>
                     </div>
-                    <label class="btn btn-outline btn-sm" style="cursor:pointer; margin-top:8px;">
-                      <Upload :size="13" /> Nahrát novou verzi
-                      <input type="file" accept=".pdf" style="display:none;" @change="e => handleContractUpload(ico, e)" />
-                    </label>
-                  </div>
-                  <div v-else-if="ico.uploadingContract" class="contract-uploading">
-                    <div class="contract-file-row">
-                      <Loader2 :size="16" class="spin" style="color:var(--color-gray-400);" />
-                      <span class="fw-500">{{ ico.contractOriginalName }}</span>
-                    </div>
-                  </div>
-                  <div v-else class="contract-empty">
-                    <div class="alert alert-warning" style="margin-bottom:12px;">
-                      <AlertTriangle :size="16" />
-                      Smlouva není nahrána. Klient uvidí výzvu ke kontaktu.
-                    </div>
-                    <label class="btn btn-primary btn-sm" style="cursor:pointer;">
-                      <Upload :size="14" /> Nahrát smlouvu (PDF)
-                      <input type="file" accept=".pdf" style="display:none;" @change="e => handleContractUpload(ico, e)" />
-                    </label>
-                  </div>
+                  </template>
                 </div>
 
                 <!-- Objects / Provozovny -->
@@ -3063,29 +3202,67 @@ onBeforeUnmount(() => {
   }
 }
 
-/* Contract upload */
-.contract-upload-section {
+/* Documents (smlouvy a dokumenty) */
+.documents-section {
   padding: 14px 0;
   border-top: 1px solid var(--color-gray-100);
   border-bottom: 1px solid var(--color-gray-100);
   margin-bottom: 20px;
 }
-.contract-uploaded { display: flex; flex-direction: column; }
-.contract-file-row {
+.admin-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.admin-doc-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  background: var(--color-success-light);
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-md);
   font-size: 13px;
 }
-.contract-file-row .file-actions {
+.admin-doc-icon { flex-shrink: 0; }
+.admin-doc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.admin-doc-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-gray-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-doc-type { font-size: 11px; flex-shrink: 0; }
+.admin-doc-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.admin-doc-row .file-actions {
   display: flex;
   gap: 2px;
   margin-left: auto;
+  flex-shrink: 0;
 }
-.contract-empty {}
+.admin-doc-add { margin-top: 4px; }
+.admin-doc-upload-btn.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
 
 /* Rounding rules (per-IČO FreshQR duration milestones) */
 .rounding-section {

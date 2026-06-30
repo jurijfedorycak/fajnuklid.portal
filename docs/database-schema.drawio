@@ -657,6 +657,53 @@
                         <mxPoint as="offset"/>
                     </mxGeometry>
                 </mxCell>
+                <mxCell id="company_documents" value="company_documents" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="700" width="260" height="300" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-pk" value="PK id INT UNSIGNED AUTO_INCREMENT" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontStyle=1" parent="company_documents" vertex="1">
+                    <mxGeometry y="30" width="260" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-sep" value="" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;strokeColor=#6c8ebf;" parent="company_documents" vertex="1">
+                    <mxGeometry y="50" width="260" height="8" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-f1" value="FK company_id INT UNSIGNED" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#0066CC;" parent="company_documents" vertex="1">
+                    <mxGeometry y="58" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-f2" value="document_type VARCHAR(100) NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="company_documents" vertex="1">
+                    <mxGeometry y="80" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-f3" value="title VARCHAR(255)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="company_documents" vertex="1">
+                    <mxGeometry y="102" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-f4" value="file_path VARCHAR(500)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="company_documents" vertex="1">
+                    <mxGeometry y="124" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-f5" value="original_filename VARCHAR(255)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="company_documents" vertex="1">
+                    <mxGeometry y="146" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-f6" value="mime_type VARCHAR(100)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="company_documents" vertex="1">
+                    <mxGeometry y="168" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-f7" value="size_bytes INT UNSIGNED DEFAULT 0" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="company_documents" vertex="1">
+                    <mxGeometry y="190" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-f8" value="FK uploaded_by_user_id INT UNSIGNED NULL" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#0066CC;" parent="company_documents" vertex="1">
+                    <mxGeometry y="212" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-f9" value="created_at, updated_at DATETIME" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#888888;" parent="company_documents" vertex="1">
+                    <mxGeometry y="234" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="company_documents-fk" value="FK: company_id -&gt; companies ON DELETE CASCADE" style="text;strokeColor=none;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#666666;fontStyle=2" parent="company_documents" vertex="1">
+                    <mxGeometry y="256" width="260" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="rel-cd-company" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#6c8ebf;endArrow=ERmany;endFill=0;startArrow=ERone;startFill=0;" parent="1" source="company_documents-f1" target="companies-pk" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rel-cd-company-label" value="1:N" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=11;fontColor=#6c8ebf;" parent="rel-cd-company" vertex="1" connectable="0">
+                    <mxGeometry x="-0.2" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
             </root>
         </mxGraphModel>
     </diagram>

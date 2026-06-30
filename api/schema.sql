@@ -406,4 +406,27 @@ CREATE TABLE `maintenance_request_attachments` (
     CONSTRAINT `fk_request_attachment_user` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `login_accounts` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ----------------------------
+-- Table: company_documents (multiple named, categorised documents per company/IČO)
+-- ----------------------------
+DROP TABLE IF EXISTS `company_documents`;
+CREATE TABLE `company_documents` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `company_id` INT UNSIGNED NOT NULL,
+    `document_type` VARCHAR(100) NULL COMMENT 'Free-text category label (e.g. Dodatek, Zimní údržba); NULL = uncategorised',
+    `title` VARCHAR(255) NOT NULL COMMENT 'Custom display name shown to the client',
+    `file_path` VARCHAR(500) NOT NULL COMMENT 'R2 storage key',
+    `original_filename` VARCHAR(255) NOT NULL,
+    `mime_type` VARCHAR(100) NOT NULL,
+    `size_bytes` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '0 for documents migrated from the legacy contract column',
+    `uploaded_by_user_id` INT UNSIGNED NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_company_id` (`company_id`),
+    KEY `idx_company_type` (`company_id`, `document_type`),
+    CONSTRAINT `fk_company_documents_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_company_documents_user` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `login_accounts` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

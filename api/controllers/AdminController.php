@@ -19,6 +19,7 @@ use App\Repositories\UserRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\ClientContactRepository;
 use App\Repositories\StaffContactRepository;
+use App\Services\CompanyDocumentService;
 use App\Services\IDokladService;
 use App\Services\MaintenanceRequestService;
 use App\Services\R2StorageService;
@@ -44,6 +45,7 @@ class AdminController extends Controller
     private MaintenanceRequestService $maintenanceRequestService;
     private IDokladService $idokladService;
     private R2StorageService $storage;
+    private CompanyDocumentService $documentService;
     private StaffLoginService $staffLoginService;
 
     public function __construct()
@@ -63,6 +65,7 @@ class AdminController extends Controller
         $this->maintenanceRequestService = new MaintenanceRequestService();
         $this->idokladService = new IDokladService();
         $this->storage = new R2StorageService();
+        $this->documentService = new CompanyDocumentService();
         $this->staffLoginService = new StaffLoginService($this->userRepo, $this->staffContactRepo);
     }
 
@@ -584,7 +587,6 @@ class AdminController extends Controller
                 ];
             }, $rules);
 
-            $contractPath = $company['contract_pdf_path'] ?? null;
             return [
                 'id' => (int) $company['id'],
                 'ico' => $company['registration_number'] ?? '',
@@ -595,8 +597,7 @@ class AdminController extends Controller
                 'hourlyRate' => isset($company['hourly_rate']) && $company['hourly_rate'] !== null
                     ? (float) $company['hourly_rate']
                     : null,
-                'contractUploaded' => !empty($contractPath),
-                'contractFile' => $this->storage->resolveProxyUrl($contractPath),
+                'documents' => $this->documentService->listForCompany((int) $company['id'], true),
                 'objects' => $objects,
                 'roundingRules' => $roundingRules,
             ];
@@ -722,22 +723,16 @@ class AdminController extends Controller
                     continue;
                 }
 
-                $incomingContract = $icoData['contract_file'] ?? null;
                 try {
-                    $companyId = $this->companyRepo->create([
+                    $companyId = $this->companyRepo->create(array_merge([
                         'client_id' => $clientDbId,
                         'registration_number' => $ico,
                         'name' => $officialName ?: $data['display_name'],
-                        // FE echoes the resolved URL; persist the bare R2 key so the URL
-                        // can be regenerated fresh on every read.
-                        'contract_pdf_path' => is_string($incomingContract)
-                            ? ($this->storage->extractKey($incomingContract) ?: null)
-                            : null,
                         'idoklad_sync_enabled' => (bool) ($icoData['idoklad_sync_enabled'] ?? false),
                         'freshqr_mode' => $icoData['freshqr_mode'] ?? 'off',
                         'billing_model' => $icoData['billing_model'] ?? null,
                         'hourly_rate' => $icoData['hourly_rate'] ?? null,
-                    ]);
+                    ], $this->legacyContractColumn($icoData)));
                 } catch (\PDOException $e) {
                     throw $this->reclassifyUniqueViolation(
                         $e,
@@ -958,25 +953,20 @@ class AdminController extends Controller
                     ? (int) $icoData['company_id']
                     : null;
                 $officialName = trim((string) ($icoData['official_name'] ?? ''));
-                $incomingContract = $icoData['contract_file'] ?? null;
-                $contractKey = is_string($incomingContract)
-                    ? ($this->storage->extractKey($incomingContract) ?: null)
-                    : null;
                 $companyName = $officialName !== ''
                     ? $officialName
                     : (string) ($client['display_name'] ?? '');
 
                 if ($rowCompanyId !== null && in_array($rowCompanyId, $companyIds, true)) {
                     try {
-                        $this->companyRepo->update($rowCompanyId, [
+                        $this->companyRepo->update($rowCompanyId, array_merge([
                             'registration_number' => $ico,
                             'name' => $companyName,
-                            'contract_pdf_path' => $contractKey,
                             'idoklad_sync_enabled' => (int) (bool) ($icoData['idoklad_sync_enabled'] ?? false),
                             'freshqr_mode' => $icoData['freshqr_mode'] ?? 'off',
                             'billing_model' => $icoData['billing_model'] ?? null,
                             'hourly_rate' => $icoData['hourly_rate'] ?? null,
-                        ]);
+                        ], $this->legacyContractColumn($icoData)));
                     } catch (\PDOException $e) {
                         throw $this->reclassifyUniqueViolation(
                             $e,
@@ -988,16 +978,15 @@ class AdminController extends Controller
                     $icoToCompanyId[$ico] = $companyId;
                 } else {
                     try {
-                        $companyId = $this->companyRepo->create([
+                        $companyId = $this->companyRepo->create(array_merge([
                             'client_id' => $id,
                             'registration_number' => $ico,
                             'name' => $companyName,
-                            'contract_pdf_path' => $contractKey,
                             'idoklad_sync_enabled' => (int) (bool) ($icoData['idoklad_sync_enabled'] ?? false),
                             'freshqr_mode' => $icoData['freshqr_mode'] ?? 'off',
                             'billing_model' => $icoData['billing_model'] ?? null,
                             'hourly_rate' => $icoData['hourly_rate'] ?? null,
-                        ]);
+                        ], $this->legacyContractColumn($icoData)));
                     } catch (\PDOException $e) {
                         throw $this->reclassifyUniqueViolation(
                             $e,
@@ -1744,6 +1733,88 @@ class AdminController extends Controller
         };
 
         return $record[$field] ?? null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // COMPANY DOCUMENTS (smlouvy a dokumenty)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The legacy single-contract column (contract_pdf_path) is superseded by the
+     * company_documents table. Documents are managed through their own endpoints, so the
+     * client save payload no longer carries `contract_file`. Only write the column when a
+     * value is explicitly sent — otherwise omit it so existing (migrated) data is preserved.
+     *
+     * @return array<string, ?string>
+     */
+    private function legacyContractColumn(array $icoData): array
+    {
+        if (!array_key_exists('contract_file', $icoData)) {
+            return [];
+        }
+
+        $incoming = $icoData['contract_file'];
+        return [
+            'contract_pdf_path' => is_string($incoming)
+                ? ($this->storage->extractKey($incoming) ?: null)
+                : null,
+        ];
+    }
+
+    /**
+     * POST /admin/companies/{id}/documents
+     * Multipart: file + title + document_type. Uploads one document to a company.
+     */
+    public function uploadCompanyDocument(Request $request): void
+    {
+        $companyId = (int) $request->param('id');
+        if ($this->companyRepo->findById($companyId) === null) {
+            throw new NotFoundException('Firma nebyla nalezena');
+        }
+
+        if (!isset($_FILES['file'])) {
+            throw new ValidationException('Soubor nebyl nahrán.');
+        }
+
+        $document = $this->documentService->upload(
+            $companyId,
+            $request->getUserId(),
+            $_FILES['file'],
+            $request->input('title'),
+            $request->input('document_type')
+        );
+
+        Response::created($document, 'Dokument byl nahrán');
+    }
+
+    /**
+     * PUT /admin/documents/{id}
+     * Rename / recategorise a document without replacing its file.
+     */
+    public function updateCompanyDocument(Request $request): void
+    {
+        $documentId = (int) $request->param('id');
+
+        $document = $this->documentService->updateMeta(
+            $documentId,
+            $request->input('title'),
+            $request->input('document_type')
+        );
+
+        Response::success($document, 'Dokument byl upraven');
+    }
+
+    /**
+     * DELETE /admin/documents/{id}
+     * Removes a document record and its stored file.
+     */
+    public function deleteCompanyDocument(Request $request): void
+    {
+        $documentId = (int) $request->param('id');
+
+        $this->documentService->deleteById($documentId);
+
+        Response::success(null, 'Dokument byl odebrán');
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
