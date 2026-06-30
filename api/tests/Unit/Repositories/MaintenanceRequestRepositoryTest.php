@@ -56,7 +56,9 @@ class MaintenanceRequestRepositoryTest extends DatabaseTestCase
             ->willReturn(true);
         $this->pdoMock->expects($this->once())
             ->method('prepare')
-            ->with($this->callback(fn (string $sql) => str_contains($sql, 'AND DATE(r.created_at) = :date')))
+            ->with($this->callback(fn (string $sql) =>
+                str_contains($sql, 'AND COALESCE(r.record_date, DATE(r.created_at)) = :date')
+                && str_contains($sql, "r.visibility = 'client'")))
             ->willReturn($this->stmtMock);
 
         $result = $this->repository->findByClientId(5, null, null, '2026-05-05');
@@ -398,7 +400,8 @@ class MaintenanceRequestRepositoryTest extends DatabaseTestCase
             ->method('prepare')
             ->with($this->callback(function (string $sql) {
                 return str_contains($sql, 'status <> :excluded_status')
-                    && str_contains($sql, 'GROUP BY DATE(created_at), status')
+                    && str_contains($sql, 'GROUP BY COALESCE(record_date, DATE(created_at)), status')
+                    && str_contains($sql, "visibility = 'client'")
                     && str_contains($sql, 'deleted_at IS NULL');
             }))
             ->willReturn($this->stmtMock);

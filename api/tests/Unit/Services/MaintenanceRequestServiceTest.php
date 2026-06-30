@@ -6,6 +6,7 @@ namespace Tests\Unit\Services;
 
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
+use App\Repositories\ClientRepository;
 use App\Repositories\CompanyRepository;
 use App\Repositories\MaintenanceRequestRepository;
 use App\Services\MailerService;
@@ -18,6 +19,7 @@ class MaintenanceRequestServiceTest extends TestCase
     private MaintenanceRequestService $service;
     private MockObject&MaintenanceRequestRepository $repoMock;
     private MockObject&CompanyRepository $companyRepoMock;
+    private MockObject&ClientRepository $clientRepoMock;
 
     protected function setUp(): void
     {
@@ -25,8 +27,15 @@ class MaintenanceRequestServiceTest extends TestCase
 
         $this->repoMock = $this->createMock(MaintenanceRequestRepository::class);
         $this->companyRepoMock = $this->createMock(CompanyRepository::class);
+        $this->clientRepoMock = $this->createMock(ClientRepository::class);
 
-        $this->service = new MaintenanceRequestService($this->repoMock, $this->companyRepoMock);
+        $this->service = new MaintenanceRequestService(
+            $this->repoMock,
+            $this->companyRepoMock,
+            null,
+            null,
+            $this->clientRepoMock
+        );
     }
 
     private function makeRow(array $overrides = []): array
@@ -39,8 +48,11 @@ class MaintenanceRequestServiceTest extends TestCase
             'title' => 'Broken AC',
             'category' => 'reklamace',
             'description' => 'It does not cool',
+            'source' => 'portal',
+            'visibility' => 'client',
             'status' => 'prijato',
             'due_date' => null,
+            'record_date' => null,
             'created_at' => '2026-04-01 09:00:00',
             'updated_at' => '2026-04-01 09:00:00',
             'created_by_email' => 'user@example.com',
@@ -565,5 +577,215 @@ class MaintenanceRequestServiceTest extends TestCase
     {
         $this->expectException(ValidationException::class);
         $this->service->calendarForClient(5, 2026, 0);
+    }
+
+    // adminCreate
+
+    private function adminCreateInput(array $overrides = []): array
+    {
+        return array_merge([
+            'clientId' => 5,
+            'title' => 'Telefonický požadavek',
+            'description' => 'Klient žádá úklid skladu navíc.',
+        ], $overrides);
+    }
+
+    public function testAdminCreateThrowsWhenClientIdMissing(): void
+    {
+        try {
+            $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput(['clientId' => null]));
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('clientId', $e->getErrors());
+        }
+    }
+
+    public function testAdminCreateThrowsWhenTitleAndDescriptionMissing(): void
+    {
+        try {
+            $this->service->adminCreate(1, 'admin@example.com', ['clientId' => 5]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('title', $e->getErrors());
+            $this->assertArrayHasKey('description', $e->getErrors());
+        }
+    }
+
+    public function testAdminCreateThrowsWhenSourceInvalid(): void
+    {
+        try {
+            $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput(['source' => 'pigeon']));
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('source', $e->getErrors());
+        }
+    }
+
+    public function testAdminCreateThrowsWhenVisibilityInvalid(): void
+    {
+        try {
+            $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput(['visibility' => 'public']));
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('visibility', $e->getErrors());
+        }
+    }
+
+    public function testAdminCreateThrowsWhenRecordDateInvalid(): void
+    {
+        try {
+            $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput(['recordDate' => '06/30/2026']));
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('recordDate', $e->getErrors());
+        }
+    }
+
+    public function testAdminCreateThrowsWhenRecordDateInFuture(): void
+    {
+        $futureDate = (new \DateTime('tomorrow'))->format('Y-m-d');
+
+        try {
+            $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput(['recordDate' => $futureDate]));
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('recordDate', $e->getErrors());
+            $this->assertStringContainsString('budoucnosti', $e->getErrors()['recordDate'][0]);
+        }
+    }
+
+    public function testAdminUpdateThrowsWhenRecordDateInFuture(): void
+    {
+        $this->repoMock->method('findById')->willReturn($this->makeRow());
+        $futureDate = (new \DateTime('tomorrow'))->format('Y-m-d');
+
+        try {
+            $this->service->adminUpdate(1, 1, 'admin@example.com', ['recordDate' => $futureDate]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('recordDate', $e->getErrors());
+        }
+    }
+
+    public function testAdminCreateThrowsWhenClientNotFound(): void
+    {
+        $this->clientRepoMock->method('findById')->willReturn(null);
+
+        try {
+            $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput());
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('clientId', $e->getErrors());
+        }
+    }
+
+    public function testAdminCreateThrowsWhenCompanyDoesNotBelongToClient(): void
+    {
+        $this->clientRepoMock->method('findById')->willReturn(['id' => 5, 'display_name' => 'Acme']);
+        $this->companyRepoMock->method('findById')->willReturn(['id' => 9, 'client_id' => 999]);
+
+        try {
+            $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput(['companyId' => 9]));
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('companyId', $e->getErrors());
+        }
+    }
+
+    public function testAdminCreateClientVisibleRecordStoresFieldsAndAddsBothNotes(): void
+    {
+        $this->clientRepoMock->method('findById')->willReturn(['id' => 5, 'display_name' => 'Acme']);
+
+        $created = null;
+        $this->repoMock->expects($this->once())
+            ->method('create')
+            ->willReturnCallback(function ($d) use (&$created) {
+                $created = $d;
+                return 42;
+            });
+
+        $activities = [];
+        $this->repoMock->method('addActivity')->willReturnCallback(function ($d) use (&$activities) {
+            $activities[] = $d;
+            return count($activities);
+        });
+
+        $this->repoMock->method('findById')->willReturn($this->makeRow([
+            'id' => 42,
+            'source' => 'whatsapp',
+            'visibility' => 'client',
+            'record_date' => '2026-06-25',
+        ]));
+        $this->stubAttachmentsAndActivity();
+
+        $result = $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput([
+            'source' => 'whatsapp',
+            'visibility' => 'client',
+            'recordDate' => '2026-06-25',
+            'companyId' => null,
+        ]));
+
+        // Stored with the chosen channel/visibility/date, no company.
+        $this->assertSame('whatsapp', $created['source']);
+        $this->assertSame('client', $created['visibility']);
+        $this->assertSame('2026-06-25', $created['record_date']);
+        $this->assertNull($created['company_id']);
+        $this->assertSame('prijato', $created['status']);
+
+        // Internal provenance note + client-visible creation note.
+        $this->assertCount(2, $activities);
+        $this->assertTrue($activities[0]['is_internal']);
+        $this->assertStringContainsString('WhatsApp', $activities[0]['message']);
+        $this->assertFalse($activities[1]['is_internal']);
+        $this->assertSame('prijato', $activities[1]['status_change']);
+
+        $this->assertSame(42, $result['id']);
+        $this->assertSame('whatsapp', $result['source']);
+        $this->assertSame('2026-06-25', $result['recordDate']);
+    }
+
+    public function testAdminCreateInternalRecordAddsOnlyInternalNote(): void
+    {
+        $this->clientRepoMock->method('findById')->willReturn(['id' => 5, 'display_name' => 'Acme']);
+        $this->repoMock->method('create')->willReturn(42);
+
+        $activities = [];
+        $this->repoMock->method('addActivity')->willReturnCallback(function ($d) use (&$activities) {
+            $activities[] = $d;
+            return count($activities);
+        });
+
+        $this->repoMock->method('findById')->willReturn($this->makeRow([
+            'id' => 42,
+            'visibility' => 'internal',
+        ]));
+        $this->stubAttachmentsAndActivity();
+
+        $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput([
+            'source' => 'phone',
+            'visibility' => 'internal',
+        ]));
+
+        $this->assertCount(1, $activities);
+        $this->assertTrue($activities[0]['is_internal']);
+        $this->assertSame('prijato', $activities[0]['status_change']);
+    }
+
+    public function testAdminCreateValidatesCompanyBelongsThenInsertsWithCompany(): void
+    {
+        $this->clientRepoMock->method('findById')->willReturn(['id' => 5, 'display_name' => 'Acme']);
+        $this->companyRepoMock->method('findById')->willReturn(['id' => 7, 'client_id' => 5, 'name' => 'Acme']);
+
+        $created = null;
+        $this->repoMock->method('create')->willReturnCallback(function ($d) use (&$created) {
+            $created = $d;
+            return 42;
+        });
+        $this->repoMock->method('findById')->willReturn($this->makeRow(['id' => 42]));
+        $this->stubAttachmentsAndActivity();
+
+        $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput(['companyId' => 7]));
+
+        $this->assertSame(7, $created['company_id']);
     }
 }

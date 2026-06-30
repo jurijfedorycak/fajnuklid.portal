@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ClipboardList, Loader2, Search } from 'lucide-vue-next'
-import { adminService, REQUEST_STATUSES, REQUEST_CATEGORIES } from '../api'
+import { ClipboardList, ClipboardPlus, Loader2, Search, Lock } from 'lucide-vue-next'
+import { adminService, REQUEST_STATUSES, REQUEST_CATEGORIES, REQUEST_SOURCES } from '../api'
 
 const router = useRouter()
 
@@ -54,6 +54,10 @@ function categoryLabel(key) {
   return REQUEST_CATEGORIES.find(c => c.key === key)?.label || key
 }
 
+function sourceLabel(key) {
+  return REQUEST_SOURCES.find(s => s.key === key)?.label || key
+}
+
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return requests.value
@@ -82,7 +86,7 @@ function openDetail(id) {
 
 <template>
   <div>
-    <div id="admin-requests-header" class="page-header">
+    <div id="admin-requests-header" class="page-header requests-header">
       <div>
         <h1 id="admin-requests-title" class="page-title">
           <ClipboardList :size="22" style="vertical-align:-4px; margin-right:8px; color:var(--color-mid);" />
@@ -92,6 +96,10 @@ function openDetail(id) {
           Správa všech žádostí napříč klienty.
         </p>
       </div>
+      <button id="admin-requests-new-btn" class="btn btn-primary" @click="router.push('/admin/zadosti/novy')">
+        <ClipboardPlus :size="16" />
+        <span>Nový záznam</span>
+      </button>
     </div>
 
     <div v-if="loading" id="admin-requests-loading" class="card" style="padding:40px; text-align:center;">
@@ -193,7 +201,16 @@ function openDetail(id) {
                   {{ statusMeta(r.status).label }}
                 </span>
               </div>
-              <h3 class="request-card-title">{{ r.title }}</h3>
+              <h3 class="request-card-title">
+                <span
+                  v-if="r.visibility === 'internal'"
+                  class="internal-tag"
+                  title="Interní poznámka — klient nevidí"
+                >
+                  <Lock :size="11" /> Interní
+                </span>
+                {{ r.title }}
+              </h3>
               <dl class="request-card-meta">
                 <dt>Vytvořeno</dt>
                 <dd>{{ formatDate(r.createdAt) }}</dd>
@@ -201,10 +218,8 @@ function openDetail(id) {
                 <dd>{{ formatDate(r.dueDate) }}</dd>
                 <dt>Kategorie</dt>
                 <dd>{{ categoryLabel(r.category) }}</dd>
-                <template v-if="r.locationValue">
-                  <dt>Místo</dt>
-                  <dd>{{ r.locationValue }}</dd>
-                </template>
+                <dt>Kanál</dt>
+                <dd>{{ sourceLabel(r.source) }}</dd>
               </dl>
             </div>
           </div>
@@ -218,7 +233,7 @@ function openDetail(id) {
                   <th>Klient</th>
                   <th>Název</th>
                   <th>Kategorie</th>
-                  <th>Místo</th>
+                  <th>Kanál</th>
                   <th>Stav</th>
                   <th>Termín</th>
                 </tr>
@@ -233,9 +248,22 @@ function openDetail(id) {
                 >
                   <td class="text-muted">{{ formatDate(r.createdAt) }}</td>
                   <td class="fw-500" style="color:var(--color-primary)">{{ r.clientDisplayName || '—' }}</td>
-                  <td>{{ r.title }}</td>
+                  <td>
+                    <span class="title-cell">
+                      <span
+                        v-if="r.visibility === 'internal'"
+                        class="internal-tag"
+                        title="Interní poznámka — klient nevidí"
+                      >
+                        <Lock :size="11" /> Interní
+                      </span>
+                      {{ r.title }}
+                    </span>
+                  </td>
                   <td class="text-muted">{{ categoryLabel(r.category) }}</td>
-                  <td class="text-muted">{{ r.locationValue || '—' }}</td>
+                  <td>
+                    <span class="badge badge-gray">{{ sourceLabel(r.source) }}</span>
+                  </td>
                   <td>
                     <span class="badge" :class="statusMeta(r.status).badge">
                       {{ statusMeta(r.status).label }}
@@ -253,6 +281,42 @@ function openDetail(id) {
 </template>
 
 <style scoped>
+/* Header: title block + action button. Stacks on mobile, row from sm. */
+.requests-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+@media (min-width: 640px) {
+  .requests-header {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+}
+
+.title-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.internal-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-warning);
+  background: var(--color-warning-light);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+
 /* Stat tiles — mobile-first: 2-col grid with Celkem spanning full width, single row ≥640px */
 .stats-grid {
   display: grid;

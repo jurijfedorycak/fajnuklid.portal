@@ -24,8 +24,11 @@ class MaintenanceRequestRepository
         r.title,
         r.category,
         r.description,
+        r.source,
+        r.visibility,
         r.status,
         r.due_date,
+        r.record_date,
         r.created_at,
         r.updated_at,
         la.email AS created_by_email,
@@ -44,6 +47,7 @@ class MaintenanceRequestRepository
             LEFT JOIN login_accounts la ON r.created_by_user_id = la.id
             LEFT JOIN companies co ON r.company_id = co.id
             WHERE r.client_id = :client_id AND r.deleted_at IS NULL
+              AND r.visibility = \'client\'
         ';
 
         $params = ['client_id' => $clientId];
@@ -59,7 +63,9 @@ class MaintenanceRequestRepository
         }
 
         if ($date !== null && $date !== '') {
-            $sql .= ' AND DATE(r.created_at) = :date';
+            // Match the calendar placement: a record_date pins the request to that day,
+            // otherwise it falls on its creation day.
+            $sql .= ' AND COALESCE(r.record_date, DATE(r.created_at)) = :date';
             $params['date'] = $date;
         }
 
@@ -83,6 +89,7 @@ class MaintenanceRequestRepository
             LEFT JOIN login_accounts la ON r.created_by_user_id = la.id
             LEFT JOIN companies co ON r.company_id = co.id
             WHERE r.id = :id AND r.client_id = :client_id AND r.deleted_at IS NULL
+              AND r.visibility = \'client\'
         ');
         $stmt->execute(['id' => $id, 'client_id' => $clientId]);
         $result = $stmt->fetch();
@@ -145,15 +152,18 @@ class MaintenanceRequestRepository
      */
     public function countByDayForClient(int $clientId, int $year, int $month): array
     {
+        // A record_date pins the request to that calendar day; otherwise it falls on its
+        // creation day. Internal admin-only records never surface on the client calendar.
         $stmt = $this->db->prepare('
-            SELECT DATE(created_at) AS d, status AS s, COUNT(*) AS c
+            SELECT COALESCE(record_date, DATE(created_at)) AS d, status AS s, COUNT(*) AS c
             FROM maintenance_requests
             WHERE client_id = :client_id
               AND deleted_at IS NULL
+              AND visibility = \'client\'
               AND status <> :excluded_status
-              AND YEAR(created_at) = :year
-              AND MONTH(created_at) = :month
-            GROUP BY DATE(created_at), status
+              AND YEAR(COALESCE(record_date, created_at)) = :year
+              AND MONTH(COALESCE(record_date, created_at)) = :month
+            GROUP BY COALESCE(record_date, DATE(created_at)), status
             ORDER BY d ASC
         ');
         $stmt->execute([
@@ -173,12 +183,12 @@ class MaintenanceRequestRepository
         $stmt = $this->db->prepare('
             INSERT INTO maintenance_requests (
                 client_id, company_id, created_by_user_id, title, category,
-                location_type, location_value, description, status, due_date,
-                created_at, updated_at
+                location_type, location_value, description, source, visibility,
+                status, due_date, record_date, created_at, updated_at
             ) VALUES (
                 :client_id, :company_id, :created_by_user_id, :title, :category,
-                :location_type, :location_value, :description, :status, :due_date,
-                NOW(), NOW()
+                :location_type, :location_value, :description, :source, :visibility,
+                :status, :due_date, :record_date, NOW(), NOW()
             )
         ');
 
@@ -191,8 +201,11 @@ class MaintenanceRequestRepository
             'location_type' => $data['location_type'] ?? null,
             'location_value' => $data['location_value'] ?? null,
             'description' => $data['description'] ?? null,
+            'source' => $data['source'] ?? 'portal',
+            'visibility' => $data['visibility'] ?? 'client',
             'status' => $data['status'] ?? 'prijato',
             'due_date' => $data['due_date'] ?? null,
+            'record_date' => $data['record_date'] ?? null,
         ]);
 
         return (int) $this->db->lastInsertId();
@@ -200,7 +213,7 @@ class MaintenanceRequestRepository
 
     public function update(int $id, array $data): bool
     {
-        $allowed = ['title', 'category', 'description', 'status', 'due_date', 'company_id'];
+        $allowed = ['title', 'category', 'description', 'status', 'due_date', 'record_date', 'company_id', 'source', 'visibility'];
         $fields = [];
         $params = ['id' => $id];
 

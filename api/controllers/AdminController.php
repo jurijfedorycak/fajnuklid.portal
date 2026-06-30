@@ -2135,4 +2135,43 @@ class AdminController extends Controller
         $this->maintenanceRequestService->adminDelete($id);
         Response::success(null, 'Žádost byla smazána');
     }
+
+    /**
+     * GET /admin/maintenance-requests/form-options[?clientId=]
+     * Drives the admin "new record" form: the full client list always, plus the
+     * selected client's protistrany (IČO) when a clientId is supplied.
+     */
+    public function maintenanceRequestFormOptions(Request $request): void
+    {
+        $clients = array_map(static function ($c) {
+            return [
+                'id' => (int) $c['id'],
+                'name' => $c['display_name'],
+            ];
+        }, $this->clientRepo->findAll());
+
+        $companies = [];
+        $clientId = $request->query('clientId');
+        if ($clientId !== null && $clientId !== '') {
+            $companies = array_map(static function ($c) {
+                return [
+                    'id' => (int) $c['id'],
+                    'ico' => $c['registration_number'] ?? null,
+                    'name' => $c['name'] ?? null,
+                ];
+            }, $this->companyRepo->findByClientId((int) $clientId));
+        }
+
+        Response::success(['clients' => $clients, 'companies' => $companies]);
+    }
+
+    public function createMaintenanceRequest(Request $request): void
+    {
+        $user = $request->getUser();
+        $adminUserId = (int) ($user['id'] ?? 0);
+        $adminName = $user['email'] ?? 'Fajn Úklid';
+
+        $data = $this->maintenanceRequestService->adminCreate($adminUserId, $adminName, $request->getBody());
+        Response::created($data, 'Záznam byl vytvořen');
+    }
 }

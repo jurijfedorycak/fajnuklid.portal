@@ -116,6 +116,8 @@ $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class],
 
     // Maintenance requests - admin management
     $router->get('/maintenance-requests', 'AdminController@listMaintenanceRequests');
+    $router->get('/maintenance-requests/form-options', 'AdminController@maintenanceRequestFormOptions');
+    $router->post('/maintenance-requests', 'AdminController@createMaintenanceRequest');
     $router->get('/maintenance-requests/{id}', 'AdminController@getMaintenanceRequest');
     $router->put('/maintenance-requests/{id}', 'AdminController@updateMaintenanceRequest');
     $router->post('/maintenance-requests/{id}/activity', 'AdminController@addMaintenanceRequestActivity');

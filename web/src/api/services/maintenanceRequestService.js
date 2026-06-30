@@ -69,6 +69,22 @@ export const REQUEST_CATEGORIES = [
   { key: 'jine',            label: 'Jiné',            icon: 'HelpCircle' },
 ]
 
+// How a request reached us. 'portal' is the client self-service channel; the rest are
+// off-portal channels an admin selects when logging a request on the client's behalf.
+export const REQUEST_SOURCES = [
+  { key: 'portal',    label: 'Portál',   icon: 'Globe' },
+  { key: 'whatsapp',  label: 'WhatsApp', icon: 'MessageCircle' },
+  { key: 'phone',     label: 'Telefon',  icon: 'Phone' },
+  { key: 'in_person', label: 'Osobně',   icon: 'Users' },
+  { key: 'email',     label: 'E-mail',   icon: 'Mail' },
+]
+
+// Whether the client sees the record in their portal, or it stays an internal admin note.
+export const REQUEST_VISIBILITIES = [
+  { key: 'client',   label: 'Viditelné klientovi', icon: 'Eye' },
+  { key: 'internal', label: 'Interní poznámka',    icon: 'Lock' },
+]
+
 export const ATTACHMENT_LIMITS = {
   maxFiles: 5,
   maxBytes: 10 * 1024 * 1024,

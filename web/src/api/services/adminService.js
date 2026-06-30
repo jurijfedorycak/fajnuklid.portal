@@ -188,6 +188,20 @@ export const adminService = {
     return response.data
   },
 
+  // Options for the admin "new record" form: all clients, plus the selected client's
+  // protistrany (IČO) when clientId is provided.
+  async getMaintenanceRequestFormOptions(clientId = null) {
+    const params = {}
+    if (clientId) params.clientId = clientId
+    const response = await apiClient.get('/admin/maintenance-requests/form-options', { params })
+    return response.data
+  },
+
+  async createMaintenanceRequest(data) {
+    const response = await apiClient.post('/admin/maintenance-requests', data)
+    return response.data
+  },
+
   async updateMaintenanceRequest(id, data) {
     const response = await apiClient.put(`/admin/maintenance-requests/${id}`, data)
     return response.data

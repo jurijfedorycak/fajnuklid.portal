@@ -5,7 +5,7 @@ import {
   Calendar, Clock, Loader2, Trash2,
   Save, Send, Lock, ChevronRight,
 } from 'lucide-vue-next'
-import { adminService, REQUEST_STATUSES, REQUEST_CATEGORIES } from '../api'
+import { adminService, REQUEST_STATUSES, REQUEST_CATEGORIES, REQUEST_SOURCES } from '../api'
 import RequestConversation from '../components/RequestConversation.vue'
 
 const route = useRoute()
@@ -61,6 +61,8 @@ async function load({ silent = false } = {}) {
 onMounted(load)
 
 const categoryLabel = computed(() => REQUEST_CATEGORIES.find(c => c.key === request.value?.category)?.label || request.value?.category)
+const sourceLabel = computed(() => REQUEST_SOURCES.find(s => s.key === request.value?.source)?.label || request.value?.source)
+const isInternal = computed(() => request.value?.visibility === 'internal')
 const isDueDateDirty = computed(() => (editDueDate.value || '') !== (request.value?.dueDate || ''))
 
 function formatDate(d) {
@@ -167,15 +169,27 @@ async function confirmDelete() {
       <!-- Header -->
       <header id="admin-request-header" class="request-header">
         <div class="header-text">
-          <h1 id="admin-request-title" class="request-title">{{ request.title }}</h1>
+          <div class="title-row">
+            <h1 id="admin-request-title" class="request-title">{{ request.title }}</h1>
+            <span
+              v-if="isInternal"
+              id="admin-request-internal-badge"
+              class="internal-badge"
+              title="Interní poznámka — klient ji v portálu nevidí"
+            >
+              <Lock :size="12" /> Interní
+            </span>
+          </div>
           <p id="admin-request-subtitle" class="request-subtitle">
             {{ categoryLabel }}
             <span class="dot">·</span>
             {{ request.clientDisplayName || '—' }}
             <span class="dot">·</span>
+            Kanál: {{ sourceLabel }}
+            <span class="dot">·</span>
             Vytvořeno {{ formatDate(request.createdAt) }}
-            <template v-if="request.locationValue">
-              <span class="dot">·</span>{{ request.locationValue }}
+            <template v-if="request.recordDate">
+              <span class="dot">·</span>Záznam k {{ formatDate(request.recordDate) }}
             </template>
           </p>
         </div>
@@ -367,12 +381,33 @@ async function confirmDelete() {
   margin-bottom: 20px;
 }
 .header-text { max-width: 780px; min-width: 0; }
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
 .request-title {
   font-size: 26px;
   font-weight: 600;
   color: var(--color-primary);
-  margin: 0 0 6px;
+  margin: 0;
   line-height: 1.25;
+}
+.internal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-warning);
+  background: var(--color-warning-light);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
 }
 .request-subtitle {
   font-size: 13px;

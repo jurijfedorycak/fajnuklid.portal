@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Exceptions\NotFoundException;
 use App\Exceptions\ValidationException;
+use App\Repositories\ClientRepository;
 use App\Repositories\CompanyRepository;
 use App\Repositories\MaintenanceRequestRepository;
 
@@ -15,6 +16,22 @@ class MaintenanceRequestService
     public const OPEN_STATUSES = ['prijato', 'resi_se'];
     public const CATEGORIES = ['reklamace', 'mimoradna_prace', 'jine'];
     public const LOCATION_TYPES = ['office', 'common', 'custom'];
+
+    // How a request reached us. 'portal' is the client self-service channel; the rest are
+    // off-portal channels an admin selects when logging a request on the client's behalf.
+    public const SOURCES = ['portal', 'whatsapp', 'phone', 'in_person', 'email'];
+
+    // 'internal' records are admin-only and never surface in the client portal.
+    public const VISIBILITIES = ['client', 'internal'];
+
+    // Human-readable channel labels used in the system activity note.
+    private const SOURCE_LABELS = [
+        'portal' => 'Portál',
+        'whatsapp' => 'WhatsApp',
+        'phone' => 'Telefon',
+        'in_person' => 'Osobně',
+        'email' => 'E-mail',
+    ];
 
     private const NOTIFICATION_RECIPIENT = 'jurij.fedorycak@fajnuklid.cz';
 
@@ -33,17 +50,27 @@ class MaintenanceRequestService
     private CompanyRepository $companyRepo;
     private ?MailerService $mailer;
     private R2StorageService $storage;
+    // Lazily resolved so the many mocked service tests that never touch admin-create
+    // don't open a real DB connection just by constructing the service.
+    private ?ClientRepository $clientRepo;
 
     public function __construct(
         ?MaintenanceRequestRepository $repo = null,
         ?CompanyRepository $companyRepo = null,
         ?MailerService $mailer = null,
-        ?R2StorageService $storage = null
+        ?R2StorageService $storage = null,
+        ?ClientRepository $clientRepo = null
     ) {
         $this->repo = $repo ?? new MaintenanceRequestRepository();
         $this->companyRepo = $companyRepo ?? new CompanyRepository();
         $this->mailer = $mailer;
         $this->storage = $storage ?? new R2StorageService();
+        $this->clientRepo = $clientRepo;
+    }
+
+    private function clientRepo(): ClientRepository
+    {
+        return $this->clientRepo ??= new ClientRepository();
     }
 
     public function resolveClientIdForUser(int $userId): ?int
@@ -311,6 +338,93 @@ class MaintenanceRequestService
 
     // ─────────── Admin ───────────
 
+    /**
+     * Admin logs a request/record on a client's behalf — e.g. something the client
+     * relayed over WhatsApp, by phone or in person. The channel is captured in `source`,
+     * `visibility` controls whether the client sees it, and an optional `recordDate`
+     * pins it to a day on the attendance calendar.
+     */
+    public function adminCreate(int $adminUserId, string $adminName, array $input): array
+    {
+        $errors = $this->validateAdminCreatePayload($input);
+        if (!empty($errors)) {
+            throw new ValidationException('Validace selhala', $errors);
+        }
+
+        $clientId = (int) $input['clientId'];
+        if ($this->clientRepo()->findById($clientId) === null) {
+            throw new ValidationException('Validace selhala', [
+                'clientId' => ['Vybraný klient neexistuje.'],
+            ]);
+        }
+
+        // companyId is optional — a phone call may not concern a specific IČO — but when
+        // provided it must belong to the selected client.
+        $companyId = null;
+        if (!empty($input['companyId'])) {
+            $companyId = (int) $input['companyId'];
+            $company = $this->companyRepo->findById($companyId);
+            if ($company === null || (int) $company['client_id'] !== $clientId) {
+                throw new ValidationException('Validace selhala', [
+                    'companyId' => ['Vybraná protistrana nepatří k tomuto klientovi.'],
+                ]);
+            }
+        }
+
+        // The FE always sends a source; this fallback only guards a direct API call. 'phone'
+        // (not the table's 'portal' default) reflects the admin path's most common channel.
+        $source = $input['source'] ?? 'phone';
+        $visibility = $input['visibility'] ?? 'client';
+        $status = (!empty($input['status']) && in_array($input['status'], self::STATUSES, true))
+            ? $input['status']
+            : 'prijato';
+
+        $newId = $this->repo->create([
+            'client_id' => $clientId,
+            'company_id' => $companyId,
+            'created_by_user_id' => $adminUserId,
+            'title' => trim((string) $input['title']),
+            'category' => !empty($input['category']) ? $input['category'] : null,
+            'location_type' => null,
+            'location_value' => null,
+            'description' => isset($input['description']) ? trim((string) $input['description']) : null,
+            'source' => $source,
+            'visibility' => $visibility,
+            'status' => $status,
+            'record_date' => $input['recordDate'] ?? null,
+        ]);
+
+        $channelLabel = self::SOURCE_LABELS[$source] ?? $source;
+
+        // Internal provenance note: who logged it, through which channel. Admins only —
+        // the client should never see a staff email in their portal.
+        $this->repo->addActivity([
+            'request_id' => $newId,
+            'user_id' => $adminUserId,
+            'author_type' => 'system',
+            'author_name' => 'Systém',
+            'message' => sprintf('Záznam vytvořil administrátor (%s) – kanál: %s.', $adminName, $channelLabel),
+            'status_change' => $visibility === 'internal' ? $status : null,
+            'is_internal' => true,
+        ]);
+
+        // Client-visible records get a neutral creation entry carrying the initial status,
+        // mirroring what a client sees when they create a request themselves.
+        if ($visibility === 'client') {
+            $this->repo->addActivity([
+                'request_id' => $newId,
+                'user_id' => $adminUserId,
+                'author_type' => 'system',
+                'author_name' => 'Systém',
+                'message' => 'Požadavek byl zaznamenán týmem Fajn Úklid.',
+                'status_change' => $status,
+                'is_internal' => false,
+            ]);
+        }
+
+        return $this->getForAdmin($newId);
+    }
+
     public function listForAdmin(?int $clientId = null, ?string $status = null): array
     {
         $rows = $this->repo->findAllForAdmin($clientId, $status);
@@ -353,6 +467,21 @@ class MaintenanceRequestService
                     $errors['dueDate'] = ['Termín musí být ve formátu RRRR-MM-DD.'];
                 } else {
                     $update['due_date'] = $dueDate;
+                }
+            }
+        }
+        if (array_key_exists('recordDate', $input)) {
+            $recordDate = $input['recordDate'];
+            if ($recordDate === '' || $recordDate === null) {
+                $update['record_date'] = null;
+            } else {
+                $parsed = \DateTime::createFromFormat('Y-m-d', (string) $recordDate);
+                if ($parsed === false || $parsed->format('Y-m-d') !== $recordDate) {
+                    $errors['recordDate'] = ['Datum musí být ve formátu RRRR-MM-DD.'];
+                } elseif ((string) $recordDate > date('Y-m-d')) {
+                    $errors['recordDate'] = ['Datum nemůže být v budoucnosti.'];
+                } else {
+                    $update['record_date'] = $recordDate;
                 }
             }
         }
@@ -471,6 +600,54 @@ class MaintenanceRequestService
         return $errors;
     }
 
+    private function validateAdminCreatePayload(array $input): array
+    {
+        $errors = [];
+
+        if (empty($input['clientId']) || !is_numeric($input['clientId'])) {
+            $errors['clientId'] = ['Vyberte klienta.'];
+        }
+
+        $title = isset($input['title']) ? trim((string) $input['title']) : '';
+        if ($title === '') {
+            $errors['title'] = ['Název je povinný.'];
+        } elseif (mb_strlen($title) > 255) {
+            $errors['title'] = ['Název nesmí být delší než 255 znaků.'];
+        }
+
+        $description = isset($input['description']) ? trim((string) $input['description']) : '';
+        if ($description === '') {
+            $errors['description'] = ['Popis je povinný.'];
+        } elseif (mb_strlen($description) > 5000) {
+            $errors['description'] = ['Popis nesmí být delší než 5000 znaků.'];
+        }
+
+        if (!empty($input['category']) && !in_array($input['category'], self::CATEGORIES, true)) {
+            $errors['category'] = ['Vyberte platnou kategorii.'];
+        }
+
+        if (!empty($input['source']) && !in_array($input['source'], self::SOURCES, true)) {
+            $errors['source'] = ['Vyberte platný kanál.'];
+        }
+
+        if (!empty($input['visibility']) && !in_array($input['visibility'], self::VISIBILITIES, true)) {
+            $errors['visibility'] = ['Neplatná viditelnost.'];
+        }
+
+        if (!empty($input['recordDate'])) {
+            $recordDate = (string) $input['recordDate'];
+            $parsed = \DateTime::createFromFormat('Y-m-d', $recordDate);
+            if ($parsed === false || $parsed->format('Y-m-d') !== $recordDate) {
+                $errors['recordDate'] = ['Datum musí být ve formátu RRRR-MM-DD.'];
+            } elseif ($recordDate > date('Y-m-d')) {
+                // A record logs something that already happened — it can't be in the future.
+                $errors['recordDate'] = ['Datum nemůže být v budoucnosti.'];
+            }
+        }
+
+        return $errors;
+    }
+
     private function formatRow(array $row): array
     {
         return [
@@ -482,8 +659,11 @@ class MaintenanceRequestService
             'title' => $row['title'],
             'category' => $row['category'],
             'description' => $row['description'] ?? null,
+            'source' => $row['source'] ?? 'portal',
+            'visibility' => $row['visibility'] ?? 'client',
             'status' => $row['status'],
             'dueDate' => $row['due_date'] ?? null,
+            'recordDate' => $row['record_date'] ?? null,
             'createdAt' => $row['created_at'],
             'updatedAt' => $row['updated_at'] ?? null,
             'createdBy' => $row['created_by_email'] ?? null,

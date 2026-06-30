@@ -111,6 +111,12 @@ const routes = [
         meta: { requiresAdmin: true },
       },
       {
+        path: '/admin/zadosti/novy',
+        name: 'AdminNewRequest',
+        component: () => import('../views/AdminNewRequestView.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
         path: '/admin/zadosti/:id',
         name: 'AdminRequestDetail',
         component: () => import('../views/AdminRequestDetailView.vue'),
