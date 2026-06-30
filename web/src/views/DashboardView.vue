@@ -25,6 +25,8 @@ import {
   Users,
   FileSignature,
   AlertCircle,
+  Clock,
+  MapPin,
 } from "lucide-vue-next";
 import { useRouter } from "vue-router";
 import {
@@ -144,6 +146,7 @@ const dashboardData = ref({
     contract: { hasPdf: false, contractsEnabled: false },
   },
   cleaningDays: [],
+  ongoingCleaning: null,
   personnelList: [],
   recentInvoices: [],
 });
@@ -227,6 +230,24 @@ const contract = computed(() => overview.value.contract || { hasPdf: false });
 const personnelList = computed(() => dashboardData.value.personnelList || []);
 const recentInvoices = computed(() => dashboardData.value.recentInvoices || []);
 const cleaningDays = computed(() => dashboardData.value.cleaningDays || []);
+const ongoingCleaning = computed(() => dashboardData.value.ongoingCleaning || null);
+
+// True when the backend disclosed any specifics (object, start, worker) for the
+// in-progress cleaning. Basic-mode IČOs return the ongoing tuple with all of
+// these empty, so the banner falls back to a generic message instead.
+const ongoingHasDetails = computed(() => {
+  const o = ongoingCleaning.value;
+  if (!o) return false;
+  return !!(o.objectName || o.since || (o.employees && o.employees.length));
+});
+
+const ongoingEmployeesLabel = computed(() => {
+  const names = ongoingCleaning.value?.employees || [];
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} a ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} a ${names[names.length - 1]}`;
+});
 
 const greeting = computed(() => {
   const h = new Date().getHours();
@@ -649,6 +670,75 @@ function selectCompany(ico) {
           </button>
         </div>
       </header>
+
+      <!-- Live "cleaning in progress" banner — only while a cleaner is on-site.
+           Gated on attendanceEnabled too so it follows the same "hide all FreshQR
+           UI when off" rule as the Úklidy card, rather than relying solely on the
+           backend withholding ongoingCleaning. -->
+      <section
+        v-if="attendanceEnabled && ongoingCleaning"
+        id="dashboard-live-cleaning"
+        class="live-cleaning"
+        role="status"
+        aria-live="polite"
+      >
+        <span class="live-cleaning-indicator" aria-hidden="true">
+          <span class="live-cleaning-dot" />
+        </span>
+        <div class="live-cleaning-body">
+          <div class="live-cleaning-heading">
+            <span class="live-cleaning-tag">Živě</span>
+            <span class="live-cleaning-title">Úklid právě probíhá</span>
+          </div>
+          <div
+            v-if="ongoingHasDetails"
+            id="dashboard-live-cleaning-meta"
+            class="live-cleaning-meta"
+          >
+            <span
+              v-if="ongoingCleaning.objectName"
+              id="dashboard-live-cleaning-object"
+              class="live-cleaning-meta-item"
+            >
+              <MapPin :size="14" aria-hidden="true" />
+              {{ ongoingCleaning.objectName }}
+            </span>
+            <span
+              v-if="ongoingCleaning.since"
+              id="dashboard-live-cleaning-since"
+              class="live-cleaning-meta-item"
+            >
+              <Clock :size="14" aria-hidden="true" />
+              od {{ ongoingCleaning.since }}
+            </span>
+            <span
+              v-if="ongoingEmployeesLabel"
+              id="dashboard-live-cleaning-staff"
+              class="live-cleaning-meta-item"
+            >
+              <Users :size="14" aria-hidden="true" />
+              {{ ongoingEmployeesLabel }}
+            </span>
+          </div>
+          <div
+            v-else
+            id="dashboard-live-cleaning-generic"
+            class="live-cleaning-meta"
+          >
+            <span class="live-cleaning-meta-item">
+              Náš tým je právě u vás na objektu.
+            </span>
+          </div>
+        </div>
+        <RouterLink
+          id="dashboard-live-cleaning-link"
+          to="/dochazka"
+          class="live-cleaning-link"
+        >
+          <span>Docházka</span>
+          <ArrowRight :size="14" aria-hidden="true" />
+        </RouterLink>
+      </section>
 
       <!-- Brand-new-client onboarding hero -->
       <section
@@ -1300,10 +1390,150 @@ function selectCompany(ico) {
 /* Tighter inter-section spacing on desktop — 24px stacks added up to dead air. */
 @media (min-width: 1024px) {
   .dashboard-header,
+  .live-cleaning,
   .overview-card,
   .requests-widget,
   .dashboard-mid-row {
     margin-bottom: 16px;
+  }
+}
+
+/* ── Live "cleaning in progress" banner ─────────────────────────────────── */
+.live-cleaning {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  margin-bottom: 24px;
+  border-radius: var(--radius-lg);
+  background: var(--color-warning-light);
+  border: 1.5px solid var(--color-warning);
+  box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+}
+
+.live-cleaning-indicator {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.live-cleaning-dot {
+  position: relative;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-warning);
+}
+
+.live-cleaning-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--color-warning);
+  animation: live-cleaning-pulse 1.8s ease-out infinite;
+}
+
+@keyframes live-cleaning-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+.live-cleaning-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.live-cleaning-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.live-cleaning-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-warning);
+  background: var(--color-white);
+  border: 1px solid var(--color-warning);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+
+.live-cleaning-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.live-cleaning-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--color-gray-700);
+}
+
+.live-cleaning-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.live-cleaning-meta-item svg {
+  color: var(--color-warning);
+  flex-shrink: 0;
+}
+
+.live-cleaning-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+  white-space: nowrap;
+  align-self: center;
+}
+
+.live-cleaning-link:hover {
+  color: var(--color-primary-hover);
+}
+
+@media (min-width: 640px) {
+  .live-cleaning {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .live-cleaning-link {
+    margin-left: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-cleaning-dot::after {
+    animation: none;
   }
 }
 

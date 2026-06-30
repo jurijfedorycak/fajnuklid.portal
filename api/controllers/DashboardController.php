@@ -180,6 +180,26 @@ class DashboardController extends Controller
 
         $cleaningDays = self::reshapeCleaningDaysForDashboard($rawCleaningDays);
 
+        // Map IČO → company name so an in-progress cleaning can name its object.
+        // Demo cleanings carry the synthetic IČO, which has no DB company row —
+        // seed it explicitly so the live banner still labels the object.
+        $icoToName = [];
+        foreach ($companies as $c) {
+            $ico = isset($c['registration_number']) ? trim((string) $c['registration_number']) : '';
+            if ($ico !== '') {
+                $icoToName[$ico] = (string) ($c['name'] ?? '');
+            }
+        }
+        if ($clientForCleanings !== null && (bool) $clientForCleanings['is_demo']) {
+            $icoToName[DemoAttendanceService::DEMO_ICO] = DemoAttendanceService::DEMO_COMPANY_NAME;
+        }
+
+        $ongoingCleaning = self::buildOngoingCleaning(
+            $rawCleaningDays,
+            $today->format('Y-m-d'),
+            $icoToName
+        );
+
         $clientGreeting = null;
         if ($activeClientId !== null) {
             $clientRow = $this->clientRepo->findById($activeClientId);
@@ -230,6 +250,7 @@ class DashboardController extends Controller
                 'contract' => $contract,
             ],
             'cleaningDays' => $cleaningDays,
+            'ongoingCleaning' => $ongoingCleaning,
             'personnelList' => $personnelList,
             'recentInvoices' => $recentInvoices,
             'locations' => array_map(function ($l) {
@@ -293,6 +314,82 @@ class DashboardController extends Controller
             ];
         }
         return $out;
+    }
+
+    /**
+     * Build the "Úklid právě probíhá" summary for the dashboard hero from the
+     * raw current-month cleaningDays. Returns null when nothing is in progress
+     * right now; otherwise a compact tuple the FE renders as a live banner.
+     *
+     * Disclosure mirrors the Docházka calendar: only detailed-mode cleanings
+     * contribute employee names and a startTime, and the start is surfaced only
+     * when the IČO has no rounding rules — the same `ongoing + hasRoundingRules
+     * → hide start` rule AttendanceController applies, so the displayed
+     * "od HH:mm" can't contradict the billed time once the cleaning closes.
+     *
+     * A day flagged ongoing purely by a basic-mode IČO (empty cleanings[]) still
+     * returns a detail-free tuple so the banner can show a generic "právě
+     * probíhá" without leaking who/when.
+     *
+     * @param array<int,array<string,mixed>> $rawCleaningDays
+     * @param array<string,string> $icoToName  ico => company name
+     * @return array{objectName:?string,since:?string,employees:list<string>}|null
+     */
+    private static function buildOngoingCleaning(array $rawCleaningDays, string $today, array $icoToName): ?array
+    {
+        $todayDay = null;
+        foreach ($rawCleaningDays as $day) {
+            if (($day['date'] ?? null) === $today) {
+                $todayDay = $day;
+                break;
+            }
+        }
+        if ($todayDay === null || empty($todayDay['ongoing'])) {
+            return null;
+        }
+
+        $employees = [];
+        $objectNames = [];
+        $since = null;
+
+        $cleanings = is_array($todayDay['cleanings'] ?? null) ? $todayDay['cleanings'] : [];
+        foreach ($cleanings as $c) {
+            if (empty($c['ongoing'])) {
+                continue;
+            }
+
+            $employee = isset($c['employee']) ? trim((string) $c['employee']) : '';
+            if ($employee !== '' && !in_array($employee, $employees, true)) {
+                $employees[] = $employee;
+            }
+
+            $ico = isset($c['ico']) ? trim((string) $c['ico']) : '';
+            if ($ico !== '' && isset($icoToName[$ico])) {
+                $name = trim($icoToName[$ico]);
+                if ($name !== '' && !in_array($name, $objectNames, true)) {
+                    $objectNames[] = $name;
+                }
+            }
+
+            // Same redaction as AttendanceController: hide the start when the
+            // IČO has rounding rules so the displayed "od HH:mm" never drifts
+            // once the cleaning ends and the rounded range is committed.
+            if (!empty($c['hasRoundingRules'])) {
+                continue;
+            }
+            $start = $c['startTime'] ?? null;
+            if (is_string($start) && preg_match('/^\d{2}:\d{2}$/', $start) === 1) {
+                if ($since === null || $start < $since) {
+                    $since = $start;
+                }
+            }
+        }
+
+        return [
+            'objectName' => $objectNames === [] ? null : implode(', ', $objectNames),
+            'since' => $since,
+            'employees' => $employees,
+        ];
     }
 
     /**
