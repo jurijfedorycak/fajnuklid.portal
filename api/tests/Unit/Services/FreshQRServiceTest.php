@@ -183,6 +183,43 @@ class FreshQRServiceTest extends TestCase
         );
     }
 
+    // isAttendanceEnabledForCompanies
+
+    public function testIsAttendanceEnabledReturnsFalseForNoCompanies(): void
+    {
+        $this->assertFalse(FreshQRService::isAttendanceEnabledForCompanies([]));
+    }
+
+    public function testIsAttendanceEnabledReturnsFalseWhenAllIcosOff(): void
+    {
+        $companies = [
+            ['registration_number' => '11111111', 'freshqr_mode' => 'off'],
+            ['registration_number' => '22222222'], // missing mode → off
+            ['registration_number' => '33333333', 'freshqr_mode' => null],
+        ];
+
+        $this->assertFalse(FreshQRService::isAttendanceEnabledForCompanies($companies));
+    }
+
+    public function testIsAttendanceEnabledReturnsTrueWhenAnyIcoBasic(): void
+    {
+        $companies = [
+            ['registration_number' => '11111111', 'freshqr_mode' => 'off'],
+            ['registration_number' => '22222222', 'freshqr_mode' => 'basic'],
+        ];
+
+        $this->assertTrue(FreshQRService::isAttendanceEnabledForCompanies($companies));
+    }
+
+    public function testIsAttendanceEnabledReturnsTrueWhenAnyIcoDetailed(): void
+    {
+        $companies = [
+            ['registration_number' => '11111111', 'freshqr_mode' => 'detailed'],
+        ];
+
+        $this->assertTrue(FreshQRService::isAttendanceEnabledForCompanies($companies));
+    }
+
     // buildCleaningDays — mapping rules (legacy basic-mode equivalents)
 
     public function testBuildCleaningDaysReturnsEmptyWhenNoRecords(): void

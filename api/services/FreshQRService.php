@@ -201,6 +201,24 @@ class FreshQRService
     }
 
     /**
+     * True iff at least one of the given companies has FreshQR switched on
+     * (mode 'basic' or 'detailed'). Drives whether the portal exposes the
+     * attendance surfaces (Přehled docházky card + Docházka tab): clients
+     * without an activated QR system on any IČO get those hidden entirely.
+     *
+     * Deliberately decoupled from FreshQR connectivity (isConfigured) — tab
+     * visibility is a per-IČO configuration decision, not a runtime health
+     * check, so a temporary FreshQR outage must not hide the tab for a client
+     * who has it enabled.
+     *
+     * @param array<array<string,mixed>> $companies
+     */
+    public static function isAttendanceEnabledForCompanies(array $companies): bool
+    {
+        return self::buildModeByIcoMap($companies) !== [];
+    }
+
+    /**
      * Extract well-formed IČOs from a list of company rows. Anything that
      * isn't an all-digit string of a plausible length is dropped so the
      * substring matcher can't be tricked by empty / wildcard inputs.

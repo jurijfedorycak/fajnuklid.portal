@@ -14,20 +14,22 @@ const emit = defineEmits(['close'])
 
 const router = useRouter()
 const route = useRoute()
-const { user, isAdmin, logout } = useAuth()
+const { user, isAdmin, attendanceEnabled, logout } = useAuth()
 
 const displayName = computed(() => user.value?.display_name || user.value?.email || 'Klient')
 const activeIco = computed(() => user.value?.active_ico || '')
 
-const clientNavItems = [
+// Docházka is gated on the client's FreshQR activation — clients with no
+// activated QR system never see the attendance tab (see attendanceEnabled).
+const clientNavItems = computed(() => [
   { name: 'Přehled',      route: '/prehled',   icon: LayoutDashboard },
   { name: 'Faktury',      route: '/faktury',   icon: FileText },
   { name: 'Personál',     route: '/personal',  icon: Users },
   { name: 'Smlouva',      route: '/smlouva',   icon: FileSignature },
-  { name: 'Docházka',     route: '/dochazka',  icon: Clock },
+  ...(attendanceEnabled.value ? [{ name: 'Docházka', route: '/dochazka', icon: Clock }] : []),
   { name: 'Požadavky a reklamace', route: '/zadosti', icon: ClipboardList },
   { name: 'Kontakt',      route: '/kontakt',   icon: Phone },
-]
+])
 
 const openRequestsCount = ref(0)
 
@@ -39,7 +41,7 @@ const adminNavItems = computed(() => [
   { name: 'Design',       route: '/admin/design-tokens',  icon: Palette },
 ])
 
-const navItems = computed(() => isAdmin.value ? adminNavItems.value : clientNavItems)
+const navItems = computed(() => isAdmin.value ? adminNavItems.value : clientNavItems.value)
 
 async function loadOpenRequestsCount() {
   try {

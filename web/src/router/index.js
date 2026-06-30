@@ -136,7 +136,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  const { isAuthenticated, isAdmin } = useAuth()
+  const { isAuthenticated, isAdmin, attendanceEnabled } = useAuth()
 
   if (!to.meta.public && !isAuthenticated.value) {
     return { name: 'Login' }
@@ -147,6 +147,13 @@ router.beforeEach((to) => {
   }
 
   if (to.meta.requiresAdmin && !isAdmin.value) {
+    return { name: 'Dashboard' }
+  }
+
+  // Clients without an activated QR system can't reach the attendance page —
+  // the tab is hidden for them, so a deep link / stale bookmark falls back to
+  // the dashboard. Admins are exempt (handled by the preview path below).
+  if (!isAdmin.value && to.name === 'Attendance' && !attendanceEnabled.value) {
     return { name: 'Dashboard' }
   }
 

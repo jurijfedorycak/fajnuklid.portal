@@ -10,6 +10,11 @@ const error = ref(null)
 // Computed
 const isAuthenticated = computed(() => !!token.value)
 const isAdmin = computed(() => user.value?.is_admin || false)
+// Attendance surfaces (Přehled docházky card + Docházka tab) are hidden only
+// when the server explicitly says so. Default to visible when the flag is
+// absent (e.g. a session persisted before this field existed) so a stale
+// localStorage payload never wrongly hides the tab before checkAuth refreshes.
+const attendanceEnabled = computed(() => user.value?.attendance_enabled !== false)
 
 // Actions
 async function login(email, password) {
@@ -90,6 +95,7 @@ export function useAuth() {
     // Computed
     isAuthenticated,
     isAdmin,
+    attendanceEnabled,
 
     // Actions
     login,

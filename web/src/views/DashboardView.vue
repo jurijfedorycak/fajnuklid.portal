@@ -79,7 +79,7 @@ function formatRequestDate(d) {
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-const { user } = useAuth();
+const { user, attendanceEnabled } = useAuth();
 
 // ── State ────────────────────────────────────────────────────────────────────
 const loading = ref(true);
@@ -433,6 +433,33 @@ const isBrandNewClient = computed(() => {
   );
 });
 
+// Onboarding hero steps. The attendance step is dropped for clients with no
+// activated QR system so the brand-new hero never promises a calendar the
+// portal won't show them; step numbers come from the rendered index so the
+// sequence stays 1..N without gaps.
+const onboardingSteps = computed(() => {
+  const steps = [
+    {
+      id: "personnel",
+      title: "Poznejte svůj tým",
+      desc: "Zjistěte, kdo se o vás postará a jak se s ním spojit.",
+    },
+    {
+      id: "attendance",
+      title: "Sledujte docházku",
+      desc: "V kalendáři hned uvidíte, kdy se u vás uklízelo.",
+    },
+    {
+      id: "request",
+      title: "Pošlete požadavek",
+      desc: "Reklamace, dotaz, cokoliv – odpovíme co nejdříve.",
+    },
+  ];
+  return attendanceEnabled.value
+    ? steps
+    : steps.filter((s) => s.id !== "attendance");
+});
+
 const hasAnyInvoiceData = computed(
   () => (invoicesOverview.value.total || 0) > 0,
 );
@@ -646,31 +673,16 @@ function selectCompany(ico) {
         </p>
 
         <div class="onboarding-hero-steps">
-          <div class="onboarding-hero-step" id="dashboard-onboarding-step-1">
-            <span class="onboarding-hero-step-num">1</span>
+          <div
+            v-for="(step, index) in onboardingSteps"
+            :key="step.id"
+            class="onboarding-hero-step"
+            :id="`dashboard-onboarding-step-${step.id}`"
+          >
+            <span class="onboarding-hero-step-num">{{ index + 1 }}</span>
             <div class="onboarding-hero-step-text">
-              <span class="onboarding-hero-step-title">Poznejte svůj tým</span>
-              <span class="onboarding-hero-step-desc">
-                Zjistěte, kdo se o vás postará a jak se s ním spojit.
-              </span>
-            </div>
-          </div>
-          <div class="onboarding-hero-step" id="dashboard-onboarding-step-2">
-            <span class="onboarding-hero-step-num">2</span>
-            <div class="onboarding-hero-step-text">
-              <span class="onboarding-hero-step-title">Sledujte docházku</span>
-              <span class="onboarding-hero-step-desc">
-                V kalendáři hned uvidíte, kdy se u vás uklízelo.
-              </span>
-            </div>
-          </div>
-          <div class="onboarding-hero-step" id="dashboard-onboarding-step-3">
-            <span class="onboarding-hero-step-num">3</span>
-            <div class="onboarding-hero-step-text">
-              <span class="onboarding-hero-step-title">Pošlete požadavek</span>
-              <span class="onboarding-hero-step-desc">
-                Reklamace, dotaz, cokoliv – odpovíme co nejdříve.
-              </span>
+              <span class="onboarding-hero-step-title">{{ step.title }}</span>
+              <span class="onboarding-hero-step-desc">{{ step.desc }}</span>
             </div>
           </div>
         </div>
@@ -970,8 +982,16 @@ function selectCompany(ico) {
       </section>
 
       <!-- Mid row: Cleanings + Personnel -->
-      <section id="dashboard-mid-row" class="dashboard-mid-row">
-        <article id="dashboard-cleaning-card" class="card cleaning-card">
+      <section
+        id="dashboard-mid-row"
+        class="dashboard-mid-row"
+        :class="{ 'mid-row-single': !attendanceEnabled }"
+      >
+        <article
+          v-if="attendanceEnabled"
+          id="dashboard-cleaning-card"
+          class="card cleaning-card"
+        >
           <div class="card-header-row">
             <h3 id="dashboard-cleaning-title" class="card-title">
               Úklidy
@@ -1711,6 +1731,11 @@ function selectCompany(ico) {
 @media (min-width: 1024px) {
   .dashboard-mid-row {
     grid-template-columns: 1fr 360px;
+  }
+  /* Attendance hidden: only the personnel card remains, so it takes the full
+     row instead of leaving the 360px calendar column empty. */
+  .dashboard-mid-row.mid-row-single {
+    grid-template-columns: 1fr;
   }
 }
 
