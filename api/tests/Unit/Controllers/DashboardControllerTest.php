@@ -31,7 +31,6 @@ class DashboardControllerTest extends TestCase
             'employee'         => 'Anna N.',
             'startTime'        => '08:00',
             'endTime'          => null,
-            'note'             => null,
             'ico'              => '12345678',
             'rawMinutes'       => null,
             'roundedMinutes'   => null,
@@ -189,20 +188,17 @@ class DashboardControllerTest extends TestCase
         $this->assertSame('ongoing', $result[2]['status']);
     }
 
-    public function testReshapeSurfacesFirstNonEmptyNoteAndSkipsInvalidDates(): void
+    public function testReshapeSkipsInvalidDates(): void
     {
         $merged = [
             ['date' => '', 'ongoing' => false, 'cleanings' => []],
-            ['date' => '2026-05-20', 'ongoing' => false, 'cleanings' => [
-                ['note' => '   '],
-                ['note' => 'Generální úklid'],
-            ]],
+            ['date' => '2026-05-20', 'ongoing' => false, 'cleanings' => []],
         ];
 
         $result = self::reshape($merged);
         $this->assertCount(1, $result, 'blank/invalid date entries are dropped');
         $this->assertSame('2026-05-20', $result[0]['date']);
-        $this->assertSame('Generální úklid', $result[0]['note']);
+        $this->assertArrayNotHasKey('note', $result[0]);
     }
 
     private static function previousYearMonth(string $date): array

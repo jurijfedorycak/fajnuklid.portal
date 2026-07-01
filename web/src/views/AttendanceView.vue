@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail, Eye } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail, Eye, BarChart3, ArrowUp, ArrowDown, Minus } from 'lucide-vue-next'
 import { attendanceService, maintenanceRequestService } from '../api'
 import { REQUEST_STATUSES } from '../api/services/maintenanceRequestService'
 import { useAuth } from '../stores/auth'
@@ -38,6 +38,20 @@ const upstreamError = ref(null)
 const cleaningDays = ref([])
 const hourlySummary = ref([])
 const freshqrActive = ref(false)
+
+// Overview ("Přehledy") — visit / worked-time aggregates over a selectable
+// period, fetched independently of the calendar's month navigation.
+const PERIOD_OPTIONS = [
+  { key: 'day', label: 'Dnes', prevLabel: 'včera' },
+  { key: 'week', label: 'Týden', prevLabel: 'minulý týden' },
+  { key: 'month', label: 'Měsíc', prevLabel: 'minulý měsíc' },
+  { key: 'quarter', label: 'Kvartál', prevLabel: 'minulé čtvrtletí' },
+  { key: 'year', label: 'Rok', prevLabel: 'loni' },
+]
+const overviewPeriod = ref('month')
+const overview = ref(null)
+const overviewLoading = ref(true)
+const overviewError = ref(null)
 const requestsByDay = ref({})
 const openPopoverDate = ref(null)
 const popoverItems = ref([])
@@ -135,11 +149,34 @@ async function fetchRequestsForMonth() {
   }
 }
 
+// Overview aggregates are period-scoped, not month-scoped, so they load on their
+// own cadence — on mount, when the period switches, or when the preview target
+// changes. Deliberately NOT tied to calendar month navigation.
+async function fetchSummary() {
+  overviewLoading.value = true
+  overviewError.value = null
+  try {
+    const res = await attendanceService.getSummary(overviewPeriod.value, previewClientId.value)
+    if (res.success) {
+      overview.value = res.data
+    } else {
+      overviewError.value = res.message || 'Nepodařilo se načíst přehled'
+    }
+  } catch (e) {
+    overviewError.value = e.message || 'Nepodařilo se načíst přehled'
+  } finally {
+    overviewLoading.value = false
+  }
+}
+
 async function loadAll() {
   await Promise.all([fetchAttendance(), fetchRequestsForMonth()])
 }
 
-onMounted(loadAll)
+onMounted(() => {
+  loadAll()
+  fetchSummary()
+})
 
 // Refetch when month changes or when the preview target changes mid-tab (e.g.
 // the admin navigates between two client previews without a full reload).
@@ -150,6 +187,10 @@ watch([viewYear, viewMonth, previewClientId], () => {
   closeHourlyBreakdown()
   loadAll()
 })
+
+// Overview reacts to its own period control and to preview target changes only.
+watch(overviewPeriod, fetchSummary)
+watch(previewClientId, fetchSummary)
 
 // When the wall-clock day rolls over while the page is open, refetch so today's
 // "ongoing" state and any cleanings that started after midnight show up. The
@@ -218,7 +259,6 @@ const calendarDays = computed(() => {
       ongoing: info?.ongoing || false,
       cleanings,
       cleaningsCount: cleanings.length,
-      hasNote: cleanings.some(c => c && c.note),
       requests,
       priorityStatus: pickPriorityStatus(requests.statuses),
       isToday, isPast,
@@ -351,6 +391,71 @@ const monthStats = computed(() => {
     ongoing: days.filter(d => d.ongoing).length,
   }
 })
+
+// --- Overview ("Přehledy") derived state ---
+const overviewMeta = computed(() =>
+  PERIOD_OPTIONS.find(p => p.key === overview.value?.period) || null
+)
+const prevLabel = computed(() => overviewMeta.value?.prevLabel || 'minulé období')
+const hasTimeData = computed(() => !!overview.value?.current?.hasTimeData)
+
+const visitDelta = computed(() => {
+  if (!overview.value) return 0
+  return (overview.value.current.visitCount || 0) - (overview.value.previous.visitCount || 0)
+})
+const minutesDelta = computed(() => {
+  if (!overview.value) return 0
+  return (overview.value.current.totalMinutes || 0) - (overview.value.previous.totalMinutes || 0)
+})
+const maxObjectMinutes = computed(() =>
+  (overview.value?.current?.perObject || []).reduce((m, o) => Math.max(m, o.totalMinutes || 0), 0)
+)
+
+function pluralUklid(n) {
+  const abs = Math.abs(n)
+  if (abs === 1) return 'úklid'
+  if (abs >= 2 && abs <= 4) return 'úklidy'
+  return 'úklidů'
+}
+function formatVisits(n) {
+  return `${n} ${pluralUklid(n)}`
+}
+
+function deltaClass(d) {
+  return d > 0 ? 'delta-up' : (d < 0 ? 'delta-down' : 'delta-flat')
+}
+function deltaIcon(d) {
+  return d > 0 ? ArrowUp : (d < 0 ? ArrowDown : Minus)
+}
+// Uses a real minus sign (−) so a negative delta reads cleanly next to the arrow.
+function deltaCount(d) {
+  if (d === 0) return 'beze změny'
+  return `${d > 0 ? '+' : '−'}${Math.abs(d)}`
+}
+const deltaMinutesText = computed(() => {
+  const d = minutesDelta.value
+  if (d === 0) return 'beze změny'
+  return `${d > 0 ? '+' : '−'}${formatDuration(Math.abs(d))}`
+})
+
+// Bar width relative to the busiest object; a small floor keeps a tiny non-zero
+// value visible rather than collapsing to an invisible sliver.
+function barWidth(minutes) {
+  const max = maxObjectMinutes.value
+  if (!max || !minutes || minutes <= 0) return '0%'
+  return `${Math.max(4, Math.round((minutes / max) * 100))}%`
+}
+
+function formatRangeLabel(range) {
+  if (!range || !range.from || !range.to) return ''
+  const [fy, fm, fd] = range.from.split('-').map(Number)
+  const [ty, tm, td] = range.to.split('-').map(Number)
+  if (range.from === range.to) return `${fd}. ${fm}. ${fy}`
+  if (fy === ty && fm === tm) return `${fd}. – ${td}. ${tm}. ${ty}`
+  if (fy === ty) return `${fd}. ${fm}. – ${td}. ${tm}. ${ty}`
+  return `${fd}. ${fm}. ${fy} – ${td}. ${tm}. ${ty}`
+}
+const overviewRangeLabel = computed(() => formatRangeLabel(overview.value?.range))
 
 function prevMonth() {
   if (viewMonth.value === 0) { viewMonth.value = 11; viewYear.value-- }
@@ -613,6 +718,93 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- Overview ("Přehledy") — period-switchable visit / worked-time aggregates. -->
+    <div id="attendance-overview" class="card overview-card">
+      <div class="ov-header">
+        <div class="ov-title-wrap">
+          <BarChart3 :size="18" class="ov-title-icon" aria-hidden="true" />
+          <h2 class="ov-title">Přehledy docházky</h2>
+        </div>
+        <div class="ov-period-switch" role="group" aria-label="Období přehledu">
+          <button
+            v-for="opt in PERIOD_OPTIONS"
+            :key="opt.key"
+            :id="`ov-period-${opt.key}`"
+            type="button"
+            class="ov-period-btn"
+            :class="{ 'is-active': overviewPeriod === opt.key }"
+            :aria-pressed="overviewPeriod === opt.key"
+            @click="overviewPeriod = opt.key"
+          >{{ opt.label }}</button>
+        </div>
+      </div>
+
+      <div v-if="overviewLoading" id="ov-loading" class="ov-loading">
+        <Loader2 :size="18" class="spin" aria-hidden="true" />
+        <span>Načítám přehled…</span>
+      </div>
+      <div v-else-if="overviewError" id="ov-error" class="alert alert-warning ov-alert">
+        {{ overviewError }}
+      </div>
+      <template v-else-if="overview">
+        <p v-if="overview.error" id="ov-partial" class="ov-partial">{{ overview.error }}</p>
+        <p class="ov-range">{{ overviewRangeLabel }}</p>
+
+        <!-- Headline metrics -->
+        <div class="ov-stats">
+          <div id="ov-stat-visits" class="ov-stat">
+            <span class="ov-stat-label">Uskutečněné návštěvy</span>
+            <span class="ov-stat-value">{{ overview.current.visitCount }}</span>
+            <span class="ov-stat-delta" :class="deltaClass(visitDelta)">
+              <component :is="deltaIcon(visitDelta)" :size="13" aria-hidden="true" />
+              {{ deltaCount(visitDelta) }} <span class="ov-delta-ref">vs. {{ prevLabel }}</span>
+            </span>
+          </div>
+          <div v-if="hasTimeData" id="ov-stat-time" class="ov-stat">
+            <span class="ov-stat-label">Odpracovaný čas</span>
+            <span class="ov-stat-value">{{ formatDuration(overview.current.totalMinutes) }}</span>
+            <span class="ov-stat-delta" :class="deltaClass(minutesDelta)">
+              <component :is="deltaIcon(minutesDelta)" :size="13" aria-hidden="true" />
+              {{ deltaMinutesText }} <span class="ov-delta-ref">vs. {{ prevLabel }}</span>
+            </span>
+          </div>
+          <div v-if="overview.current.ongoingCount > 0" id="ov-stat-ongoing" class="ov-stat ov-stat--ongoing">
+            <span class="ov-stat-label">Právě probíhá</span>
+            <span class="ov-stat-value">{{ overview.current.ongoingCount }}</span>
+          </div>
+        </div>
+
+        <!-- Per-object breakdown (detailed-mode IČOs only) -->
+        <div v-if="overview.current.perObject.length" id="ov-objects" class="ov-objects">
+          <h3 class="ov-objects-title">Podle objektu</h3>
+          <ul class="ov-object-list">
+            <li
+              v-for="obj in overview.current.perObject"
+              :key="obj.ico"
+              :id="`ov-object-${obj.ico}`"
+              class="ov-object-row"
+            >
+              <div class="ov-object-head">
+                <span class="ov-object-name">{{ obj.companyName }}</span>
+                <span class="ov-object-figs">
+                  <span class="ov-object-visits">{{ formatVisits(obj.visitCount) }}</span>
+                  <span v-if="hasTimeData && obj.totalMinutes > 0" class="ov-object-time">
+                    · {{ formatDuration(obj.totalMinutes) }}
+                  </span>
+                </span>
+              </div>
+              <div v-if="hasTimeData && obj.totalMinutes > 0" class="ov-bar-track" aria-hidden="true">
+                <div class="ov-bar-fill" :style="{ width: barWidth(obj.totalMinutes) }" />
+              </div>
+            </li>
+          </ul>
+        </div>
+        <p v-else id="ov-empty" class="ov-empty">
+          V tomto období zatím neproběhl žádný úklid.
+        </p>
+      </template>
+    </div>
+
     <!-- Hourly billing summary — one row per IČO on Hodinová sazba. Only
          visible when viewing the current month (see isCurrentMonth comment). -->
     <div
@@ -726,7 +918,7 @@ onBeforeUnmount(() => {
               },
               cell.priorityStatus ? `day-priority-${cell.priorityStatus}` : '',
             ]"
-            :title="cell.requests.total > 0 ? buildRequestTooltip(cell.requests) : (cell.hasCleaning ? (cell.hasNote ? 'Úklid proběhl (s poznámkou)' : 'Úklid proběhl') : '')"
+            :title="cell.requests.total > 0 ? buildRequestTooltip(cell.requests) : (cell.hasCleaning ? 'Úklid proběhl' : '')"
             @click="onCellClick(cell, $event)"
             @mouseenter="onCellMouseEnter(cell, $event)"
             @mouseleave="onCellMouseLeave"
@@ -747,7 +939,6 @@ onBeforeUnmount(() => {
               <span v-for="n in Math.min(cell.cleaningsCount, 3)" :key="n" class="dot" />
               <span v-if="cell.cleaningsCount > 3" class="dot-more">+</span>
             </span>
-            <span v-if="cell.hasNote" class="day-note-dot" title="Poznámka k úklidu" />
             <span
               v-if="cell.requests.total > 0"
               class="day-status-badge"
@@ -826,7 +1017,6 @@ onBeforeUnmount(() => {
                 </template>
               </div>
               <div :id="`cleaning-emp-${activeCell.key}-${i}`" class="cleaning-emp">{{ c.employee }}</div>
-              <div v-if="c.note" :id="`cleaning-note-${activeCell.key}-${i}`" class="cleaning-note">{{ c.note }}</div>
             </li>
           </ul>
         </template>
@@ -961,6 +1151,176 @@ onBeforeUnmount(() => {
 .legend-dot.done    { background: #d1e7dd; border: 1.5px solid #198754; }
 .legend-dot.ongoing { background: #fff0d6; border: 1.5px solid #e67e00; }
 .legend-dot.empty   { background: var(--color-gray-100); border: 1.5px solid var(--color-gray-300); }
+
+/* Overview ("Přehledy") — mobile-first period switcher + KPI cards + per-object
+   bars. All colours come from design tokens. */
+.overview-card {
+  padding: var(--space-lg);
+  margin-bottom: 16px;
+}
+.ov-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: var(--space-md);
+}
+@media (min-width: 640px) {
+  .ov-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+.ov-title-wrap { display: flex; align-items: center; gap: 8px; }
+.ov-title-icon { color: var(--color-mid); flex-shrink: 0; }
+.ov-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0;
+}
+.ov-period-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: var(--color-gray-100);
+  padding: 3px;
+  border-radius: var(--radius-pill);
+}
+.ov-period-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-gray-600);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.ov-period-btn:hover { color: var(--color-primary); }
+.ov-period-btn.is-active {
+  background: var(--color-white);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+.ov-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0;
+  color: var(--color-gray-500);
+  font-size: var(--fs-sm);
+}
+.ov-alert { margin: 8px 0 0; }
+.ov-partial {
+  margin: 0 0 8px;
+  font-size: var(--fs-xs);
+  color: var(--color-warning);
+}
+.ov-range {
+  margin: 0 0 12px;
+  font-size: var(--fs-sm);
+  color: var(--color-gray-500);
+  font-variant-numeric: tabular-nums;
+}
+.ov-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ov-stat {
+  flex: 1 1 140px;
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ov-stat--ongoing {
+  border-color: var(--color-warning);
+  background: var(--color-ongoing-bg);
+}
+.ov-stat-label {
+  font-size: var(--fs-xs);
+  color: var(--color-gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.ov-stat-value {
+  font-size: clamp(24px, 4vw + 12px, 30px);
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.ov-stat-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.ov-delta-ref { color: var(--color-gray-500); font-weight: 500; }
+.delta-up   { color: var(--color-success); }
+.delta-down { color: var(--color-danger); }
+.delta-flat { color: var(--color-gray-500); }
+
+.ov-objects { margin-top: 16px; }
+.ov-objects-title {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 10px;
+}
+.ov-object-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ov-object-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ov-object-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.ov-object-figs {
+  font-size: var(--fs-sm);
+  color: var(--color-gray-600);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ov-object-time { color: var(--color-primary); font-weight: 600; }
+.ov-bar-track {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-gray-100);
+  overflow: hidden;
+}
+.ov-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-mid);
+  transition: width 0.3s ease;
+}
+.ov-empty {
+  margin: 16px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--color-gray-500);
+  line-height: 1.4;
+}
 
 /* Hourly billing summary — mobile-first; rows stack vertically on phones and
    metrics sit side-by-side from 640px. Cards reuse the global .card class. */
@@ -1469,17 +1829,6 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-/* Small dot indicating a note exists */
-.day-note-dot {
-  position: absolute;
-  bottom: 5px;
-  right: 6px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--color-mid);
-}
-
 /* Multi-cleaning indicator — small horizontal dot stack at the bottom of the
    day cell. Up to 3 dots; "+" suffix when there are more. Visible only on days
    with 2+ cleanings (Detailed-mode IČOs only). */
@@ -1562,13 +1911,6 @@ onBeforeUnmount(() => {
   font-size: 13px;
   color: var(--color-primary);
   font-weight: 500;
-}
-.cleaning-note {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--color-gray-700);
-  font-style: italic;
-  white-space: pre-line;
 }
 
 .spin { animation: spin 2s linear infinite; }

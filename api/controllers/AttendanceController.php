@@ -9,6 +9,7 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\ClientRepository;
 use App\Repositories\CompanyRepository;
+use App\Services\AttendanceOverviewService;
 use App\Services\AttendanceSummaryService;
 use App\Services\DemoAttendanceService;
 use App\Services\FreshQRService;
@@ -91,6 +92,186 @@ class AttendanceController extends Controller
             'year' => $year,
             'month' => $month,
         ]);
+    }
+
+    /**
+     * Docházka overview: visit counts + worked-time totals for a selectable
+     * period (day/week/month/quarter/year) with the previous equivalent period
+     * as a comparison baseline. Separate from index() so the period switcher can
+     * refetch just the aggregates without rebuilding the calendar.
+     *
+     * The payload never carries scan times or employee names — only counts and
+     * summed (rounded/billable) minutes — so no rounding redaction is needed.
+     */
+    public function summary(Request $request): void
+    {
+        $user = $request->getUser();
+        $userId = (int) $user['id'];
+        $isAdmin = (bool) ($user['is_admin'] ?? false);
+
+        $period = AttendanceOverviewService::normalisePeriod($request->query('period'));
+
+        $previewClientId = self::parsePreviewClientId($request->query('previewClientId'));
+        if ($isAdmin && $previewClientId !== null) {
+            $this->respondSummaryPreview($previewClientId, $period);
+            return;
+        }
+
+        $today = new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague'));
+
+        $client = $this->clientRepo->findByUserId($userId);
+        if ($client !== null && (bool) $client['is_demo']) {
+            $this->respondSummaryFromDemo($period, $today, null);
+            return;
+        }
+
+        $companies = $this->companyRepo->findByUserId($userId);
+        $this->respondSummaryFromCompanies($companies, $period, $today, null);
+    }
+
+    /**
+     * Admin "preview as client" for the overview — mirrors respondWithPreview
+     * but for the aggregate figures.
+     */
+    private function respondSummaryPreview(int $clientId, string $period): void
+    {
+        $client = $this->clientRepo->findById($clientId);
+        if ($client === null) {
+            Response::error('Klient nenalezen', 404);
+            return;
+        }
+
+        $today = new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague'));
+        $previewMeta = [
+            'clientId' => (int) $client['id'],
+            'clientName' => (string) $client['display_name'],
+        ];
+
+        if ((bool) $client['is_demo']) {
+            $this->respondSummaryFromDemo($period, $today, $previewMeta);
+            return;
+        }
+
+        $companies = $this->companyRepo->findByClientId((int) $client['id']);
+        $this->respondSummaryFromCompanies($companies, $period, $today, $previewMeta);
+    }
+
+    /**
+     * @param array<array<string,mixed>> $companies
+     * @param array<string,mixed>|null   $previewMeta
+     */
+    private function respondSummaryFromCompanies(
+        array $companies,
+        string $period,
+        \DateTimeImmutable $today,
+        ?array $previewMeta
+    ): void {
+        $current = AttendanceOverviewService::currentRange($period, $today);
+        $previous = AttendanceOverviewService::previousRange($period, $today);
+
+        // previous always precedes current → one fetch over the union covers both.
+        $result = $this->freshqr->getCleaningDaysForCompaniesRange(
+            $companies,
+            $previous['from'],
+            $current['to']
+        );
+
+        $this->emitSummary(
+            (bool) $result['active'],
+            $result['cleaningDays'],
+            $result['companies'] ?? $companies,
+            $current,
+            $previous,
+            $period,
+            $result['error'] ?? null,
+            $previewMeta
+        );
+    }
+
+    /**
+     * @param array<string,mixed>|null $previewMeta
+     */
+    private function respondSummaryFromDemo(
+        string $period,
+        \DateTimeImmutable $today,
+        ?array $previewMeta
+    ): void {
+        $current = AttendanceOverviewService::currentRange($period, $today);
+        $previous = AttendanceOverviewService::previousRange($period, $today);
+
+        $cleaningDays = DemoAttendanceService::buildCleaningDaysForRange(
+            $previous['from'],
+            $current['to'],
+            $today
+        );
+
+        $this->emitSummary(
+            true,
+            $cleaningDays,
+            DemoAttendanceService::syntheticCompanies(),
+            $current,
+            $previous,
+            $period,
+            null,
+            $previewMeta
+        );
+    }
+
+    /**
+     * Aggregate the current + previous slices out of one cleaningDays array and
+     * emit the overview payload.
+     *
+     * @param array<array<string,mixed>>                            $cleaningDays
+     * @param array<array<string,mixed>>                            $companies
+     * @param array{from:\DateTimeImmutable,to:\DateTimeImmutable}  $current
+     * @param array{from:\DateTimeImmutable,to:\DateTimeImmutable}  $previous
+     * @param array<string,mixed>|null                              $previewMeta
+     */
+    private function emitSummary(
+        bool $active,
+        array $cleaningDays,
+        array $companies,
+        array $current,
+        array $previous,
+        string $period,
+        ?string $error,
+        ?array $previewMeta
+    ): void {
+        $icoToName = [];
+        foreach ($companies as $c) {
+            $ico = isset($c['registration_number']) ? trim((string) $c['registration_number']) : '';
+            if ($ico !== '') {
+                $icoToName[$ico] = (string) ($c['name'] ?? '');
+            }
+        }
+
+        $currentFrom = $current['from']->format('Y-m-d');
+        $currentTo = $current['to']->format('Y-m-d');
+        $previousFrom = $previous['from']->format('Y-m-d');
+        $previousTo = $previous['to']->format('Y-m-d');
+
+        $currentAgg = AttendanceOverviewService::aggregate($cleaningDays, $currentFrom, $currentTo, $icoToName);
+        $previousAgg = AttendanceOverviewService::aggregate($cleaningDays, $previousFrom, $previousTo, $icoToName);
+
+        $payload = [
+            'freshqrActive' => $active,
+            'period' => $period,
+            'range' => ['from' => $currentFrom, 'to' => $currentTo],
+            'previousRange' => ['from' => $previousFrom, 'to' => $previousTo],
+            'current' => $currentAgg,
+            // The FE only needs totals from the previous period to render deltas.
+            'previous' => [
+                'visitCount' => $previousAgg['visitCount'],
+                'totalMinutes' => $previousAgg['totalMinutes'],
+                'hasTimeData' => $previousAgg['hasTimeData'],
+            ],
+            'error' => $error,
+        ];
+        if ($previewMeta !== null) {
+            $payload['preview'] = $previewMeta;
+        }
+
+        Response::success($payload);
     }
 
     /**

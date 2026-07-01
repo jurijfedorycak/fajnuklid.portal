@@ -66,16 +66,6 @@ const fontSizes = [
   { size: '22px', label: 'Heading' },
 ]
 
-// HTML parser collapses literal whitespace inside templates, so a multi-paragraph
-// note written inline gets squashed onto one line. The live AttendanceView uses
-// `{{ c.note }}` interpolation where the runtime preserves `\n\n` — replicate
-// that here with a JS-bound string so the demo actually shows paragraph breaks.
-const mergedNoteSample = [
-  'Doplněn papír na záchody.',
-  'Vyměnili jsme rozbitou žárovku v chodbě.',
-  'Klient nahlásil prasklé umyvadlo, předáno údržbě.',
-].join('\n\n')
-
 async function copyToClipboard(varName) {
   try {
     await navigator.clipboard.writeText(`var(${varName})`)
@@ -493,7 +483,6 @@ async function copyToClipboard(varName) {
             <span class="day-multi-dots" title="4 úklidy v tento den">
               <span class="dot" /><span class="dot" /><span class="dot" /><span class="dot-more">+</span>
             </span>
-            <span class="day-note-dot" title="Poznámka k úklidu" />
           </div>
           <div id="dt-cal-cell-ongoing-today" class="day-cell day-ongoing day-today">
             <span class="day-num">14</span>
@@ -505,7 +494,7 @@ async function copyToClipboard(varName) {
         </div>
         <p class="dt-cell-caption">
           Den 10 – bez úklidu &nbsp;·&nbsp; den 11 – jeden úklid &nbsp;·&nbsp;
-          den 12 – 2 úklidy &nbsp;·&nbsp; den 13 – 4+ úklidů s poznámkou &nbsp;·&nbsp;
+          den 12 – 2 úklidy &nbsp;·&nbsp; den 13 – 4+ úklidů &nbsp;·&nbsp;
           den 14 – dnes, právě probíhá, 3 úklidy
         </p>
       </div>
@@ -526,11 +515,10 @@ async function copyToClipboard(varName) {
                 <li class="cleaning-row">
                   <div class="cleaning-time">13:00 – 15:30</div>
                   <div class="cleaning-emp">Petr K.</div>
-                  <div class="cleaning-note">Doplnili jsme tekuté mýdlo a papírové ručníky.</div>
                 </li>
               </ul>
             </div>
-            <p class="dt-cell-caption">Dva úklidy v jednom dni. Druhý záznam má poznámku z FreshQR.</p>
+            <p class="dt-cell-caption">Dva úklidy v jednom dni.</p>
           </div>
 
           <div>
@@ -554,27 +542,6 @@ async function copyToClipboard(varName) {
             <p class="dt-cell-caption">Dnes, dva pracovníci stále na místě (čas konce nezjištěn → „…").</p>
           </div>
 
-        </div>
-      </div>
-
-      <!-- Merged-notes scenario -->
-      <div id="dt-popover-notes" class="dt-subsection">
-        <h3 id="dt-popover-notes-title" class="dt-subsection-title">Popover s více poznámkami z FreshQR</h3>
-        <div id="dt-popover-notes-wrap" class="dt-popover-single">
-          <div id="dt-popover-merged-notes" class="day-popover">
-            <div class="day-popover-header">Úklidy · 13.5.</div>
-            <ul class="cleaning-list">
-              <li class="cleaning-row">
-                <div class="cleaning-time">08:00 – 11:30</div>
-                <div class="cleaning-emp">Anna N.</div>
-                <div class="cleaning-note">{{ mergedNoteSample }}</div>
-              </li>
-            </ul>
-          </div>
-          <p class="dt-cell-caption">
-            FreshQR pošle pole <code>notes</code>; backend je spojí prázdným řádkem.
-            CSS <code>white-space: pre-line</code> zachová odstavce.
-          </p>
         </div>
       </div>
 
@@ -1177,11 +1144,6 @@ async function copyToClipboard(varName) {
 .day-icon { position: absolute; top: 4px; right: 4px; line-height: 1; }
 .done-icon    { color: var(--color-success); }
 .ongoing-icon { color: var(--color-warning); }
-.day-note-dot {
-  position: absolute; bottom: 5px; right: 6px;
-  width: 5px; height: 5px; border-radius: 50%;
-  background: var(--color-mid);
-}
 .day-multi-dots {
   position: absolute; bottom: 4px; left: 5px;
   display: inline-flex; align-items: center; gap: 2px;
@@ -1232,13 +1194,6 @@ async function copyToClipboard(varName) {
 .cleaning-time-open { margin-left: 4px; color: var(--color-mid); }
 .cleaning-emp {
   font-size: 13px; color: var(--color-primary); font-weight: 500;
-}
-.cleaning-note {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--color-gray-700);
-  font-style: italic;
-  white-space: pre-line;
 }
 .day-popover-item {
   display: flex; flex-direction: column; width: 100%;

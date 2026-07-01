@@ -147,11 +147,12 @@ class DemoAttendanceServiceTest extends TestCase
 
         $this->assertNotEmpty($result);
         foreach ($result as $entry) {
-            $this->assertSame(['date', 'ongoing', 'cleanings'], array_keys($entry));
+            $this->assertSame(['date', 'ongoing', 'icos', 'cleanings'], array_keys($entry));
+            $this->assertSame(['12345678'], $entry['icos']);
             $this->assertNotEmpty($entry['cleanings'], "Demo entry {$entry['date']} must surface at least one cleaning");
             foreach ($entry['cleanings'] as $cleaning) {
                 $this->assertSame(
-                    ['employee', 'startTime', 'endTime', 'note', 'ico', 'rawMinutes', 'roundedMinutes', 'roundedEndTime', 'hasRoundingRules', 'ongoing'],
+                    ['employee', 'startTime', 'endTime', 'ico', 'rawMinutes', 'roundedMinutes', 'roundedEndTime', 'hasRoundingRules', 'ongoing'],
                     array_keys($cleaning)
                 );
                 $this->assertIsString($cleaning['employee']);
@@ -204,15 +205,38 @@ class DemoAttendanceServiceTest extends TestCase
         }
     }
 
-    public function testEvenWeekWednesdayCarriesSampleNote(): void
+    public function testBuildCleaningDaysForRangeSpansMonthsAndFiltersToWindow(): void
     {
-        // The demo seeds a single sample note on every ISO-even Wednesday so
-        // the notes feature always lights up at least once in the demo month.
-        $result = DemoAttendanceService::buildCleaningDays(2026, 4, self::today('2026-05-06'));
+        // Range crosses a month boundary; every entry must fall inside [from, to]
+        // and stay sorted ascending by date.
+        $from = new \DateTimeImmutable('2026-03-20');
+        $to = new \DateTimeImmutable('2026-04-10');
+        $result = DemoAttendanceService::buildCleaningDaysForRange($from, $to, self::today('2026-05-06'));
 
-        $weekEvenWednesday = self::findByDate($result, '2026-04-15');
-        $this->assertNotNull($weekEvenWednesday);
-        $this->assertNotNull($weekEvenWednesday['cleanings'][0]['note']);
+        $this->assertNotEmpty($result);
+        $dates = array_column($result, 'date');
+        $sorted = $dates;
+        sort($sorted);
+        $this->assertSame($sorted, $dates, 'Range output must be chronologically ordered');
+        foreach ($dates as $date) {
+            $this->assertGreaterThanOrEqual('2026-03-20', $date);
+            $this->assertLessThanOrEqual('2026-04-10', $date);
+        }
+    }
+
+    public function testBuildCleaningDaysForRangeSwapsReversedBounds(): void
+    {
+        $result = DemoAttendanceService::buildCleaningDaysForRange(
+            new \DateTimeImmutable('2026-04-10'),
+            new \DateTimeImmutable('2026-03-20'),
+            self::today('2026-05-06')
+        );
+
+        $this->assertNotEmpty($result);
+        foreach (array_column($result, 'date') as $date) {
+            $this->assertGreaterThanOrEqual('2026-03-20', $date);
+            $this->assertLessThanOrEqual('2026-04-10', $date);
+        }
     }
 
     /**

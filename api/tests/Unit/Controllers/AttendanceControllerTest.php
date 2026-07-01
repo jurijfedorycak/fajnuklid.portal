@@ -35,7 +35,6 @@ class AttendanceControllerTest extends TestCase
                 'employee'         => 'Anna N.',
                 'startTime'        => '19:08',
                 'endTime'          => '21:25',
-                'note'             => null,
                 'ico'              => '12345678',
                 'rawMinutes'       => 137,
                 'roundedMinutes'   => 150,

@@ -42,6 +42,8 @@
   --color-success-light: #ecfdf5;
   --color-warning: #f59e0b;
   --color-warning-light: #fffbeb;
+  /* Soft amber tint for "probíhá / ongoing" surfaces (calendar cells, KPI cards) */
+  --color-ongoing-bg: #fff0d6;
 
   /* WhatsApp brand */
   --color-whatsapp: #128C7E;

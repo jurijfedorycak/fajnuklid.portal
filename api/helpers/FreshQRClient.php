@@ -164,15 +164,18 @@ class FreshQRClient
      * project has been superseded; nothing else crosses the wire to the
      * client.
      *
-     * Month is optional: when null, the endpoint returns the whole year. We
-     * always pass it to keep payload small.
+     * Month is optional: pass null to fetch the whole year in a single call
+     * (used by the period-overview ranges that span more than one month —
+     * fewer round-trips than fetching each month separately). Month-scoped
+     * calls keep the per-view payload small for the calendar.
      */
-    public function getProjectReports(int $year, int $month): ?array
+    public function getProjectReports(int $year, ?int $month = null): ?array
     {
-        $response = $this->request('GET', '/v1/reports/projects', [
-            'year' => $year,
-            'month' => $month,
-        ]);
+        $params = ['year' => $year];
+        if ($month !== null) {
+            $params['month'] = $month;
+        }
+        $response = $this->request('GET', '/v1/reports/projects', $params);
 
         if ($response === null) {
             return null;

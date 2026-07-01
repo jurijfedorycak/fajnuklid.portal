@@ -16,8 +16,7 @@ namespace App\Services;
  * Each emitted day carries a `cleanings[]` array — same shape as the real
  * Detailed-mode FreshQR output (including `rawMinutes` / `roundedMinutes`) so
  * downstream code (calendar popover, hourly summary) flows through a single
- * code path. Two synthetic employees alternate, and one weekly day carries a
- * sample note so admins can showcase the notes feature.
+ * code path. Two synthetic employees alternate across the schedule.
  */
 class DemoAttendanceService
 {
@@ -49,7 +48,7 @@ class DemoAttendanceService
     /**
      * Build the cleaningDays list for a single calendar month under the demo schedule.
      *
-     * @return list<array{date:string,ongoing:bool,cleanings:list<array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,ongoing:bool}>}>
+     * @return list<array{date:string,ongoing:bool,icos:list<string>,cleanings:list<array{employee:string,startTime:?string,endTime:?string,ico:string,ongoing:bool}>}>
      */
     public static function buildCleaningDays(int $year, int $month, \DateTimeImmutable $today): array
     {
@@ -74,6 +73,7 @@ class DemoAttendanceService
                 $result[] = [
                     'date' => $dateStr,
                     'ongoing' => true,
+                    'icos' => [self::DEMO_ICO],
                     // Today: morning cleaning is finished, afternoon one is "still on-site"
                     // (endTime null) — gives the demo a believable mid-day mix.
                     'cleanings' => [
@@ -81,13 +81,11 @@ class DemoAttendanceService
                             self::DEMO_EMPLOYEES[0]['name'],
                             self::DEMO_EMPLOYEES[0]['startTime'],
                             self::DEMO_EMPLOYEES[0]['endTime'],
-                            null,
                             false
                         ),
                         self::buildCleaning(
                             self::DEMO_EMPLOYEES[1]['name'],
                             self::DEMO_EMPLOYEES[1]['startTime'],
-                            null,
                             null,
                             true
                         ),
@@ -117,6 +115,7 @@ class DemoAttendanceService
                 $result[] = [
                     'date' => $dateStr,
                     'ongoing' => false,
+                    'icos' => [self::DEMO_ICO],
                     'cleanings' => self::buildDemoCleanings($date),
                 ];
             }
@@ -126,13 +125,51 @@ class DemoAttendanceService
     }
 
     /**
+     * Range variant used by the Docházka overview. Iterates every calendar month
+     * the [$from, $to] window touches, reuses buildCleaningDays for each, and
+     * filters the merged result to the inclusive range. Keeps the synthetic
+     * schedule identical to what the month-scoped calendar shows.
+     *
+     * @return list<array{date:string,ongoing:bool,cleanings:list<array<string,mixed>>}>
+     */
+    public static function buildCleaningDaysForRange(
+        \DateTimeImmutable $from,
+        \DateTimeImmutable $to,
+        \DateTimeImmutable $today
+    ): array {
+        if ($from > $to) {
+            [$from, $to] = [$to, $from];
+        }
+        $fromStr = $from->format('Y-m-d');
+        $toStr = $to->format('Y-m-d');
+
+        $result = [];
+        // Walk month-by-month from the first day of $from's month up to $to.
+        $cursor = $from->modify('first day of this month')->setTime(0, 0);
+        $end = $to->modify('first day of this month')->setTime(0, 0);
+        while ($cursor <= $end) {
+            $days = self::buildCleaningDays(
+                (int) $cursor->format('Y'),
+                (int) $cursor->format('n'),
+                $today
+            );
+            foreach ($days as $day) {
+                if ($day['date'] >= $fromStr && $day['date'] <= $toStr) {
+                    $result[] = $day;
+                }
+            }
+            $cursor = $cursor->modify('first day of next month');
+        }
+
+        return $result;
+    }
+
+    /**
      * Synthesise a believable per-day cleanings list. ISO-odd weeks get two
      * cleanings (morning + afternoon, two different workers); ISO-even weeks
-     * get one. The Wednesday of every ISO-even week additionally carries a
-     * sample note so the notes feature shows up in the demo without spamming
-     * every cell.
+     * get one.
      *
-     * @return list<array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,ongoing:bool}>
+     * @return list<array{employee:string,startTime:?string,endTime:?string,ico:string,ongoing:bool}>
      */
     private static function buildDemoCleanings(\DateTimeImmutable $date): array
     {
@@ -144,22 +181,14 @@ class DemoAttendanceService
             ? [self::DEMO_EMPLOYEES[0], self::DEMO_EMPLOYEES[1]]
             : [self::DEMO_EMPLOYEES[$dayOfWeek === 3 ? 0 : 1]];
 
-        $note = (!$isOddWeek && $dayOfWeek === 3)
-            ? 'Doplnili jsme tekuté mýdlo a papírové ručníky.'
-            : null;
-
         $cleanings = [];
         foreach ($employees as $emp) {
             $cleanings[] = self::buildCleaning(
                 $emp['name'],
                 $emp['startTime'],
                 $emp['endTime'],
-                $note,
                 false
             );
-            // Notes are shown once per day, not duplicated across each entry —
-            // mimics the real backend where a note is attached to one record.
-            $note = null;
         }
         return $cleanings;
     }
@@ -171,20 +200,18 @@ class DemoAttendanceService
      * without rules. `rawMinutes` is computed when both ends are known so the
      * hourly summary helper has something to sum on demo accounts.
      *
-     * @return array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,rawMinutes:?int,roundedMinutes:?int,roundedEndTime:?string,hasRoundingRules:bool,ongoing:bool}
+     * @return array{employee:string,startTime:?string,endTime:?string,ico:string,rawMinutes:?int,roundedMinutes:?int,roundedEndTime:?string,hasRoundingRules:bool,ongoing:bool}
      */
     private static function buildCleaning(
         string $employee,
         ?string $startTime,
         ?string $endTime,
-        ?string $note,
         bool $ongoing
     ): array {
         return [
             'employee'         => $employee,
             'startTime'        => $startTime,
             'endTime'          => $endTime,
-            'note'             => $note,
             'ico'              => self::DEMO_ICO,
             'rawMinutes'       => FreshQRService::computeDurationMinutes($startTime, $endTime),
             'roundedMinutes'   => null,

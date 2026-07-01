@@ -80,7 +80,6 @@ class FreshQRService
      *           'employee'         => 'Anna N.',
      *           'startTime'        => 'HH:mm',          // null when scan time absent
      *           'endTime'          => 'HH:mm' | null,   // null when same as start (still on-site)
-     *           'note'             => string | null,    // FreshQR doesn't return notes today; surfaced as-is when it does
      *           'ico'              => '12345678',
      *           'rawMinutes'       => int | null,       // raw duration; null when uncomputable
      *           'roundedMinutes'   => int | null,       // null when no rules apply (or duration uncomputable)
@@ -90,6 +89,7 @@ class FreshQRService
      *         ],
      *         ...
      *       ],
+     *       'icos'      => ['12345678', ...],           // distinct client IČOs cleaned this day (both modes; no times/employees)
      *     ],
      *     ...
      *   ],
@@ -167,6 +167,113 @@ class FreshQRService
             }
         }
 
+        $cleaningDays = $this->assembleCleaningDays($records, $companies, $modeByIco, $today);
+
+        return [
+            'active' => true,
+            'cleaningDays' => $cleaningDays,
+            'companies' => $companies,
+            'error' => null,
+        ];
+    }
+
+    /**
+     * Range variant of getCleaningDaysForCompanies used by the Docházka overview
+     * (period switcher: day / week / month / quarter / year). Fetches each
+     * calendar year the range spans in a single call (month omitted) — for a
+     * whole-year period that's one round-trip instead of twelve — then filters
+     * the assembled cleaning days down to [$from, $to] inclusive.
+     *
+     * No DB caching: every call hits FreshQR live (product decision). A year
+     * period therefore pulls a full year of the materialized report; acceptable
+     * for now, and the natural place to add a nightly cache later.
+     *
+     * @param array<array<string,mixed>> $companies
+     */
+    public function getCleaningDaysForCompaniesRange(
+        array $companies,
+        \DateTimeImmutable $from,
+        \DateTimeImmutable $to
+    ): array {
+        if (!$this->client->isConfigured()) {
+            return ['active' => false, 'cleaningDays' => [], 'companies' => $companies, 'error' => null];
+        }
+
+        $modeByIco = self::buildModeByIcoMap($companies);
+        if (empty($modeByIco)) {
+            return ['active' => false, 'cleaningDays' => [], 'companies' => $companies, 'error' => null];
+        }
+
+        if ($from > $to) {
+            [$from, $to] = [$to, $from];
+        }
+        $fromStr = $from->format('Y-m-d');
+        $toStr = $to->format('Y-m-d');
+
+        $this->client->resetLastError();
+
+        $records = [];
+        $anyFetchFailed = false;
+        for ($year = (int) $from->format('Y'); $year <= (int) $to->format('Y'); $year++) {
+            $yearRecords = $this->client->getProjectReports($year, null);
+            if ($yearRecords === null) {
+                $anyFetchFailed = true;
+                continue;
+            }
+            $records = array_merge($records, $yearRecords);
+        }
+
+        // Total FreshQR outage across every spanned year — keep the surface active
+        // (don't fall back to onboarding) but surface a banner-friendly error.
+        if ($anyFetchFailed && $records === []) {
+            return [
+                'active' => true,
+                'cleaningDays' => [],
+                'companies' => $companies,
+                'error' => 'Přehled docházky se nepodařilo načíst. Zkuste to prosím později.',
+            ];
+        }
+
+        $today = self::today();
+
+        // Append live open scans only when the range includes today — the
+        // materialized report never carries in-progress cleanings.
+        if ($fromStr <= $today && $today <= $toStr) {
+            $ongoingRecords = $this->client->getOngoingProjectReports();
+            if (is_array($ongoingRecords) && $ongoingRecords !== []) {
+                $records = array_merge($records, $ongoingRecords);
+            }
+        }
+
+        $cleaningDays = $this->assembleCleaningDays($records, $companies, $modeByIco, $today);
+
+        $filtered = array_values(array_filter($cleaningDays, static function ($day) use ($fromStr, $toStr) {
+            $date = $day['date'] ?? '';
+            return is_string($date) && $date >= $fromStr && $date <= $toStr;
+        }));
+
+        return [
+            'active' => true,
+            'cleaningDays' => $filtered,
+            // A partial failure (one spanned year unreachable) still returns the
+            // years we did get, but flag it so the FE can hint the data is incomplete.
+            'error' => $anyFetchFailed ? 'Některá data se nepodařilo načíst, přehled může být neúplný.' : null,
+            'companies' => $companies,
+        ];
+    }
+
+    /**
+     * Turn raw FreshQR records into the cleaningDays list, loading the auxiliary
+     * lookups (allow-list, display names, rounding rules) lazily. Shared by the
+     * month-scoped and range-scoped entry points so both apply identical
+     * disclosure and rounding rules.
+     *
+     * @param array<array<string,mixed>>  $records
+     * @param array<array<string,mixed>>  $companies
+     * @param array<string,string>        $modeByIco
+     */
+    private function assembleCleaningDays(array $records, array $companies, array $modeByIco, string $today): array
+    {
         $allowedPersonalIds = array_fill_keys($this->employeeRepo->getAllPersonalIds(), true);
 
         // Look up display names only when at least one IČO is in detailed mode —
@@ -183,7 +290,7 @@ class FreshQRService
             ? self::buildRoundingRulesByIcoMap($companies, $this->roundingRuleRepo)
             : [];
 
-        $cleaningDays = self::buildCleaningDays(
+        return self::buildCleaningDays(
             $records,
             $modeByIco,
             $allowedPersonalIds,
@@ -191,13 +298,6 @@ class FreshQRService
             $today,
             $roundingRulesByIco
         );
-
-        return [
-            'active' => true,
-            'cleaningDays' => $cleaningDays,
-            'companies' => $companies,
-            'error' => null,
-        ];
     }
 
     /**
@@ -286,6 +386,11 @@ class FreshQRService
      * entries carry their own `ongoing` flag and are sorted chronologically by
      * startTime (then by employee for stable ordering).
      *
+     * Each day also carries an `icos[]` list — the distinct client-owned IČOs
+     * cleaned that day across BOTH modes. It never carries times or employee
+     * identities, so it stays within the basic-mode disclosure boundary while
+     * letting the overview count per-object visits for basic IČOs.
+     *
      * @param array<array<string,mixed>> $records              Raw data[] from /v1/reports/projects
      * @param array<string,string>       $modeByIco            ico => 'basic'|'detailed' (off-mode IČOs absent)
      * @param array<string,mixed>        $allowedPersonalIds   array_flip of portal personal_ids (keys = ids)
@@ -293,7 +398,7 @@ class FreshQRService
      * @param string                     $today                YYYY-MM-DD, injected for testability
      * @param array<string,array<int,array<string,mixed>>> $roundingRulesByIco
      *                                                          ico => list of rule rows (empty list / missing ico = no rounding)
-     * @return list<array{date:string,ongoing:bool,cleanings:list<array{employee:string,startTime:?string,endTime:?string,note:?string,ico:string,rawMinutes:?int,roundedMinutes:?int,ongoing:bool}>}>
+     * @return list<array{date:string,ongoing:bool,cleanings:list<array{employee:string,startTime:?string,endTime:?string,ico:string,rawMinutes:?int,roundedMinutes:?int,ongoing:bool}>,icos:list<string>}>
      */
     public static function buildCleaningDays(
         array $records,
@@ -344,11 +449,22 @@ class FreshQRService
                     'date' => $date,
                     'ongoing' => $isOngoing,
                     'cleanings' => [],
+                    'icos' => [],
                 ];
             } elseif ($isOngoing) {
                 // Another employee on the same day may still be active even if
                 // this specific record was already overtaken; OR the flags.
                 $byDate[$date]['ongoing'] = true;
+            }
+
+            // Track which of the client's own IČOs were cleaned this day —
+            // regardless of mode. Basic-mode IČOs contribute no cleanings[] entry
+            // (no times/employees ever leave the server for them), but the client
+            // already sees on the calendar that a cleaning happened, and the IČO
+            // is their own company, so the overview can safely count visits per
+            // object for basic IČOs too. Times stay detailed-only downstream.
+            if (!in_array($matchedIco, $byDate[$date]['icos'], true)) {
+                $byDate[$date]['icos'][] = $matchedIco;
             }
 
             if (($modeByIco[$matchedIco] ?? null) === 'detailed') {
@@ -374,7 +490,6 @@ class FreshQRService
                     'employee'         => $displayNamesByPersonalId[(string) $personalNumber] ?? (string) $personalNumber,
                     'startTime'        => $startTime,
                     'endTime'          => $endTime,
-                    'note'             => self::extractNote($record),
                     'ico'              => $matchedIco,
                     'rawMinutes'       => $rawMinutes,
                     'roundedMinutes'   => $roundedMinutes,
@@ -483,39 +598,6 @@ class FreshQRService
     {
         $hm = self::formatScanTimeToHm($raw);
         return $hm === null ? '' : $hm . ':00';
-    }
-
-    /**
-     * Merge the optional per-record `notes` array into a single string, joined
-     * by a blank line so each note reads as its own paragraph in the popover.
-     * FreshQR will deliver a list of separate worker remarks per cleaning;
-     * we collapse them server-side so the FE keeps treating `note` as a single
-     * presentation field.
-     *
-     * Empty / non-string entries are dropped; the whole field returns null when
-     * nothing usable remains, so the FE's `v-if="c.note"` simply omits the row.
-     *
-     * @param array<string,mixed> $record
-     */
-    private static function extractNote(array $record): ?string
-    {
-        $notes = $record['notes'] ?? null;
-        if (!is_array($notes)) {
-            return null;
-        }
-
-        $cleaned = [];
-        foreach ($notes as $note) {
-            if (!is_string($note)) {
-                continue;
-            }
-            $trimmed = trim($note);
-            if ($trimmed !== '') {
-                $cleaned[] = $trimmed;
-            }
-        }
-
-        return $cleaned === [] ? null : implode("\n\n", $cleaned);
     }
 
     /**

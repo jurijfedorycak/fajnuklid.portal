@@ -552,7 +552,6 @@ function buildMonthCells(year, month, keyPrefix) {
       day: d,
       isToday: iso === todayIso.value,
       status: cleaning?.status || null,
-      note: cleaning?.note || null,
     });
   }
   while (cells.length % 7 !== 0) {
@@ -1161,7 +1160,7 @@ function selectCompany(ico) {
                     'mc-scheduled': cell.status === 'scheduled',
                   }"
                   :role="cell.blank ? 'presentation' : 'gridcell'"
-                  :title="cell.note || cell.date || ''"
+                  :title="cell.date || ''"
                 >
                   <span v-if="!cell.blank" class="mc-num">{{ cell.day }}</span>
                 </div>
@@ -1206,7 +1205,7 @@ function selectCompany(ico) {
                     'mc-today': cell.isToday,
                   }"
                   :role="cell.blank ? 'presentation' : 'gridcell'"
-                  :title="cell.note || cell.date || ''"
+                  :title="cell.date || ''"
                 >
                   <span v-if="!cell.blank" class="mc-num">{{ cell.day }}</span>
                 </div>

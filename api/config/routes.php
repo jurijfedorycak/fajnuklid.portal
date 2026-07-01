@@ -45,8 +45,9 @@ $router->group(['middleware' => [AuthMiddleware::class]], function (Router $rout
     // Contacts - Fajnuklid staff contacts
     $router->get('/contacts', 'ContactController@index');
 
-    // Attendance - cleaning calendar
+    // Attendance - cleaning calendar + period overview (visits / worked time)
     $router->get('/attendance', 'AttendanceController@index');
+    $router->get('/attendance/summary', 'AttendanceController@summary');
 
     // Invoices - client invoices (read-only; sync is admin/cron-driven)
     $router->get('/invoices', 'InvoiceController@index');

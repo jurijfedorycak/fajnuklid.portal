@@ -841,8 +841,8 @@ class FreshQRServiceTest extends TestCase
     public function testBuildCleaningDaysBasicModeNeverLeaksEmployeeOrTimes(): void
     {
         // Privacy guarantee: in basic mode the cleanings array is always present
-        // (stable shape) but always empty — no employee names, no scan times,
-        // no notes ever cross the wire for a basic-mode IČO.
+        // (stable shape) but always empty — no employee names and no scan times
+        // ever cross the wire for a basic-mode IČO.
         $records = [
             [
                 'date' => '2026-04-10',
@@ -851,15 +851,17 @@ class FreshQRServiceTest extends TestCase
                 'first_scan_time' => '07:30:00',
                 'last_scan_time' => '10:45:00',
                 'worked_hours' => 3.25,
-                'note' => 'Should never reach the client',
             ],
         ];
 
         $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
 
         $this->assertCount(1, $result);
-        $this->assertEquals(['date', 'ongoing', 'cleanings'], array_keys($result[0]));
+        $this->assertEquals(['date', 'ongoing', 'cleanings', 'icos'], array_keys($result[0]));
         $this->assertSame([], $result[0]['cleanings']);
+        // The client's own IČO is surfaced (privacy-safe: no times/employees),
+        // enabling per-object visit counts for basic mode in the overview.
+        $this->assertSame(['12345678'], $result[0]['icos']);
     }
 
     // buildCleaningDays — Detailed mode
@@ -891,7 +893,7 @@ class FreshQRServiceTest extends TestCase
         $this->assertEquals('Anna N.', $cleaning['employee']);
         $this->assertEquals('08:00', $cleaning['startTime']);
         $this->assertEquals('11:30', $cleaning['endTime']);
-        $this->assertNull($cleaning['note']);
+        $this->assertArrayNotHasKey('note', $cleaning);
         $this->assertEquals('12345678', $cleaning['ico']);
     }
 
@@ -985,98 +987,6 @@ class FreshQRServiceTest extends TestCase
         );
 
         $this->assertEquals(['08:00', '13:00'], array_column($result[0]['cleanings'], 'startTime'));
-    }
-
-    public function testBuildCleaningDaysDetailedModeMergesNotesArrayWithBlankLineDelimiter(): void
-    {
-        // FreshQR will deliver per-cleaning notes as a list — surface them merged
-        // with a blank-line delimiter so each remark reads as its own paragraph.
-        $records = [
-            [
-                'date' => '2026-04-10',
-                'project' => ['name' => '12345678 Office'],
-                'employee' => ['personal_number' => 'EMP001'],
-                'first_scan_time' => '08:00:00',
-                'last_scan_time' => '11:00:00',
-                'notes' => ['Doplněn papír na záchody.', 'Vyměnili jsme rozbitou žárovku v chodbě.'],
-            ],
-        ];
-
-        $result = self::callBuild(
-            $records,
-            ['12345678'],
-            ['EMP001' => 0],
-            '2026-04-21',
-            'detailed',
-            ['EMP001' => 'Anna N.']
-        );
-
-        $this->assertEquals(
-            "Doplněn papír na záchody.\n\nVyměnili jsme rozbitou žárovku v chodbě.",
-            $result[0]['cleanings'][0]['note']
-        );
-    }
-
-    public function testBuildCleaningDaysDetailedModeNoteIsNullWhenNotesArrayMissingOrEmpty(): void
-    {
-        $records = [
-            [
-                'date' => '2026-04-10',
-                'project' => ['name' => '12345678 Office'],
-                'employee' => ['personal_number' => 'EMP001'],
-                'first_scan_time' => '08:00:00',
-                'last_scan_time' => '11:00:00',
-                // no notes key at all
-            ],
-            [
-                'date' => '2026-04-11',
-                'project' => ['name' => '12345678 Office'],
-                'employee' => ['personal_number' => 'EMP001'],
-                'first_scan_time' => '08:00:00',
-                'last_scan_time' => '11:00:00',
-                'notes' => [],
-            ],
-        ];
-
-        $result = self::callBuild(
-            $records,
-            ['12345678'],
-            ['EMP001' => 0],
-            '2026-04-21',
-            'detailed',
-            ['EMP001' => 'Anna N.']
-        );
-
-        $this->assertNull($result[0]['cleanings'][0]['note']);
-        $this->assertNull($result[1]['cleanings'][0]['note']);
-    }
-
-    public function testBuildCleaningDaysDetailedModeDropsEmptyAndNonStringNoteEntries(): void
-    {
-        // Defensive: FreshQR may include blanks, whitespace-only entries, or
-        // misshapen rows in the notes array. Drop them silently and keep the
-        // useful ones.
-        $records = [
-            [
-                'date' => '2026-04-10',
-                'project' => ['name' => '12345678 Office'],
-                'employee' => ['personal_number' => 'EMP001'],
-                'first_scan_time' => '08:00:00',
-                'last_scan_time' => '11:00:00',
-                'notes' => ['   ', null, 42, ['nested'], 'Skutečná poznámka.', ''],
-            ],
-        ];
-
-        $result = self::callBuild(
-            $records,
-            ['12345678'],
-            ['EMP001' => 0],
-            '2026-04-21',
-            'detailed',
-            ['EMP001' => 'Anna N.']
-        );
-
-        $this->assertEquals('Skutečná poznámka.', $result[0]['cleanings'][0]['note']);
     }
 
     public function testBuildCleaningDaysMixedModeOnlyDetailedIcosContributeCleanings(): void
@@ -1826,5 +1736,132 @@ class FreshQRServiceTest extends TestCase
         $this->assertTrue($result['active']);
         $this->assertCount(1, $result['cleaningDays']);
         $this->assertFalse($result['cleaningDays'][0]['ongoing'], 'Scanned-out historical record stays finished');
+    }
+
+    // getCleaningDaysForCompaniesRange — Docházka overview fetch
+
+    private static function basicRecord(string $date): array
+    {
+        return [
+            'date' => $date,
+            'project' => ['name' => '12345678 Office'],
+            'employee' => ['personal_number' => 'EMP001'],
+            'first_scan_time' => '08:00:00',
+            'last_scan_time' => '10:00:00',
+        ];
+    }
+
+    public function testRangeInactiveWhenNoNonOffIco(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->expects($this->never())->method('getProjectReports');
+
+        $result = $this->service->getCleaningDaysForCompaniesRange(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'off']],
+            new \DateTimeImmutable('2024-01-01'),
+            new \DateTimeImmutable('2024-12-31')
+        );
+
+        $this->assertFalse($result['active']);
+        $this->assertSame([], $result['cleaningDays']);
+    }
+
+    public function testRangeFetchesEachSpannedYearOnceWithNullMonth(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $seenYears = [];
+        $this->clientMock->expects($this->exactly(2))
+            ->method('getProjectReports')
+            ->willReturnCallback(function (int $year, ?int $month) use (&$seenYears) {
+                $this->assertNull($month, 'Range fetch must omit month to pull the whole year');
+                $seenYears[] = $year;
+                return [self::basicRecord($year . '-06-15')];
+            });
+        // A past window → no ongoing merge.
+        $this->clientMock->expects($this->never())->method('getOngoingProjectReports');
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $result = $this->service->getCleaningDaysForCompaniesRange(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            new \DateTimeImmutable('2024-05-01'),
+            new \DateTimeImmutable('2025-08-31')
+        );
+
+        $this->assertSame([2024, 2025], $seenYears);
+        $this->assertTrue($result['active']);
+        $this->assertNull($result['error']);
+        $this->assertCount(2, $result['cleaningDays']);
+    }
+
+    public function testRangeFiltersRecordsOutsideTheWindow(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getProjectReports')->willReturn([
+            self::basicRecord('2024-01-10'),  // before window
+            self::basicRecord('2024-06-15'),  // inside
+            self::basicRecord('2024-11-20'),  // after window
+        ]);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $result = $this->service->getCleaningDaysForCompaniesRange(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            new \DateTimeImmutable('2024-05-01'),
+            new \DateTimeImmutable('2024-07-31')
+        );
+
+        $this->assertCount(1, $result['cleaningDays']);
+        $this->assertSame('2024-06-15', $result['cleaningDays'][0]['date']);
+    }
+
+    public function testRangePartialYearFailureFlagsErrorButReturnsData(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getProjectReports')->willReturnCallback(
+            fn (int $year, ?int $month) => $year === 2024 ? [self::basicRecord('2024-06-15')] : null
+        );
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $result = $this->service->getCleaningDaysForCompaniesRange(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            new \DateTimeImmutable('2024-05-01'),
+            new \DateTimeImmutable('2025-08-31')
+        );
+
+        $this->assertTrue($result['active']);
+        $this->assertCount(1, $result['cleaningDays']);
+        $this->assertNotNull($result['error'], 'Partial failure must flag incomplete data');
+    }
+
+    public function testRangeTotalFailureStaysActiveWithError(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getProjectReports')->willReturn(null);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $result = $this->service->getCleaningDaysForCompaniesRange(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            new \DateTimeImmutable('2024-05-01'),
+            new \DateTimeImmutable('2024-08-31')
+        );
+
+        $this->assertTrue($result['active']);
+        $this->assertSame([], $result['cleaningDays']);
+        $this->assertNotNull($result['error']);
+    }
+
+    public function testRangeSwapsReversedBounds(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getProjectReports')->willReturn([self::basicRecord('2024-06-15')]);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $result = $this->service->getCleaningDaysForCompaniesRange(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            new \DateTimeImmutable('2024-07-31'),
+            new \DateTimeImmutable('2024-05-01')
+        );
+
+        $this->assertCount(1, $result['cleaningDays']);
+        $this->assertSame('2024-06-15', $result['cleaningDays'][0]['date']);
     }
 }

@@ -167,7 +167,7 @@ class DashboardController extends Controller
         // Demo clients see the synthetic schedule (same path AttendanceController
         // uses); real clients go through FreshQR. Both sources are month-scoped
         // and expose `ongoing` per day already; we re-shape into the
-        // `{date, status, note}` contract the dashboard FE expects.
+        // `{date, status}` contract the dashboard FE expects.
         $currentYear = (int) $today->format('Y');
         $currentMonth = (int) $today->format('n');
         [$prevYear, $prevMonth] = self::previousYearMonth($today);
@@ -301,7 +301,7 @@ class DashboardController extends Controller
     /**
      * Collapse the FreshQR/Demo cleaningDays output into the simpler shape the
      * dashboard FE renders in the cleaning summary widget:
-     *   { date, status: 'done' | 'ongoing', note: ?string }
+     *   { date, status: 'done' | 'ongoing' }
      *
      * Status is 'ongoing' iff the day's aggregated `ongoing` flag is set;
      * otherwise 'done' (a record exists for this day, so a cleaning happened).
@@ -309,19 +309,14 @@ class DashboardController extends Controller
      * and the demo service intentionally drops future dates so the dashboard
      * matches the "past + today only" feel of the Docházka calendar.
      *
-     * The note is the first cleaning's note (when present) so the day-cell
-     * tooltip on the dashboard surfaces something useful without growing the
-     * payload to a full cleanings list.
-     *
-     * SECURITY NOTE: if you add new fields here, route the cleaningDays input
-     * through AttendanceController::stripRawTimesWhenRounded first. The
-     * AttendanceController applies rounding-rule redaction; this controller
-     * currently bypasses that because the output is intentionally a narrow
-     * date/status/note tuple. Expanding the tuple would leak raw scan times
-     * to clients whose IČO has rounding rules configured.
+     * SECURITY NOTE: the output is intentionally a narrow date/status tuple that
+     * carries no scan times. If you add fields sourced from per-cleaning data,
+     * route the cleaningDays input through AttendanceController's rounding-rule
+     * redaction first — otherwise raw scan times would leak to clients whose
+     * IČO has rounding rules configured.
      *
      * @param array<int,array<string,mixed>> $cleaningDays
-     * @return list<array{date:string,status:string,note:?string}>
+     * @return list<array{date:string,status:string}>
      */
     private static function reshapeCleaningDaysForDashboard(array $cleaningDays): array
     {
@@ -331,21 +326,9 @@ class DashboardController extends Controller
             if (!is_string($date) || $date === '') {
                 continue;
             }
-            $note = null;
-            $cleanings = $day['cleanings'] ?? [];
-            if (is_array($cleanings)) {
-                foreach ($cleanings as $c) {
-                    $candidate = $c['note'] ?? null;
-                    if (is_string($candidate) && trim($candidate) !== '') {
-                        $note = trim($candidate);
-                        break;
-                    }
-                }
-            }
             $out[] = [
                 'date' => $date,
                 'status' => !empty($day['ongoing']) ? 'ongoing' : 'done',
-                'note' => $note,
             ];
         }
         return $out;

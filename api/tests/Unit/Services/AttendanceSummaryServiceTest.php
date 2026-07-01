@@ -268,7 +268,6 @@ class AttendanceSummaryServiceTest extends TestCase
             'employee' => 'Anna N.',
             'startTime' => '08:00',
             'endTime' => '11:30',
-            'note' => null,
             'ico' => $ico,
             'rawMinutes' => $rawMinutes,
             'roundedMinutes' => $roundedMinutes,
