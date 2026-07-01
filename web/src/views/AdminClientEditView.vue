@@ -419,6 +419,7 @@ const form = reactive({
   notes:       '',
   active:      true,
   isDemo:      false,
+  reviewPromptEnabled: true,
   logins: [],
   icos: [],
   staff: [],
@@ -477,6 +478,7 @@ onMounted(async () => {
         form.notes = data.notes || ''
         form.active = data.active ?? true
         form.isDemo = data.isDemo ?? false
+        form.reviewPromptEnabled = data.reviewPromptEnabled ?? true
         form.logins = (data.logins || []).map(l => ({ ...l, id: uid(), showPass: false, tempPass: '', expanded: false }))
         form.icos = (data.icos || []).map(i => ({
           ...i,
@@ -925,6 +927,7 @@ async function save() {
       notes: form.notes,
       active: form.active,
       is_demo: form.isDemo,
+      review_prompt_enabled: form.reviewPromptEnabled,
       logins: form.logins.map(l => ({
         user_id: l.userId ?? null,
         email: l.email,
@@ -1029,6 +1032,7 @@ function serializeForm() {
     notes: form.notes,
     active: form.active,
     isDemo: form.isDemo,
+    reviewPromptEnabled: form.reviewPromptEnabled,
     logins: form.logins.map(l => ({
       email: l.email,
       restriction: l.restriction,
@@ -1333,6 +1337,27 @@ onBeforeUnmount(() => {
               </button>
               <span :class="form.isDemo ? 'text-warning' : 'text-muted'" style="font-weight:500; font-size:14px;">
                 {{ form.isDemo ? 'Zapnuto' : 'Vypnuto' }}
+              </span>
+            </div>
+
+            <div class="status-toggle-row">
+              <div>
+                <div class="form-label">Výzva k recenzi</div>
+                <p class="field-hint">Na přehledu se klientovi zobrazí blok „Zanechat recenzi“ s odkazem na Google. Vypněte, až uvidíte, že recenzi napsal.</p>
+              </div>
+              <button
+                id="client-review-prompt-toggle"
+                class="toggle-btn"
+                :class="{ 'toggle-on': form.reviewPromptEnabled }"
+                role="switch"
+                :aria-checked="form.reviewPromptEnabled"
+                aria-label="Výzva k recenzi"
+                @click="form.reviewPromptEnabled = !form.reviewPromptEnabled"
+              >
+                <span class="toggle-knob" aria-hidden="true" />
+              </button>
+              <span :class="form.reviewPromptEnabled ? 'text-success' : 'text-muted'" style="font-weight:500; font-size:14px;">
+                {{ form.reviewPromptEnabled ? 'Zapnuto' : 'Vypnuto' }}
               </span>
             </div>
           </div>

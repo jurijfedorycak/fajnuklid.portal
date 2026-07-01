@@ -19,6 +19,10 @@ CREATE TABLE `clients` (
     `display_name` VARCHAR(255) NOT NULL,
     `greeting` VARCHAR(100) NULL DEFAULT NULL COMMENT 'Optional personalized greeting target, e.g. "pane Nováku"',
     `whatsapp_group_url` VARCHAR(500) NULL DEFAULT NULL COMMENT 'WhatsApp group invite link (https://chat.whatsapp.com/...) shown to the client in the portal',
+    `review_prompt_enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Admin switch: show the Google review prompt to this client. Turned off once a review is confirmed.',
+    `review_prompt_snoozed_until` DATE NULL DEFAULT NULL COMMENT 'Client clicked "later": hide the prompt until this date (re-appears after ~14 days).',
+    `review_prompt_rating` INT UNSIGNED NULL DEFAULT NULL COMMENT 'Last star rating the client selected (1-5); 4-5 routes to Google, 1-3 to an internal complaint.',
+    `review_prompt_completed_at` DATETIME NULL DEFAULT NULL COMMENT 'When the client engaged with the prompt (rated + routed); stops the prompt from re-appearing.',
     `is_demo` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -27,6 +31,23 @@ CREATE TABLE `clients` (
     UNIQUE KEY `uk_client_id` (`client_id`),
     KEY `idx_deleted_at` (`deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----------------------------
+-- Table: app_settings (company-wide key/value config, e.g. Google review link)
+-- ----------------------------
+DROP TABLE IF EXISTS `app_settings`;
+CREATE TABLE `app_settings` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `setting_key` VARCHAR(100) NOT NULL,
+    `setting_value` TEXT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_setting_key` (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `app_settings` (`setting_key`, `setting_value`, `created_at`, `updated_at`)
+VALUES ('google_review_url', NULL, NOW(), NOW());
 
 -- ----------------------------
 -- Table: employees

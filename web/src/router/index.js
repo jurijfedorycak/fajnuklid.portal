@@ -128,6 +128,12 @@ const routes = [
         component: () => import('../views/AdminDesignTokensView.vue'),
         meta: { requiresAdmin: true },
       },
+      {
+        path: '/admin/nastaveni',
+        name: 'AdminSettings',
+        component: () => import('../views/AdminSettingsView.vue'),
+        meta: { requiresAdmin: true },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

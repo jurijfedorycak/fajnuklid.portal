@@ -35,6 +35,7 @@ import {
   REQUEST_STATUSES,
 } from "../api";
 import { useAuth } from "../stores/auth";
+import ReviewPromptCard from "../components/dashboard/ReviewPromptCard.vue";
 
 const dashRouter = useRouter();
 
@@ -147,9 +148,12 @@ const dashboardData = ref({
   },
   cleaningDays: [],
   ongoingCleaning: null,
+  reviewPrompt: null,
   personnelList: [],
   recentInvoices: [],
 });
+
+const reviewPrompt = computed(() => dashboardData.value.reviewPrompt || null);
 
 // ── Fetch ────────────────────────────────────────────────────────────────────
 async function fetchDashboard(initial = false) {
@@ -1382,6 +1386,11 @@ function selectCompany(ico) {
           </div>
         </article>
       </section>
+
+      <ReviewPromptCard
+        v-if="reviewPrompt && reviewPrompt.show"
+        :google-url="reviewPrompt.googleUrl"
+      />
     </template>
   </div>
 </template>

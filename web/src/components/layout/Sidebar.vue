@@ -39,6 +39,7 @@ const adminNavItems = computed(() => [
   { name: 'Tým Fajn',     route: '/admin/staff-contacts', icon: Phone },
   { name: 'Žádosti',      route: '/admin/zadosti',        icon: ClipboardList, badgeCount: openRequestsCount.value },
   { name: 'Design',       route: '/admin/design-tokens',  icon: Palette },
+  { name: 'Nastavení',    route: '/admin/nastaveni',      icon: Settings },
 ])
 
 const navItems = computed(() => isAdmin.value ? adminNavItems.value : clientNavItems.value)

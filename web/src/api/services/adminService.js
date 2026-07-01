@@ -7,6 +7,17 @@ export const adminService = {
     return response.data
   },
 
+  // Global app settings (company-wide config, e.g. Google review link)
+  async getSettings() {
+    const response = await apiClient.get('/admin/settings')
+    return response.data
+  },
+
+  async updateSettings(data) {
+    const response = await apiClient.put('/admin/settings', data)
+    return response.data
+  },
+
   // File upload. Optional entity param persists the URL to DB immediately.
   // entity: { type: 'employee'|'company'|'staff_contact', id: number, field: string }
   async uploadFile(file, folder, entity = null) {

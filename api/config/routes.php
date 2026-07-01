@@ -70,12 +70,21 @@ $router->group(['middleware' => [AuthMiddleware::class]], function (Router $rout
 
     // Storage (download URL generation for authenticated users)
     $router->get('/storage/download', 'StorageController@getDownloadUrl');
+
+    // Review prompt ("Zanechat recenzi" block on the dashboard) — write actions only;
+    // the block's visibility data is served by DashboardController.
+    $router->post('/review-prompt/snooze', 'ReviewPromptController@snooze');
+    $router->post('/review-prompt/complete', 'ReviewPromptController@complete');
 });
 
 // Admin routes - require authentication + admin privileges
 $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class], 'prefix' => '/admin'], function (Router $router) {
     // Stats
     $router->get('/stats', 'AdminController@stats');
+
+    // Global app settings (company-wide config, e.g. Google review link)
+    $router->get('/settings', 'AdminController@getSettings');
+    $router->put('/settings', 'AdminController@updateSettings');
 
     // File upload and removal
     $router->post('/upload', 'AdminController@uploadFile');

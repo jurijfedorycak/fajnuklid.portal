@@ -204,4 +204,28 @@ class DashboardControllerTest extends TestCase
         $this->assertSame('2026-05-20', $result[0]['date']);
         $this->assertSame('Generální úklid', $result[0]['note']);
     }
+
+    private static function previousYearMonth(string $date): array
+    {
+        $method = new ReflectionMethod(DashboardController::class, 'previousYearMonth');
+        $method->setAccessible(true);
+        return $method->invoke(null, new \DateTime($date));
+    }
+
+    public function testPreviousYearMonthWithinSameYear(): void
+    {
+        $this->assertSame([2026, 5], self::previousYearMonth('2026-06-30'));
+    }
+
+    public function testPreviousYearMonthRollsBackAcrossYearBoundary(): void
+    {
+        $this->assertSame([2025, 12], self::previousYearMonth('2026-01-15'));
+    }
+
+    public function testPreviousYearMonthAvoidsDayOverflow(): void
+    {
+        // Naive "-1 month" from 31 March lands in March again (no 31 Feb);
+        // anchoring on "first day of last month" must give February.
+        $this->assertSame([2026, 2], self::previousYearMonth('2026-03-31'));
+    }
 }

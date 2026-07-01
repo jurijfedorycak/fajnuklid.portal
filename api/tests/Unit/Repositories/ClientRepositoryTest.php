@@ -651,4 +651,102 @@ class ClientRepositoryTest extends DatabaseTestCase
 
         $this->assertStringNotContainsString('whatsapp_group_url', $sqlSeen);
     }
+
+    // review prompt binding tests
+
+    public function testUpdatePersistsReviewPromptEnabledTrueAsOne(): void
+    {
+        $captured = null;
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        $result = $this->repository->update(1, ['review_prompt_enabled' => true]);
+
+        $this->assertTrue($result);
+        $this->assertStringContainsString('review_prompt_enabled = :review_prompt_enabled', $sqlSeen);
+        $this->assertSame(1, $captured['review_prompt_enabled']);
+    }
+
+    public function testUpdatePersistsReviewPromptEnabledFalseAsZero(): void
+    {
+        $captured = null;
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        // Explicit false must persist so an admin can switch the prompt back off.
+        $this->repository->update(1, ['review_prompt_enabled' => false]);
+
+        $this->assertSame(0, $captured['review_prompt_enabled']);
+    }
+
+    public function testUpdatePersistsSnoozeDateVerbatim(): void
+    {
+        $captured = null;
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        $this->repository->update(1, ['review_prompt_snoozed_until' => '2026-07-15']);
+
+        $this->assertStringContainsString('review_prompt_snoozed_until = :review_prompt_snoozed_until', $sqlSeen);
+        $this->assertSame('2026-07-15', $captured['review_prompt_snoozed_until']);
+    }
+
+    public function testUpdateCastsReviewRatingToIntAndKeepsNull(): void
+    {
+        $captured = null;
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        $this->repository->update(1, ['review_prompt_rating' => '5']);
+        $this->assertSame(5, $captured['review_prompt_rating']);
+
+        $this->repository->update(1, ['review_prompt_rating' => null]);
+        $this->assertNull($captured['review_prompt_rating']);
+    }
+
+    public function testUpdateOmitsReviewFieldsFromSqlWhenNotProvided(): void
+    {
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        $this->repository->update(1, ['display_name' => 'Renamed']);
+
+        $this->assertStringNotContainsString('review_prompt', $sqlSeen);
+    }
 }

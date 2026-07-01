@@ -25,6 +25,10 @@ class ClientRepository
                 display_name,
                 greeting,
                 whatsapp_group_url,
+                review_prompt_enabled,
+                review_prompt_snoozed_until,
+                review_prompt_rating,
+                review_prompt_completed_at,
                 is_demo,
                 created_at,
                 updated_at,
@@ -47,6 +51,10 @@ class ClientRepository
                 display_name,
                 greeting,
                 whatsapp_group_url,
+                review_prompt_enabled,
+                review_prompt_snoozed_until,
+                review_prompt_rating,
+                review_prompt_completed_at,
                 is_demo,
                 created_at,
                 updated_at,
@@ -72,6 +80,10 @@ class ClientRepository
                 cl.display_name,
                 cl.greeting,
                 cl.whatsapp_group_url,
+                cl.review_prompt_enabled,
+                cl.review_prompt_snoozed_until,
+                cl.review_prompt_rating,
+                cl.review_prompt_completed_at,
                 cl.is_demo,
                 cl.created_at,
                 cl.updated_at,
@@ -209,6 +221,28 @@ class ClientRepository
         if (array_key_exists('whatsapp_group_url', $data)) {
             $fields[] = 'whatsapp_group_url = :whatsapp_group_url';
             $params['whatsapp_group_url'] = $this->normalizeNullableString($data['whatsapp_group_url']);
+        }
+
+        if (array_key_exists('review_prompt_enabled', $data)) {
+            $fields[] = 'review_prompt_enabled = :review_prompt_enabled';
+            $params['review_prompt_enabled'] = (int) (bool) $data['review_prompt_enabled'];
+        }
+
+        if (array_key_exists('review_prompt_snoozed_until', $data)) {
+            $fields[] = 'review_prompt_snoozed_until = :review_prompt_snoozed_until';
+            $params['review_prompt_snoozed_until'] = $data['review_prompt_snoozed_until'];
+        }
+
+        if (array_key_exists('review_prompt_rating', $data)) {
+            $fields[] = 'review_prompt_rating = :review_prompt_rating';
+            $params['review_prompt_rating'] = $data['review_prompt_rating'] === null
+                ? null
+                : (int) $data['review_prompt_rating'];
+        }
+
+        if (array_key_exists('review_prompt_completed_at', $data)) {
+            $fields[] = 'review_prompt_completed_at = :review_prompt_completed_at';
+            $params['review_prompt_completed_at'] = $data['review_prompt_completed_at'];
         }
 
         if (empty($fields)) {

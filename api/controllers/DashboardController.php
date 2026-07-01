@@ -12,10 +12,14 @@ use App\Repositories\CompanyRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\ClientEmployeeRepository;
 use App\Repositories\InvoiceRepository;
+use App\Repositories\AppSettingRepository;
 use App\Services\DemoAttendanceService;
 use App\Services\FreshQRService;
 use App\Services\R2StorageService;
+use App\Services\ReviewPromptService;
 use DateTime;
+use DateTimeImmutable;
+use DateTimeZone;
 
 class DashboardController extends Controller
 {
@@ -24,8 +28,10 @@ class DashboardController extends Controller
     private LocationRepository $locationRepo;
     private ClientEmployeeRepository $clientEmployeeRepo;
     private InvoiceRepository $invoiceRepo;
+    private AppSettingRepository $appSettingRepo;
     private R2StorageService $storage;
     private FreshQRService $freshqr;
+    private ReviewPromptService $reviewPrompt;
 
     public function __construct()
     {
@@ -34,8 +40,10 @@ class DashboardController extends Controller
         $this->locationRepo = new LocationRepository();
         $this->clientEmployeeRepo = new ClientEmployeeRepository();
         $this->invoiceRepo = new InvoiceRepository();
+        $this->appSettingRepo = new AppSettingRepository();
         $this->storage = new R2StorageService();
         $this->freshqr = new FreshQRService();
+        $this->reviewPrompt = new ReviewPromptService();
     }
 
     public function index(Request $request): void
@@ -162,9 +170,7 @@ class DashboardController extends Controller
         // `{date, status, note}` contract the dashboard FE expects.
         $currentYear = (int) $today->format('Y');
         $currentMonth = (int) $today->format('n');
-        $prevMonthDate = (clone $today)->modify('first day of last month');
-        $prevYear = (int) $prevMonthDate->format('Y');
-        $prevMonth = (int) $prevMonthDate->format('n');
+        [$prevYear, $prevMonth] = self::previousYearMonth($today);
 
         $clientForCleanings = $this->clientRepo->findByUserId($userId);
         if ($clientForCleanings !== null && (bool) $clientForCleanings['is_demo']) {
@@ -243,6 +249,18 @@ class DashboardController extends Controller
             ];
         }, $companies);
 
+        // "Zanechat recenzi" block — reuse the client row already loaded for the
+        // cleaning calendar so no extra query is needed. The Google link is a single
+        // company-wide setting; the block stays hidden until it is configured.
+        $googleReviewUrl = $this->appSettingRepo->get(AppSettingRepository::KEY_GOOGLE_REVIEW_URL);
+        $reviewToday = new DateTimeImmutable('today', new DateTimeZone('Europe/Prague'));
+        $showReviewPrompt = $clientForCleanings !== null
+            && $this->reviewPrompt->shouldShow($clientForCleanings, $googleReviewUrl, $reviewToday);
+        $reviewPromptPayload = [
+            'show' => $showReviewPrompt,
+            'googleUrl' => $showReviewPrompt ? $googleReviewUrl : null,
+        ];
+
         Response::success([
             'currentUser' => $currentUser,
             'companies' => $companiesPayload,
@@ -267,6 +285,7 @@ class DashboardController extends Controller
             ],
             'cleaningDays' => $cleaningDays,
             'ongoingCleaning' => $ongoingCleaning,
+            'reviewPrompt' => $reviewPromptPayload,
             'personnelList' => $personnelList,
             'recentInvoices' => $recentInvoices,
             'locations' => array_map(function ($l) {
@@ -406,6 +425,20 @@ class DashboardController extends Controller
             'since' => $since,
             'employees' => $employees,
         ];
+    }
+
+    /**
+     * The calendar month immediately before the given date, as [year, month].
+     * Anchored on "first day of last month" so the current day-of-month can't
+     * cause the classic `-1 month` day-overflow (e.g. 31 Mar → 3 Mar), and the
+     * January → previous December year rollback is handled correctly.
+     *
+     * @return array{0:int,1:int} [year, month] with month in 1..12
+     */
+    private static function previousYearMonth(DateTime $date): array
+    {
+        $prev = (clone $date)->modify('first day of last month');
+        return [(int) $prev->format('Y'), (int) $prev->format('n')];
     }
 
     /**

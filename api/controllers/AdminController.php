@@ -19,6 +19,7 @@ use App\Repositories\UserRepository;
 use App\Repositories\LocationRepository;
 use App\Repositories\ClientContactRepository;
 use App\Repositories\StaffContactRepository;
+use App\Repositories\AppSettingRepository;
 use App\Services\CompanyDocumentService;
 use App\Services\IDokladService;
 use App\Services\MaintenanceRequestService;
@@ -42,6 +43,7 @@ class AdminController extends Controller
     private ClientContactRepository $clientContactRepo;
     private StaffContactRepository $staffContactRepo;
     private CompanyRoundingRuleRepository $roundingRuleRepo;
+    private AppSettingRepository $appSettingRepo;
     private MaintenanceRequestService $maintenanceRequestService;
     private IDokladService $idokladService;
     private R2StorageService $storage;
@@ -62,6 +64,7 @@ class AdminController extends Controller
         $this->clientContactRepo = new ClientContactRepository();
         $this->staffContactRepo = new StaffContactRepository();
         $this->roundingRuleRepo = new CompanyRoundingRuleRepository();
+        $this->appSettingRepo = new AppSettingRepository();
         $this->maintenanceRequestService = new MaintenanceRequestService();
         $this->idokladService = new IDokladService();
         $this->storage = new R2StorageService();
@@ -690,6 +693,11 @@ class AdminController extends Controller
             'notes' => '',
             'active' => $hasActiveLogin,
             'isDemo' => (bool) ($client['is_demo'] ?? false),
+            'reviewPromptEnabled' => (bool) ($client['review_prompt_enabled'] ?? true),
+            'reviewPromptRating' => isset($client['review_prompt_rating']) && $client['review_prompt_rating'] !== null
+                ? (int) $client['review_prompt_rating']
+                : null,
+            'reviewPromptCompletedAt' => $client['review_prompt_completed_at'] ?? null,
             'logins' => $logins,
             'icos' => $icos,
             'staff' => $staff,
@@ -931,6 +939,9 @@ class AdminController extends Controller
         }
         if (array_key_exists('is_demo', $payload)) {
             $data['is_demo'] = (bool) $payload['is_demo'];
+        }
+        if (array_key_exists('review_prompt_enabled', $payload)) {
+            $data['review_prompt_enabled'] = (bool) $payload['review_prompt_enabled'];
         }
         if (array_key_exists('greeting', $payload)) {
             $data['greeting'] = is_scalar($payload['greeting']) ? trim((string) $payload['greeting']) : '';
@@ -1873,6 +1884,55 @@ class AdminController extends Controller
             'employees' => [
                 'total' => $totalEmployees,
             ],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // GLOBAL APP SETTINGS (company-wide config, e.g. Google review link)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    public function getSettings(Request $request): void
+    {
+        Response::success([
+            'googleReviewUrl' => $this->appSettingRepo->get(AppSettingRepository::KEY_GOOGLE_REVIEW_URL) ?? '',
+        ]);
+    }
+
+    public function updateSettings(Request $request): void
+    {
+        $payload = $request->all();
+        $errors = [];
+
+        $googleReviewUrl = null;
+        if (array_key_exists('google_review_url', $payload)) {
+            $raw = $payload['google_review_url'];
+            if ($raw !== null && !is_scalar($raw)) {
+                $errors['google_review_url'][] = 'Odkaz musí být text';
+            } else {
+                $url = trim((string) ($raw ?? ''));
+                if ($url === '') {
+                    $googleReviewUrl = null;
+                } elseif (mb_strlen($url) > 500) {
+                    $errors['google_review_url'][] = 'Odkaz může mít nejvýše 500 znaků';
+                } elseif (!preg_match('#^https://#i', $url) || filter_var($url, FILTER_VALIDATE_URL) === false) {
+                    $errors['google_review_url'][] = 'Zadejte platnou adresu (https://...)';
+                } else {
+                    $googleReviewUrl = $url;
+                }
+            }
+        }
+
+        if (!empty($errors)) {
+            throw new ValidationException('Zkontrolujte prosím vyplněné údaje', $errors);
+        }
+
+        if (array_key_exists('google_review_url', $payload)) {
+            $this->appSettingRepo->set(AppSettingRepository::KEY_GOOGLE_REVIEW_URL, $googleReviewUrl);
+        }
+
+        Response::success([
+            'googleReviewUrl' => $this->appSettingRepo->get(AppSettingRepository::KEY_GOOGLE_REVIEW_URL) ?? '',
+            'message' => 'Nastavení bylo uloženo',
         ]);
     }
 

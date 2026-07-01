@@ -1,11 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { Plus, AlertTriangle, Wrench, HelpCircle, Loader2, Paperclip, X, FileText, ClipboardList } from 'lucide-vue-next'
 import { maintenanceRequestService, REQUEST_CATEGORIES, REQUEST_STATUSES, ATTACHMENT_LIMITS } from '../api'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
 
 const router = useRouter()
+const route = useRoute()
 const iconMap = { AlertTriangle, Wrench, HelpCircle }
 
 const title = ref('')
@@ -43,6 +44,13 @@ async function loadRecent() {
 }
 
 onMounted(async () => {
+  // Preselect a category when arrived via a deep link (e.g. the dashboard review
+  // block routes a low rating here with ?category=reklamace).
+  const queryCategory = route.query.category
+  if (typeof queryCategory === 'string' && REQUEST_CATEGORIES.some(c => c.key === queryCategory)) {
+    category.value = queryCategory
+  }
+
   loadRecent()
   try {
     const res = await maintenanceRequestService.getFormOptions()
