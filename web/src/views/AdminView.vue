@@ -262,7 +262,13 @@ function formatDate(d) {
 .search-input {
   width: 100%;
   padding-left: 32px;
-  font-size: 13px;
+  /* 16px prevents iOS Safari from auto-zooming on focus; desktop restores 13px below */
+  font-size: 16px;
+}
+@media (min-width: 768px) {
+  .search-input {
+    font-size: 13px;
+  }
 }
 
 .table-wrap {

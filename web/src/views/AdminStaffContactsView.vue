@@ -1073,8 +1073,14 @@ async function persistOrder() {
   padding: 8px 12px;
   border: 1px solid var(--color-gray-300);
   border-radius: var(--radius-md);
-  font-size: 14px;
+  /* 16px prevents iOS Safari from auto-zooming on focus; desktop restores 14px below */
+  font-size: 16px;
   font-family: inherit;
+}
+@media (min-width: 768px) {
+  .form-input {
+    font-size: 14px;
+  }
 }
 .form-input:focus {
   outline: none;

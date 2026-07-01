@@ -264,11 +264,18 @@ input, select, textarea {
   padding: 10px 12px;
   border: 1.5px solid var(--color-gray-300);
   border-radius: var(--radius-md);
-  font-size: 14px;
+  /* 16px prevents iOS Safari from auto-zooming the page on field focus */
+  font-size: 16px;
   color: var(--color-gray-800);
   background: var(--color-white);
   transition: var(--transition);
   outline: none;
+}
+/* Desktop can't trigger the focus auto-zoom — restore the denser 14px */
+@media (min-width: 768px) {
+  .form-input {
+    font-size: 14px;
+  }
 }
 .form-input:focus {
   border-color: var(--color-mid);
