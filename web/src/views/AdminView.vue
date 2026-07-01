@@ -73,8 +73,11 @@ function newClient() {
 
 function formatDate(d) {
   if (!d || d === '—') return '—'
-  const [y, m, day] = d.split('-')
-  return `${day}.${m}.${y}`
+  const [datePart, timePart] = d.split(/[ T]/)
+  const [y, m, day] = datePart.split('-')
+  if (!timePart) return `${day}.${m}.${y}`
+  const [hh, mm] = timePart.split(':')
+  return `${day}.${m}.${y} ${hh}:${mm}`
 }
 </script>
 
