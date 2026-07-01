@@ -1251,15 +1251,23 @@ onBeforeUnmount(() => {
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 3px;
+  gap: 4px;
 }
 @media (min-width: 480px) {
   .cal-grid { gap: 6px; }
 }
-/* Cap grid width on wide viewports so day cells don't balloon (aspect-ratio: 1 would
-   otherwise make each cell ~230px on a 1920px screen). */
+@media (min-width: 768px) {
+  .cal-grid { gap: 8px; }
+}
+/* Docházka is a headline feature — the calendar is given room to breathe and
+   reads big on larger screens. The width cap still keeps cells from ballooning
+   (aspect-ratio: 1 would otherwise make each cell ~230px on a 1920px screen);
+   it just sits higher than before so the grid feels prominent, not cramped. */
 @media (min-width: 1024px) {
-  .cal-grid { max-width: 720px; margin-left: auto; margin-right: auto; }
+  .cal-grid { max-width: 900px; margin-left: auto; margin-right: auto; }
+}
+@media (min-width: 1280px) {
+  .cal-grid { max-width: 1000px; }
 }
 .wd-header {
   text-align: center;
@@ -1269,6 +1277,9 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 4px 0 10px;
+}
+@media (min-width: 768px) {
+  .wd-header { font-size: 13px; padding: 4px 0 12px; }
 }
 
 /* Day cells */
@@ -1283,10 +1294,23 @@ onBeforeUnmount(() => {
   position: relative;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+@media (min-width: 768px) {
+  .day-cell { border-radius: 12px; gap: 4px; }
+}
 .empty-cell { background: transparent; }
 .day-num { font-size: 12px; font-weight: 500; line-height: 1; }
 @media (min-width: 480px) {
   .day-num { font-size: 14px; }
+}
+@media (min-width: 768px) {
+  .day-num { font-size: 16px; }
+}
+@media (min-width: 1024px) {
+  .day-num { font-size: 18px; }
+}
+/* Status icons scale up with the larger cells so they stay legible. */
+@media (min-width: 768px) {
+  .day-icon svg { width: 16px; height: 16px; }
 }
 
 .day-past    { background: var(--color-gray-100); color: var(--color-gray-400); }

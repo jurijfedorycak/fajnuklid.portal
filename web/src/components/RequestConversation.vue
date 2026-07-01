@@ -196,6 +196,7 @@ function closePreview() {
               'chat-bubble--own': isOwn(row) && !row.isInternal,
               'chat-bubble--other': !isOwn(row),
               'chat-bubble--internal': row.isInternal,
+              'chat-bubble--after': row.isAfter,
             }"
           >
             <p v-if="row.message" :id="'chat-message-' + row.id" class="chat-message">{{ row.message }}</p>
@@ -291,22 +292,24 @@ function closePreview() {
 .chat-system-wrap {
   display: flex;
   justify-content: center;
-  margin: -2px 0;
-  opacity: 0.7;
+  margin: 2px 0;
 }
+/* Status-change markers read as clean, self-contained pills (matching the day
+   divider) so the request's current state stands out instead of looking like
+   stray grey text. */
 .chat-system {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--color-gray-500);
-  background: transparent;
-  padding: 2px 4px;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-gray-600);
+  background: var(--color-gray-100);
+  padding: 3px 11px;
   border-radius: var(--radius-pill);
   letter-spacing: 0.02em;
 }
-.chat-system-meta { color: var(--color-gray-400); margin-left: 2px; }
+.chat-system-meta { color: var(--color-gray-500); font-weight: 500; margin-left: 2px; }
 
 .chat-row {
   display: flex;
@@ -433,8 +436,37 @@ function closePreview() {
   font-size: 13px;
 }
 
+/* "Po vyřešení" result bubble — framed as a positive completion state so the
+   final photos read as a clean, finished result rather than a plain message. */
+.chat-bubble--after {
+  background: var(--color-success-light);
+  border-color: var(--color-success);
+  /* Admins see their own after-bubble as own+after; reset the white own-text so
+     any body text stays legible on the light green. */
+  color: var(--color-gray-800);
+}
+.chat-bubble--after .chat-message--muted {
+  color: var(--color-success);
+  font-style: normal;
+  font-weight: 600;
+}
+
 .chat-attach {
-  margin-top: 8px;
+  margin-top: 10px;
+}
+/* Larger, evenly rounded photo tiles with a muted caption keep the gallery
+   tidy instead of a row of teal filenames fighting for attention. */
+.chat-attach.attach-gallery--compact {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+.chat-attach .attach-tile {
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+}
+.chat-attach .attach-tile-name {
+  color: var(--color-gray-600);
+  font-weight: 500;
 }
 .chat-bubble--own .chat-attach .attach-tile {
   border-color: rgba(255, 255, 255, 0.25);

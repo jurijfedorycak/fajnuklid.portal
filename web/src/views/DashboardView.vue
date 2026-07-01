@@ -27,6 +27,10 @@ import {
   AlertCircle,
   Clock,
   MapPin,
+  Sunrise,
+  Sun,
+  Sunset,
+  Moon,
 } from "lucide-vue-next";
 import { useRouter } from "vue-router";
 import {
@@ -253,11 +257,19 @@ const ongoingEmployeesLabel = computed(() => {
   return `${names.slice(0, -1).join(", ")} a ${names[names.length - 1]}`;
 });
 
-const greeting = computed(() => {
-  const h = new Date().getHours();
-  if (h < 12) return "Dobré ráno";
-  if (h < 18) return "Dobré odpoledne";
-  return "Dobrý večer";
+// Greeting text + matching time-of-day icon (sunrise → sun → sunset → moon).
+// Reads the hour from the reactive `today` snapshot so a dashboard reopened on
+// a new day picks up the correct part of the day. Sun icons carry a warm tone,
+// the night moon a cooler one — both via CSS tokens (no hardcoded colors).
+const timeOfDay = computed(() => {
+  const h = today.value.getHours();
+  if (h >= 5 && h < 12)
+    return { text: "Dobré ráno", icon: Sunrise, color: "var(--color-warning)" };
+  if (h >= 12 && h < 18)
+    return { text: "Dobré odpoledne", icon: Sun, color: "var(--color-warning)" };
+  if (h >= 18 && h < 22)
+    return { text: "Dobrý večer", icon: Sunset, color: "var(--color-warning)" };
+  return { text: "Dobrý večer", icon: Moon, color: "var(--color-mid)" };
 });
 
 const greetingTarget = computed(() => {
@@ -298,7 +310,9 @@ const chartData = computed(() => ({
         cssVar("--color-danger"),
       ],
       borderWidth: 0,
-      hoverOffset: 4,
+      // Hover "pop-out" disabled per client request — segments stay put on hover.
+      hoverOffset: 0,
+      hoverBorderWidth: 0,
     },
   ],
 }));
@@ -306,11 +320,13 @@ const chartData = computed(() => ({
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
+  // Kill the hover highlight/pop entirely: no active-element animation and the
+  // tooltip is suppressed so the donut reads as a static overview graphic.
+  events: [],
+  animation: { animateRotate: true, animateScale: false },
   plugins: {
     legend: { display: false },
-    tooltip: {
-      callbacks: { label: (ctx) => ` ${ctx.label}: ${ctx.raw} faktur` },
-    },
+    tooltip: { enabled: false },
   },
   cutout: "70%",
 };
@@ -643,8 +659,15 @@ function selectCompany(ico) {
       <!-- Header: greeting + IČO switcher -->
       <header id="dashboard-header" class="dashboard-header">
         <h1 id="dashboard-greeting" class="dashboard-greeting">
-          {{ greeting }}, {{ greetingTarget }}
-          <span aria-hidden="true">👋</span>
+          {{ timeOfDay.text }}, {{ greetingTarget }}
+          <component
+            :is="timeOfDay.icon"
+            id="dashboard-greeting-icon"
+            class="greeting-icon"
+            :size="26"
+            :style="{ color: timeOfDay.color }"
+            aria-hidden="true"
+          />
         </h1>
         <div
           v-if="companies.length >= 2"
@@ -1586,6 +1609,13 @@ function selectCompany(ico) {
   letter-spacing: -0.01em;
 }
 
+/* Time-of-day icon trailing the greeting — aligned to the text baseline. */
+.greeting-icon {
+  vertical-align: -4px;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
 .company-switcher {
   display: flex;
   gap: 12px;
@@ -2342,8 +2372,8 @@ function selectCompany(ico) {
 .chart-wrap {
   position: relative;
   aspect-ratio: 1 / 1;
-  max-width: 280px;
-  max-height: 280px;
+  max-width: 190px;
+  max-height: 190px;
   margin: 0 auto;
 }
 @media (min-width: 640px) {
