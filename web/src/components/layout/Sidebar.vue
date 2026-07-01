@@ -23,12 +23,12 @@ const activeIco = computed(() => user.value?.active_ico || '')
 // activated QR system never see the attendance tab (see attendanceEnabled).
 const clientNavItems = computed(() => [
   { name: 'Přehled',      route: '/prehled',   icon: LayoutDashboard },
-  { name: 'Faktury',      route: '/faktury',   icon: FileText },
-  { name: 'Personál',     route: '/personal',  icon: Users },
-  { name: 'Smlouvy a dokumenty', route: '/smlouva', icon: FileSignature },
-  ...(attendanceEnabled.value ? [{ name: 'Docházka', route: '/dochazka', icon: Clock }] : []),
+  ...(attendanceEnabled.value ? [{ name: 'Docházka a záznamy', route: '/dochazka', icon: Clock }] : []),
   { name: 'Požadavky a reklamace', route: '/zadosti', icon: ClipboardList },
-  { name: 'Kontakt',      route: '/kontakt',   icon: Phone },
+  { name: 'Smlouvy a dokumenty', route: '/smlouva', icon: FileSignature },
+  { name: 'Personál',     route: '/personal',  icon: Users },
+  { name: 'Fakturace',    route: '/faktury',   icon: FileText },
+  { name: 'Kontakty',     route: '/kontakt',   icon: Phone },
 ])
 
 const openRequestsCount = ref(0)
