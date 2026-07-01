@@ -153,30 +153,46 @@ class DashboardController extends Controller
             ];
         }
 
-        // Cleaning days for the current calendar month. Demo clients see the
-        // synthetic schedule (same path AttendanceController uses); real clients
-        // go through FreshQR. The widget on the FE shows "Úklidy – {month}", so
-        // limiting the fetch to the current month keeps the payload small and
-        // matches the heading. Both sources expose `ongoing` per day already;
-        // we re-shape into the `{date, status, note}` contract the dashboard FE
-        // expects.
+        // Cleaning days for the previous + current calendar month. The dashboard
+        // "Úklidy" card renders two mini-calendars (previous and current month),
+        // both fed from this single array, so we fetch both months and merge.
+        // Demo clients see the synthetic schedule (same path AttendanceController
+        // uses); real clients go through FreshQR. Both sources are month-scoped
+        // and expose `ongoing` per day already; we re-shape into the
+        // `{date, status, note}` contract the dashboard FE expects.
         $currentYear = (int) $today->format('Y');
         $currentMonth = (int) $today->format('n');
+        $prevMonthDate = (clone $today)->modify('first day of last month');
+        $prevYear = (int) $prevMonthDate->format('Y');
+        $prevMonth = (int) $prevMonthDate->format('n');
 
         $clientForCleanings = $this->clientRepo->findByUserId($userId);
         if ($clientForCleanings !== null && (bool) $clientForCleanings['is_demo']) {
             // Pin the TZ here too — DemoAttendanceService compares against the
             // injected "today", so a UTC-running CLI/cron would otherwise emit
             // yesterday's calendar near Prague midnight.
-            $rawCleaningDays = DemoAttendanceService::buildCleaningDays(
+            $demoToday = new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague'));
+            $currentRawCleaningDays = DemoAttendanceService::buildCleaningDays(
                 $currentYear,
                 $currentMonth,
-                new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague'))
+                $demoToday
+            );
+            $prevRawCleaningDays = DemoAttendanceService::buildCleaningDays(
+                $prevYear,
+                $prevMonth,
+                $demoToday
             );
         } else {
-            $cleaningsResult = $this->freshqr->getCleaningDaysForUser($userId, $currentYear, $currentMonth);
-            $rawCleaningDays = $cleaningsResult['cleaningDays'] ?? [];
+            $currentResult = $this->freshqr->getCleaningDaysForUser($userId, $currentYear, $currentMonth);
+            $currentRawCleaningDays = $currentResult['cleaningDays'] ?? [];
+            $prevResult = $this->freshqr->getCleaningDaysForUser($userId, $prevYear, $prevMonth);
+            $prevRawCleaningDays = $prevResult['cleaningDays'] ?? [];
         }
+
+        // Merge both months for the calendar widget. The live "úklid probíhá"
+        // banner is driven from the current month alone (below) — only today can
+        // be in progress, so the previous month never contributes an ongoing.
+        $rawCleaningDays = array_merge($prevRawCleaningDays, $currentRawCleaningDays);
 
         $cleaningDays = self::reshapeCleaningDaysForDashboard($rawCleaningDays);
 
@@ -195,7 +211,7 @@ class DashboardController extends Controller
         }
 
         $ongoingCleaning = self::buildOngoingCleaning(
-            $rawCleaningDays,
+            $currentRawCleaningDays,
             $today->format('Y-m-d'),
             $icoToName
         );
