@@ -94,7 +94,7 @@ function initials(name) {
 </script>
 
 <template>
-  <aside class="sidebar" :class="{ open }">
+  <aside id="app-sidebar" class="sidebar" :class="{ open }">
     <!-- Mobile close button -->
     <button id="sidebar-close-btn" class="sidebar-close" @click="emit('close')" aria-label="Zavřít menu">
       <ChevronLeft :size="20" />

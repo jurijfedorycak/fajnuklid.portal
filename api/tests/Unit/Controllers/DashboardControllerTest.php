@@ -201,6 +201,54 @@ class DashboardControllerTest extends TestCase
         $this->assertArrayNotHasKey('note', $result[0]);
     }
 
+    private static function lastCompleted(array $reshapedCleaningDays): ?string
+    {
+        $method = new ReflectionMethod(DashboardController::class, 'findLastCompletedCleaningDate');
+        $method->setAccessible(true);
+        return $method->invoke(null, $reshapedCleaningDays);
+    }
+
+    public function testLastCompletedPicksLatestDoneAcrossUnorderedMonths(): void
+    {
+        // Merged prev+current month input has no sort guarantee — the maximum
+        // done date must win regardless of position.
+        $days = [
+            ['date' => '2026-06-02', 'status' => 'done'],
+            ['date' => '2026-05-14', 'status' => 'done'],
+            ['date' => '2026-05-28', 'status' => 'done'],
+        ];
+        $this->assertSame('2026-06-02', self::lastCompleted($days));
+    }
+
+    public function testLastCompletedIgnoresOngoingDays(): void
+    {
+        $days = [
+            ['date' => '2026-06-02', 'status' => 'done'],
+            ['date' => self::TODAY, 'status' => 'ongoing'],
+        ];
+        $this->assertSame('2026-06-02', self::lastCompleted($days));
+    }
+
+    public function testLastCompletedCountsDoneDatedToday(): void
+    {
+        $days = [
+            ['date' => '2026-06-02', 'status' => 'done'],
+            ['date' => self::TODAY, 'status' => 'done'],
+        ];
+        $this->assertSame(self::TODAY, self::lastCompleted($days));
+    }
+
+    public function testLastCompletedReturnsNullForEmptyList(): void
+    {
+        $this->assertNull(self::lastCompleted([]));
+    }
+
+    public function testLastCompletedReturnsNullWhenOnlyOngoing(): void
+    {
+        $days = [['date' => self::TODAY, 'status' => 'ongoing']];
+        $this->assertNull(self::lastCompleted($days));
+    }
+
     private static function previousYearMonth(string $date): array
     {
         $method = new ReflectionMethod(DashboardController::class, 'previousYearMonth');

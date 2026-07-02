@@ -15,7 +15,6 @@ use App\Repositories\InvoiceRepository;
 use App\Repositories\AppSettingRepository;
 use App\Services\DemoAttendanceService;
 use App\Services\FreshQRService;
-use App\Services\R2StorageService;
 use App\Services\ReviewPromptService;
 use DateTime;
 use DateTimeImmutable;
@@ -29,7 +28,6 @@ class DashboardController extends Controller
     private ClientEmployeeRepository $clientEmployeeRepo;
     private InvoiceRepository $invoiceRepo;
     private AppSettingRepository $appSettingRepo;
-    private R2StorageService $storage;
     private FreshQRService $freshqr;
     private ReviewPromptService $reviewPrompt;
 
@@ -41,7 +39,6 @@ class DashboardController extends Controller
         $this->clientEmployeeRepo = new ClientEmployeeRepository();
         $this->invoiceRepo = new InvoiceRepository();
         $this->appSettingRepo = new AppSettingRepository();
-        $this->storage = new R2StorageService();
         $this->freshqr = new FreshQRService();
         $this->reviewPrompt = new ReviewPromptService();
     }
@@ -91,30 +88,17 @@ class DashboardController extends Controller
         }));
         $primaryLocationName = $activeLocations[0]['name'] ?? ($activeLocations[0]['company_name'] ?? '');
 
-        // Personnel preview for the active company (FE paginates).
-        $personnelList = [];
+        // The dashboard only surfaces the team size (Tým stat card) — worker
+        // profiles live on the Personál page, so no names/photos are shipped.
+        $personnelCount = 0;
         if ($activeClientId !== null) {
             $clientEmployees = $this->clientEmployeeRepo->findByClientId($activeClientId);
             foreach ($clientEmployees as $ce) {
-                if (empty($ce['show_in_portal'])) {
-                    continue;
+                if (!empty($ce['show_in_portal'])) {
+                    $personnelCount++;
                 }
-                $showName = !empty($ce['show_name']);
-                $first = $showName ? trim((string) ($ce['first_name'] ?? '')) : '';
-                $last = $showName ? trim((string) ($ce['last_name'] ?? '')) : '';
-                $fullName = trim($first . ' ' . $last);
-                if ($fullName === '') {
-                    $fullName = 'Pracovník';
-                }
-                $personnelList[] = [
-                    'id' => (int) $ce['employee_id'],
-                    'name' => $fullName,
-                    'role' => !empty($ce['show_role']) ? ($ce['position'] ?? '') : '',
-                    'photoUrl' => !empty($ce['show_photo']) ? $this->storage->resolveProxyUrl($ce['photo_url'] ?? null) : null,
-                ];
             }
         }
-        $personnelCount = count($personnelList);
 
         // Contract info for the active company
         $contract = [
@@ -173,6 +157,7 @@ class DashboardController extends Controller
         [$prevYear, $prevMonth] = self::previousYearMonth($today);
 
         $clientForCleanings = $this->clientRepo->findByUserId($userId);
+        $currentResult = null;
         if ($clientForCleanings !== null && (bool) $clientForCleanings['is_demo']) {
             // Pin the TZ here too — DemoAttendanceService compares against the
             // injected "today", so a UTC-running CLI/cron would otherwise emit
@@ -201,6 +186,46 @@ class DashboardController extends Controller
         $rawCleaningDays = array_merge($prevRawCleaningDays, $currentRawCleaningDays);
 
         $cleaningDays = self::reshapeCleaningDaysForDashboard($rawCleaningDays);
+
+        // "Poslední úklid" hero chip. The two fetched months usually contain a
+        // completed day; when they don't (client paused over the summer, brand
+        // new FreshQR link), walk back a few more months so the chip doesn't
+        // vanish for clients who demonstrably have a cleaning history. The
+        // lookback is bounded and skipped entirely for demo clients (synthetic
+        // schedule always has recent days) and during FreshQR outages (the
+        // extra calls would be doomed anyway).
+        $lastCleaningDate = self::findLastCompletedCleaningDate($cleaningDays);
+        if (
+            $lastCleaningDate === null
+            && $currentResult !== null
+            && ($currentResult['active'] ?? false)
+            && ($currentResult['error'] ?? null) === null
+            // Brand-new clients (no billing history) have no cleaning history
+            // to find — the FE shows the onboarding hero without the chip
+            // anyway, so don't pay 4 futile FreshQR calls on every one of
+            // their dashboard requests. The range-scoped totals can be 0 for
+            // an established client viewing a quiet period, so fall back to an
+            // all-time check before concluding "brand new".
+            && (
+                $invoiceTotals['all'] > 0
+                || $contract['hasPdf']
+                || $this->invoiceRepo->getTotalsForUser($userId, $activeIco, '1970-01-01', '2999-12-31')['all'] > 0
+            )
+        ) {
+            $companiesForLookback = $currentResult['companies'] ?? [];
+            $cursor = new DateTime(sprintf('%04d-%02d-01', $prevYear, $prevMonth));
+            for ($i = 0; $i < 4 && $lastCleaningDate === null && $companiesForLookback !== []; $i++) {
+                [$y, $m] = self::previousYearMonth($cursor);
+                $cursor = new DateTime(sprintf('%04d-%02d-01', $y, $m));
+                $monthResult = $this->freshqr->getCleaningDaysForCompanies($companiesForLookback, $y, $m);
+                if (($monthResult['error'] ?? null) !== null) {
+                    continue;
+                }
+                $lastCleaningDate = self::findLastCompletedCleaningDate(
+                    self::reshapeCleaningDaysForDashboard($monthResult['cleaningDays'] ?? [])
+                );
+            }
+        }
 
         // Map IČO → company name so an in-progress cleaning can name its object.
         // Demo cleanings carry the synthetic IČO, which has no DB company row —
@@ -284,9 +309,9 @@ class DashboardController extends Controller
                 'contract' => $contract,
             ],
             'cleaningDays' => $cleaningDays,
+            'lastCleaningDate' => $lastCleaningDate,
             'ongoingCleaning' => $ongoingCleaning,
             'reviewPrompt' => $reviewPromptPayload,
-            'personnelList' => $personnelList,
             'recentInvoices' => $recentInvoices,
             'locations' => array_map(function ($l) {
                 return [
@@ -408,6 +433,34 @@ class DashboardController extends Controller
             'since' => $since,
             'employees' => $employees,
         ];
+    }
+
+    /**
+     * The most recent completed cleaning date from the reshaped dashboard
+     * cleaningDays, or null when none exists. An 'ongoing' day is not a
+     * completed cleaning (it becomes one once it closes); a 'done' day dated
+     * today counts. The merged multi-month input is not guaranteed sorted, so
+     * this computes the maximum rather than taking the last element. Inherits
+     * the reshape's SECURITY NOTE for free — the input carries no scan times.
+     *
+     * @param list<array{date:string,status:string}> $reshapedCleaningDays
+     */
+    private static function findLastCompletedCleaningDate(array $reshapedCleaningDays): ?string
+    {
+        $last = null;
+        foreach ($reshapedCleaningDays as $day) {
+            if (($day['status'] ?? null) !== 'done') {
+                continue;
+            }
+            $date = $day['date'] ?? null;
+            if (!is_string($date) || $date === '') {
+                continue;
+            }
+            if ($last === null || $date > $last) {
+                $last = $date;
+            }
+        }
+        return $last;
     }
 
     /**

@@ -29,6 +29,8 @@ const routes = [
         path: '/prehled',
         name: 'Dashboard',
         component: () => import('../views/DashboardView.vue'),
+        // Floating hamburger over a tinted canvas instead of the solid topbar
+        meta: { chrome: 'floating' },
       },
       {
         path: '/faktury',

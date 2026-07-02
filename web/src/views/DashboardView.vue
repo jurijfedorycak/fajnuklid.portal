@@ -12,19 +12,18 @@ import { Doughnut } from "vue-chartjs";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import {
   Calendar,
-  ChevronLeft,
+  ChevronDown,
   ChevronRight,
   ArrowRight,
   CheckCircle2,
   Loader2,
-  Check,
   ClipboardList,
   Plus,
   Sparkles,
   FileText,
+  BarChart3,
   Users,
   FileSignature,
-  AlertCircle,
   Clock,
   MapPin,
   Sunrise,
@@ -32,7 +31,6 @@ import {
   Sunset,
   Moon,
 } from "lucide-vue-next";
-import { useRouter } from "vue-router";
 import {
   dashboardService,
   maintenanceRequestService,
@@ -40,8 +38,6 @@ import {
 } from "../api";
 import { useAuth } from "../stores/auth";
 import ReviewPromptCard from "../components/dashboard/ReviewPromptCard.vue";
-
-const dashRouter = useRouter();
 
 // ── Maintenance request widget ──────────────────────────────────────────────
 const requestsWidgetLoading = ref(true);
@@ -151,9 +147,9 @@ const dashboardData = ref({
     contract: { hasPdf: false, contractsEnabled: false },
   },
   cleaningDays: [],
+  lastCleaningDate: null,
   ongoingCleaning: null,
   reviewPrompt: null,
-  personnelList: [],
   recentInvoices: [],
 });
 
@@ -189,8 +185,6 @@ async function fetchDashboard(initial = false) {
         suppressWatch = true;
         activeIco.value = response.data.activeIco;
       }
-      // Reset personnel paginator when data set changes
-      personnelPage.value = 0;
     } else {
       error.value = response.message || "Nepodařilo se načíst data";
     }
@@ -235,7 +229,6 @@ const overview = computed(() => dashboardData.value.overview || {});
 const invoicesOverview = computed(() => overview.value.invoices || {});
 const personnelOverview = computed(() => overview.value.personnel || {});
 const contract = computed(() => overview.value.contract || { hasPdf: false });
-const personnelList = computed(() => dashboardData.value.personnelList || []);
 const recentInvoices = computed(() => dashboardData.value.recentInvoices || []);
 const cleaningDays = computed(() => dashboardData.value.cleaningDays || []);
 const ongoingCleaning = computed(() => dashboardData.value.ongoingCleaning || null);
@@ -427,35 +420,13 @@ const dateRangeLabel = computed(
   () => `${formatCsDate(range.value.from)} – ${formatCsDate(range.value.to)}`,
 );
 
-// Photos can occasionally 404 (e.g. broken links from the admin); when that happens
-// we fall back to initials rather than showing a broken-image icon on the dashboard.
-const brokenPhotos = ref({});
-
-function markPhotoBroken(id) {
-  brokenPhotos.value = { ...brokenPhotos.value, [id]: true };
-}
-
-// ── Personnel pagination ────────────────────────────────────────────────────
-const personnelPage = ref(0);
-const PERSONNEL_PER_PAGE = 2;
-
-const personnelTotalPages = computed(() =>
-  Math.max(1, Math.ceil(personnelList.value.length / PERSONNEL_PER_PAGE)),
+// Gated on attendanceEnabled so the chip follows the same "hide all FreshQR UI
+// when off" rule as the calendars and the live pill.
+const lastCleaningDate = computed(() =>
+  attendanceEnabled.value
+    ? dashboardData.value.lastCleaningDate || null
+    : null,
 );
-
-const personnelVisible = computed(() => {
-  const start = personnelPage.value * PERSONNEL_PER_PAGE;
-  return personnelList.value.slice(start, start + PERSONNEL_PER_PAGE);
-});
-
-function personnelPrev() {
-  if (personnelPage.value > 0) personnelPage.value--;
-}
-
-function personnelNext() {
-  if (personnelPage.value < personnelTotalPages.value - 1)
-    personnelPage.value++;
-}
 
 // ── Cleaning summary (per-month counts, computed from each calendar's cells) ─
 function countDone(cells) {
@@ -507,6 +478,43 @@ const hasAnyInvoiceData = computed(
 const hasOverdueInvoices = computed(
   () => (invoicesOverview.value.overdueCount || 0) > 0,
 );
+
+// Single source for the Splatnost stat card. Priority mirrors the previous
+// metric: a concrete upcoming due date beats the aggregate states.
+const dueStatus = computed(() => {
+  const next = invoicesOverview.value.nextDue;
+  if (next) {
+    const d = next.daysRelative;
+    const label =
+      d === 0
+        ? "dnes"
+        : d === 1
+          ? "zítra"
+          : `za ${d} ${d >= 2 && d <= 4 ? "dny" : "dní"}`;
+    return {
+      kind: "next",
+      label,
+      badge: next.documentNumber,
+    };
+  }
+  if (hasOverdueInvoices.value) {
+    return {
+      kind: "overdue",
+      label: `${invoicesOverview.value.overdueCount} po splatnosti`,
+    };
+  }
+  if (hasAnyInvoiceData.value) {
+    return { kind: "paid", label: "Splaceno" };
+  }
+  return { kind: "none", label: "Zatím žádné faktury" };
+});
+
+const personnelCountLabel = computed(() => {
+  const n = personnelOverview.value.count || 0;
+  const word =
+    n === 1 ? "pracovník" : n >= 2 && n <= 4 ? "pracovníci" : "pracovníků";
+  return `${n} ${word}`;
+});
 
 const MONTHS = [
   "leden",
@@ -598,17 +606,6 @@ function formatAmount(n, currency = "Kč") {
   return `${Number(n).toLocaleString("cs-CZ")} ${currency}`;
 }
 
-function initials(name) {
-  if (!name) return "?";
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 function statusBadge(status) {
   if (status === "paid") return { cls: "badge-success", label: "Zaplaceno" };
   if (status === "overdue")
@@ -628,7 +625,7 @@ function selectCompany(ico) {
     <div
       v-if="loading"
       id="dashboard-loading"
-      class="card dashboard-loading-state"
+      class="dash-card dashboard-loading-state"
       role="status"
       aria-live="polite"
     >
@@ -655,116 +652,134 @@ function selectCompany(ico) {
 
     <!-- Content -->
     <template v-else>
-      <!-- Header: greeting + IČO switcher -->
-      <header id="dashboard-header" class="dashboard-header">
-        <h1 id="dashboard-greeting" class="dashboard-greeting">
-          {{ timeOfDay.text }}, {{ greetingTarget }}
-          <component
-            :is="timeOfDay.icon"
-            id="dashboard-greeting-icon"
-            class="greeting-icon"
-            :size="26"
-            :style="{ color: timeOfDay.color }"
+      <!-- Hero: warm time-of-day icon + two-line greeting + meta chips -->
+      <header id="dashboard-hero" class="dashboard-hero">
+        <div id="dashboard-hero-top" class="hero-top">
+          <span
+            id="dashboard-hero-icon"
+            class="hero-icon"
             aria-hidden="true"
-          />
-        </h1>
-        <div
-          v-if="companies.length >= 2"
-          id="dashboard-company-switcher"
-          class="company-switcher"
-          role="tablist"
-          aria-label="Přepínač IČO"
-        >
-          <button
-            v-for="company in companies"
-            :key="company.id"
-            :id="`dashboard-company-tile-${company.id}`"
-            type="button"
-            class="company-tile"
-            :class="{ active: company.ico === activeIco }"
-            role="tab"
-            :aria-selected="company.ico === activeIco"
-            @click="selectCompany(company.ico)"
           >
-            <span class="avatar avatar-sm company-tile-avatar">{{
-              initials(company.name)
+            <component
+              :is="timeOfDay.icon"
+              :size="24"
+              :style="{ color: timeOfDay.color }"
+            />
+          </span>
+          <h1 id="dashboard-greeting" class="dashboard-greeting">
+            <span id="dashboard-greeting-time" class="greeting-line"
+              >{{ timeOfDay.text }},</span
+            >
+            <span id="dashboard-greeting-name" class="greeting-name">{{
+              greetingTarget
             }}</span>
-            <span class="company-tile-text">
-              <span class="company-tile-name">{{ company.name }}</span>
-              <span class="company-tile-ico">IČO: {{ company.ico }}</span>
-            </span>
-          </button>
+          </h1>
+        </div>
+
+        <div
+          v-if="
+            personnelOverview.locationName ||
+            lastCleaningDate ||
+            companies.length >= 2
+          "
+          id="dashboard-hero-chips"
+          class="hero-chips"
+        >
+          <span
+            v-if="personnelOverview.locationName"
+            id="dashboard-chip-location"
+            class="hero-chip"
+          >
+            <MapPin :size="13" aria-hidden="true" />
+            {{ personnelOverview.locationName }}
+          </span>
+          <span
+            v-if="lastCleaningDate"
+            id="dashboard-chip-last-cleaning"
+            class="hero-chip"
+          >
+            <Calendar :size="13" aria-hidden="true" />
+            Poslední úklid: {{ formatCsDate(lastCleaningDate) }}
+          </span>
+          <span
+            v-if="companies.length >= 2"
+            id="dashboard-company-switcher"
+            class="hero-chip-group"
+            role="group"
+            aria-label="Přepínač společnosti"
+          >
+            <button
+              v-for="company in companies"
+              :key="company.id"
+              :id="`dashboard-company-chip-${company.id}`"
+              type="button"
+              class="hero-chip hero-chip-company"
+              :class="{ active: company.ico === activeIco }"
+              :aria-pressed="company.ico === activeIco"
+              :title="`${company.name} (IČO: ${company.ico})`"
+              @click="selectCompany(company.ico)"
+            >
+              {{ company.name }}
+            </button>
+          </span>
         </div>
       </header>
 
-      <!-- Live "cleaning in progress" banner — only while a cleaner is on-site.
+      <!-- Live "cleaning in progress" pill — only while a cleaner is on-site.
            Gated on attendanceEnabled too so it follows the same "hide all FreshQR
            UI when off" rule as the Úklidy card, rather than relying solely on the
-           backend withholding ongoingCleaning. -->
-      <section
+           backend withholding ongoingCleaning. Links to the attendance detail. -->
+      <div
         v-if="attendanceEnabled && ongoingCleaning"
         id="dashboard-live-cleaning"
-        class="live-cleaning"
+        class="live-pill-wrap"
         role="status"
         aria-live="polite"
       >
-        <span class="live-cleaning-indicator" aria-hidden="true">
-          <span class="live-cleaning-dot" />
+      <RouterLink
+        id="dashboard-live-cleaning-link"
+        to="/dochazka"
+        class="live-pill"
+      >
+        <span class="live-pill-row">
+          <span class="live-pill-indicator" aria-hidden="true">
+            <span class="live-pill-dot" />
+          </span>
+          <span class="live-pill-title">Úklid právě probíhá</span>
+          <ArrowRight :size="14" class="live-pill-arrow" aria-hidden="true" />
         </span>
-        <div class="live-cleaning-body">
-          <div class="live-cleaning-heading">
-            <span class="live-cleaning-tag">Živě</span>
-            <span class="live-cleaning-title">Úklid právě probíhá</span>
-          </div>
-          <div
-            v-if="ongoingHasDetails"
-            id="dashboard-live-cleaning-meta"
-            class="live-cleaning-meta"
-          >
-            <span
-              v-if="ongoingCleaning.objectName"
-              id="dashboard-live-cleaning-object"
-              class="live-cleaning-meta-item"
-            >
-              <MapPin :size="14" aria-hidden="true" />
-              {{ ongoingCleaning.objectName }}
-            </span>
-            <span
-              v-if="ongoingCleaning.since"
-              id="dashboard-live-cleaning-since"
-              class="live-cleaning-meta-item"
-            >
-              <Clock :size="14" aria-hidden="true" />
-              od {{ ongoingCleaning.since }}
-            </span>
-            <span
-              v-if="ongoingEmployeesLabel"
-              id="dashboard-live-cleaning-staff"
-              class="live-cleaning-meta-item"
-            >
-              <Users :size="14" aria-hidden="true" />
-              {{ ongoingEmployeesLabel }}
-            </span>
-          </div>
-          <div
-            v-else
-            id="dashboard-live-cleaning-generic"
-            class="live-cleaning-meta"
-          >
-            <span class="live-cleaning-meta-item">
-              Náš tým je právě u vás na objektu.
-            </span>
-          </div>
-        </div>
-        <RouterLink
-          id="dashboard-live-cleaning-link"
-          to="/dochazka"
-          class="live-cleaning-link"
+        <span
+          v-if="ongoingHasDetails"
+          id="dashboard-live-cleaning-meta"
+          class="live-pill-meta"
         >
-          <span>Docházka</span>
-          <ArrowRight :size="14" aria-hidden="true" />
-        </RouterLink>
-      </section>
+          <span
+            v-if="ongoingCleaning.objectName"
+            id="dashboard-live-cleaning-object"
+            class="live-pill-meta-item"
+          >
+            <MapPin :size="13" aria-hidden="true" />
+            {{ ongoingCleaning.objectName }}
+          </span>
+          <span
+            v-if="ongoingCleaning.since"
+            id="dashboard-live-cleaning-since"
+            class="live-pill-meta-item"
+          >
+            <Clock :size="13" aria-hidden="true" />
+            od {{ ongoingCleaning.since }}
+          </span>
+          <span
+            v-if="ongoingEmployeesLabel"
+            id="dashboard-live-cleaning-staff"
+            class="live-pill-meta-item"
+          >
+            <Users :size="13" aria-hidden="true" />
+            {{ ongoingEmployeesLabel }}
+          </span>
+        </span>
+      </RouterLink>
+      </div>
 
       <!-- Brand-new-client onboarding hero -->
       <section
@@ -823,281 +838,223 @@ function selectCompany(ico) {
         </div>
       </section>
 
-      <!-- Overview card -->
-      <section
-        id="dashboard-overview-card"
-        class="card overview-card"
+      <!-- Date range field — filters the invoice stats below -->
+      <div
+        ref="datePickerWrapRef"
+        id="dashboard-date-picker-wrap"
+        class="date-picker-wrap"
         :class="{ 'is-refetching': refetching }"
       >
-        <div class="overview-head">
-          <h3 id="dashboard-overview-title" class="overview-title">
-            Celkový přehled
-          </h3>
-          <div ref="datePickerWrapRef" class="date-picker-wrap">
-            <button
-              id="dashboard-date-range-btn"
-              type="button"
-              class="date-range-btn"
-              :aria-expanded="datePickerOpen"
-              aria-haspopup="dialog"
-              aria-controls="dashboard-date-picker-popover"
-              @click="datePickerOpen = !datePickerOpen"
-            >
-              <Calendar :size="16" />
-              <span>{{ dateRangeLabel }}</span>
-            </button>
-            <div
-              v-if="datePickerOpen"
-              id="dashboard-date-picker-popover"
-              class="date-popover"
-              role="group"
-              aria-label="Vybrat období"
-            >
-              <div class="chip-group date-presets">
-                <button
-                  v-for="preset in PRESETS"
-                  :key="preset.id"
-                  :id="`dashboard-date-preset-${preset.id}`"
-                  type="button"
-                  class="chip"
-                  :class="{ active: activePreset === preset.id }"
-                  @click="applyPreset(preset.id)"
-                >
-                  {{ preset.label }}
-                </button>
-              </div>
-              <div
-                v-if="activePreset === 'custom'"
-                id="dashboard-date-custom"
-                class="date-custom"
-              >
-                <div class="form-group">
-                  <label for="dashboard-date-custom-from" class="form-label"
-                    >Od</label
-                  >
-                  <input
-                    id="dashboard-date-custom-from"
-                    v-model="customFrom"
-                    type="date"
-                    class="form-input"
-                  />
-                </div>
-                <div class="form-group">
-                  <label for="dashboard-date-custom-to" class="form-label"
-                    >Do</label
-                  >
-                  <input
-                    id="dashboard-date-custom-to"
-                    v-model="customTo"
-                    type="date"
-                    class="form-input"
-                  />
-                </div>
-                <div class="date-custom-actions">
-                  <button
-                    id="dashboard-date-custom-cancel"
-                    type="button"
-                    class="btn btn-ghost btn-sm"
-                    @click="cancelCustomRange"
-                  >
-                    Zrušit
-                  </button>
-                  <button
-                    id="dashboard-date-custom-apply"
-                    type="button"
-                    class="btn btn-primary btn-sm"
-                    @click="applyCustomRange"
-                  >
-                    Použít
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="overview-metrics">
-          <div id="dashboard-metric-invoices" class="metric">
-            <div class="metric-label">Faktur celkem</div>
-            <div class="metric-row">
-              <div
-                class="metric-value"
-                :class="{ 'metric-value-muted': !invoicesOverview.total }"
-              >
-                {{ invoicesOverview.total }}
-              </div>
-              <div class="metric-badges">
-                <span
-                  v-if="invoicesOverview.overdueCount > 0"
-                  class="badge badge-danger"
-                >
-                  {{ invoicesOverview.overdueCount }} po splatnosti
-                </span>
-                <span
-                  v-if="invoicesOverview.unpaidCount > 0"
-                  class="badge badge-info"
-                >
-                  {{ invoicesOverview.unpaidCount }} čeká
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div id="dashboard-metric-next-due" class="metric">
-            <div class="metric-label">Nejbližší splatnost</div>
-            <div class="metric-row">
-              <div v-if="invoicesOverview.nextDue" class="metric-value">
-                za {{ invoicesOverview.nextDue.daysRelative }} dní
-              </div>
-              <div
-                v-else-if="hasOverdueInvoices"
-                class="metric-value metric-value-overdue"
-              >
-                <AlertCircle :size="18" aria-hidden="true" />
-                {{ invoicesOverview.overdueCount }} po splatnosti
-              </div>
-              <div
-                v-else-if="hasAnyInvoiceData"
-                class="metric-value metric-value-ok"
-              >
-                <Check :size="18" aria-hidden="true" />
-                Vše splaceno
-              </div>
-              <div v-else class="metric-placeholder">Zatím žádné faktury</div>
-              <div v-if="invoicesOverview.nextDue" class="metric-badges">
-                <span class="badge badge-info">{{
-                  invoicesOverview.nextDue.documentNumber
-                }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div id="dashboard-metric-personnel" class="metric">
-            <div class="metric-label">Přiřazený tým</div>
-            <div class="metric-row">
-              <div
-                class="metric-value"
-                :class="{ 'metric-value-muted': !personnelOverview.count }"
-              >
-                {{ personnelOverview.count }}
-                <span class="metric-value-unit">{{
-                  personnelOverview.count === 1
-                    ? "pracovník"
-                    : personnelOverview.count >= 2 &&
-                        personnelOverview.count <= 4
-                      ? "pracovníci"
-                      : "pracovníků"
-                }}</span>
-              </div>
-              <div v-if="personnelOverview.locationName" class="metric-badges">
-                <span class="badge badge-info">{{
-                  personnelOverview.locationName
-                }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div id="dashboard-metric-contract" class="metric">
-            <div class="metric-label">Smlouva</div>
-            <div class="metric-row metric-row-contract">
-              <Check
-                v-if="contract.hasPdf"
-                :size="18"
-                class="metric-contract-icon ok"
-                aria-label="Smlouva nahrána"
-              />
-              <FileSignature
-                v-else
-                :size="18"
-                class="metric-contract-icon pending"
-                aria-label="Smlouva zatím není"
-              />
-              <RouterLink
-                v-if="contract.hasPdf"
-                id="dashboard-metric-contract-link"
-                to="/smlouva"
-                class="metric-link"
-              >
-                Zobrazit smlouvu <ArrowRight :size="14" />
-              </RouterLink>
-              <span v-else class="metric-link metric-link-muted"
-                >Připravujeme</span
-              >
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Požadavky a reklamace widget -->
-      <section
-        id="dashboard-requests-card"
-        class="card requests-widget"
-        style="margin-bottom: 24px"
-      >
-        <div class="card-header-row">
-          <h3 id="dashboard-requests-title" class="card-title">
-            <ClipboardList
-              :size="18"
-              style="
-                vertical-align: -3px;
-                margin-right: 6px;
-                color: var(--color-mid);
-              "
-            />
-            Požadavky a reklamace
-          </h3>
-          <RouterLink
-            v-if="latestOpenRequest"
-            id="dashboard-requests-all-link"
-            to="/zadosti"
-            class="card-link"
-          >
-            Zobrazit všechny <ArrowRight :size="14" />
-          </RouterLink>
-        </div>
-
-        <div v-if="requestsWidgetLoading" class="requests-widget-loading">
-          <Loader2 :size="18" class="spin" />
-        </div>
-
-        <RouterLink
-          v-else-if="latestOpenRequest"
-          id="dashboard-requests-latest"
-          :to="`/zadosti/${latestOpenRequest.id}`"
-          class="requests-widget-row"
+        <button
+          id="dashboard-date-range-btn"
+          type="button"
+          class="date-range-field"
+          :aria-expanded="datePickerOpen"
+          aria-haspopup="dialog"
+          aria-controls="dashboard-date-picker-popover"
+          @click="datePickerOpen = !datePickerOpen"
         >
-          <div class="rwr-main">
-            <div class="rwr-title">{{ latestOpenRequest.title }}</div>
-            <div class="rwr-meta">
-              {{ formatRequestDate(latestOpenRequest.createdAt) }}
+          <Calendar :size="17" class="date-range-icon" aria-hidden="true" />
+          <span id="dashboard-date-range-label" class="date-range-label">{{
+            dateRangeLabel
+          }}</span>
+          <ChevronDown
+            :size="16"
+            class="date-range-chevron"
+            aria-hidden="true"
+          />
+        </button>
+        <div
+          v-if="datePickerOpen"
+          id="dashboard-date-picker-popover"
+          class="date-popover"
+          role="group"
+          aria-label="Vybrat období"
+        >
+          <div class="chip-group date-presets">
+            <button
+              v-for="preset in PRESETS"
+              :key="preset.id"
+              :id="`dashboard-date-preset-${preset.id}`"
+              type="button"
+              class="chip"
+              :class="{ active: activePreset === preset.id }"
+              @click="applyPreset(preset.id)"
+            >
+              {{ preset.label }}
+            </button>
+          </div>
+          <div
+            v-if="activePreset === 'custom'"
+            id="dashboard-date-custom"
+            class="date-custom"
+          >
+            <div class="form-group">
+              <label for="dashboard-date-custom-from" class="form-label"
+                >Od</label
+              >
+              <input
+                id="dashboard-date-custom-from"
+                v-model="customFrom"
+                type="date"
+                class="form-input"
+              />
+            </div>
+            <div class="form-group">
+              <label for="dashboard-date-custom-to" class="form-label"
+                >Do</label
+              >
+              <input
+                id="dashboard-date-custom-to"
+                v-model="customTo"
+                type="date"
+                class="form-input"
+              />
+            </div>
+            <div class="date-custom-actions">
+              <button
+                id="dashboard-date-custom-cancel"
+                type="button"
+                class="btn btn-ghost btn-sm"
+                @click="cancelCustomRange"
+              >
+                Zrušit
+              </button>
+              <button
+                id="dashboard-date-custom-apply"
+                type="button"
+                class="btn btn-primary btn-sm"
+                @click="applyCustomRange"
+              >
+                Použít
+              </button>
             </div>
           </div>
-          <span
-            class="badge"
-            :class="requestStatusMeta(latestOpenRequest.status).badge"
-          >
-            {{ requestStatusMeta(latestOpenRequest.status).label }}
+        </div>
+      </div>
+
+      <!-- Stat card grid: Faktury / Splatnost / Tým / Smlouva -->
+      <section
+        id="dashboard-stat-grid"
+        class="stat-grid"
+        :class="{ 'is-refetching': refetching }"
+      >
+        <RouterLink
+          id="dashboard-stat-invoices"
+          to="/faktury"
+          class="dash-card stat-card"
+        >
+          <span id="dashboard-stat-invoices-head" class="stat-head">
+            <span class="stat-icon" aria-hidden="true">
+              <FileText :size="17" />
+            </span>
+            <span class="stat-label">Faktury</span>
+          </span>
+          <span id="dashboard-stat-invoices-body" class="stat-body">
+            <span
+              id="dashboard-stat-invoices-count"
+              class="stat-value"
+              :class="{ 'stat-value-muted': !invoicesOverview.total }"
+            >
+              {{ invoicesOverview.total }}
+            </span>
+            <svg
+              id="dashboard-stat-invoices-sparkline"
+              class="stat-sparkline"
+              viewBox="0 0 64 24"
+              aria-hidden="true"
+            >
+              <path
+                class="sparkline-area"
+                d="M2 19 C 10 17, 15 12, 23 13 S 38 6, 46 8 S 59 4, 62 5 L 62 22 L 2 22 Z"
+              />
+              <path
+                class="sparkline-line"
+                d="M2 19 C 10 17, 15 12, 23 13 S 38 6, 46 8 S 59 4, 62 5"
+              />
+            </svg>
           </span>
         </RouterLink>
 
-        <div v-else id="dashboard-requests-empty" class="requests-widget-empty">
-          Máte problém, dotaz nebo mimořádnou žádost? Vytvořte požadavek a my se
-          vám co nejdříve ozveme s řešením.
+        <div id="dashboard-stat-due" class="dash-card stat-card">
+          <span id="dashboard-stat-due-head" class="stat-head">
+            <span class="stat-icon" aria-hidden="true">
+              <BarChart3 :size="17" />
+            </span>
+            <span class="stat-label">Splatnost</span>
+          </span>
+          <span id="dashboard-stat-due-body" class="stat-body stat-body-status">
+            <span
+              id="dashboard-stat-due-status"
+              class="stat-status"
+              :class="`stat-status-${dueStatus.kind}`"
+            >
+              <span
+                v-if="dueStatus.kind !== 'none'"
+                class="stat-status-dot"
+                aria-hidden="true"
+              />
+              {{ dueStatus.label }}
+            </span>
+            <span
+              v-if="dueStatus.badge"
+              id="dashboard-stat-due-doc"
+              class="badge badge-info"
+              >{{ dueStatus.badge }}</span
+            >
+          </span>
         </div>
 
-        <div class="requests-widget-actions">
-          <RouterLink
-            id="dashboard-requests-create-btn"
-            to="/zadosti/nova"
-            class="btn btn-primary btn-sm"
+        <RouterLink
+          id="dashboard-stat-team"
+          to="/personal"
+          class="dash-card stat-card"
+        >
+          <span id="dashboard-stat-team-head" class="stat-head">
+            <span class="stat-icon" aria-hidden="true">
+              <Users :size="17" />
+            </span>
+            <span class="stat-label">Tým</span>
+          </span>
+          <span id="dashboard-stat-team-foot" class="team-foot">
+            <span id="dashboard-stat-team-count" class="team-badge">{{
+              personnelCountLabel
+            }}</span>
+            <ChevronRight :size="16" class="team-arrow" aria-hidden="true" />
+          </span>
+        </RouterLink>
+
+        <div id="dashboard-stat-contract" class="dash-card stat-card">
+          <span id="dashboard-stat-contract-head" class="stat-head">
+            <span class="stat-icon" aria-hidden="true">
+              <FileSignature :size="17" />
+            </span>
+            <span class="stat-label">Smlouva</span>
+          </span>
+          <span
+            id="dashboard-stat-contract-body"
+            class="stat-body stat-body-status"
           >
-            <Plus :size="14" />
-            <span>Vytvořit požadavek</span>
-          </RouterLink>
+            <RouterLink
+              v-if="contract.hasPdf"
+              id="dashboard-stat-contract-link"
+              to="/smlouva"
+              class="stat-link"
+            >
+              Zobrazit
+              <ArrowRight :size="14" aria-hidden="true" />
+            </RouterLink>
+            <span
+              v-else
+              id="dashboard-stat-contract-pending"
+              class="stat-status stat-status-none"
+              >Připravujeme</span
+            >
+          </span>
         </div>
       </section>
 
-      <!-- Mid row: Cleanings + Personnel -->
+      <!-- Mid row: Docházka + Požadavky -->
       <section
         id="dashboard-mid-row"
         class="dashboard-mid-row"
@@ -1106,11 +1063,11 @@ function selectCompany(ico) {
         <article
           v-if="attendanceEnabled"
           id="dashboard-cleaning-card"
-          class="card cleaning-card"
+          class="dash-card cleaning-card"
         >
           <div class="card-header-row">
             <h3 id="dashboard-cleaning-title" class="card-title">
-              Úklidy
+              Docházka a přehled
             </h3>
             <RouterLink
               id="dashboard-cleaning-detail-link"
@@ -1157,7 +1114,6 @@ function selectCompany(ico) {
                     'mc-blank': cell.blank,
                     'mc-done': cell.status === 'done',
                     'mc-ongoing': cell.status === 'ongoing',
-                    'mc-scheduled': cell.status === 'scheduled',
                   }"
                   :role="cell.blank ? 'presentation' : 'gridcell'"
                   :title="cell.date || ''"
@@ -1201,7 +1157,6 @@ function selectCompany(ico) {
                     'mc-blank': cell.blank,
                     'mc-done': cell.status === 'done',
                     'mc-ongoing': cell.status === 'ongoing',
-                    'mc-scheduled': cell.status === 'scheduled',
                     'mc-today': cell.isToday,
                   }"
                   :role="cell.blank ? 'presentation' : 'gridcell'"
@@ -1227,97 +1182,75 @@ function selectCompany(ico) {
           </div>
         </article>
 
-        <article id="dashboard-personnel-card" class="card personnel-card">
+        <article id="dashboard-requests-card" class="dash-card requests-widget">
           <div class="card-header-row">
-            <h3 id="dashboard-personnel-title" class="card-title">
-              Přiřazení pracovníci
+            <h3 id="dashboard-requests-title" class="card-title">
+              <ClipboardList
+                :size="18"
+                class="card-title-icon"
+                aria-hidden="true"
+              />
+              Požadavky a reklamace
             </h3>
-            <div class="personnel-header-actions">
-              <div
-                v-if="personnelList.length > PERSONNEL_PER_PAGE"
-                class="personnel-paginator"
-              >
-                <button
-                  id="dashboard-personnel-prev-btn"
-                  type="button"
-                  class="paginator-btn"
-                  :disabled="personnelPage === 0"
-                  @click="personnelPrev"
-                  aria-label="Předchozí pracovníci"
-                >
-                  <ChevronLeft :size="16" />
-                </button>
-                <span
-                  id="dashboard-personnel-page-indicator"
-                  class="paginator-text"
-                >
-                  {{ personnelPage + 1 }}/{{ personnelTotalPages }}
-                </span>
-                <button
-                  id="dashboard-personnel-next-btn"
-                  type="button"
-                  class="paginator-btn"
-                  :disabled="personnelPage >= personnelTotalPages - 1"
-                  @click="personnelNext"
-                  aria-label="Další pracovníci"
-                >
-                  <ChevronRight :size="16" />
-                </button>
-              </div>
-              <RouterLink
-                id="dashboard-personnel-all-link"
-                to="/personal"
-                class="card-link"
-              >
-                Všichni pracovníci <ArrowRight :size="14" />
-              </RouterLink>
-            </div>
+            <RouterLink
+              v-if="latestOpenRequest"
+              id="dashboard-requests-all-link"
+              to="/zadosti"
+              class="card-link"
+            >
+              Zobrazit všechny <ArrowRight :size="14" />
+            </RouterLink>
           </div>
 
-          <div
-            v-if="personnelVisible.length > 0"
-            id="dashboard-personnel-list"
-            class="personnel-list"
+          <div v-if="requestsWidgetLoading" class="requests-widget-loading">
+            <Loader2 :size="18" class="spin" />
+          </div>
+
+          <RouterLink
+            v-else-if="latestOpenRequest"
+            id="dashboard-requests-latest"
+            :to="`/zadosti/${latestOpenRequest.id}`"
+            class="requests-widget-row"
           >
-            <div
-              v-for="staff in personnelVisible"
-              :key="staff.id"
-              :id="`dashboard-personnel-card-${staff.id}`"
-              class="personnel-row"
-            >
-              <div class="avatar avatar-md personnel-avatar">
-                <img
-                  v-if="staff.photoUrl && !brokenPhotos[staff.id]"
-                  :src="staff.photoUrl"
-                  :alt="staff.name"
-                  @error="markPhotoBroken(staff.id)"
-                />
-                <span v-else>{{ initials(staff.name) }}</span>
-              </div>
-              <div class="personnel-info">
-                <div class="personnel-name">{{ staff.name }}</div>
-                <div v-if="staff.role" class="personnel-role">
-                  {{ staff.role }}
-                </div>
+            <div class="rwr-main">
+              <div class="rwr-title">{{ latestOpenRequest.title }}</div>
+              <div class="rwr-meta">
+                {{ formatRequestDate(latestOpenRequest.createdAt) }}
               </div>
             </div>
+            <span
+              class="badge"
+              :class="requestStatusMeta(latestOpenRequest.status).badge"
+            >
+              {{ requestStatusMeta(latestOpenRequest.status).label }}
+            </span>
+          </RouterLink>
+
+          <div
+            v-else
+            id="dashboard-requests-empty"
+            class="requests-widget-empty"
+          >
+            Máte problém, dotaz nebo mimořádnou žádost? Vytvořte požadavek a my
+            se vám co nejdříve ozveme s řešením.
           </div>
-          <div v-else id="dashboard-personnel-empty" class="inline-empty">
-            <span class="inline-empty-icon">
-              <Users :size="22" aria-hidden="true" />
-            </span>
-            <span class="inline-empty-title">Ještě žádný přiřazený tým</span>
-            <span class="inline-empty-desc">
-              Jakmile vám přiřadíme pracovníky, najdete je tady i s jejich
-              profily.
-            </span>
+
+          <div class="requests-widget-actions">
+            <RouterLink
+              id="dashboard-requests-create-btn"
+              to="/zadosti/nova"
+              class="btn btn-primary btn-sm"
+            >
+              <Plus :size="14" />
+              <span>Vytvořit požadavek</span>
+            </RouterLink>
           </div>
         </article>
       </section>
 
       <!-- Bottom row: Donut + Recent invoices -->
       <section id="dashboard-bottom-row" class="dashboard-bottom-row">
-        <article id="dashboard-chart-card" class="card chart-card">
+        <article id="dashboard-chart-card" class="dash-card chart-card">
           <h3 id="dashboard-chart-title" class="card-title">Přehled faktur</h3>
           <template v-if="hasAnyInvoiceData">
             <div id="dashboard-chart-wrap" class="chart-wrap">
@@ -1353,7 +1286,7 @@ function selectCompany(ico) {
           </div>
         </article>
 
-        <article id="dashboard-recent-invoices-card" class="card recent-card">
+        <article id="dashboard-recent-invoices-card" class="dash-card recent-card">
           <div class="card-header-row">
             <h3 id="dashboard-recent-title" class="card-title">
               Poslední faktury
@@ -1418,57 +1351,100 @@ function selectCompany(ico) {
 </template>
 
 <style scoped>
+/* ── Page shell & shared card ───────────────────────────────────────────── */
+/* Wide desktops: cap the airy layout so cards don't stretch into ribbons. */
+@media (min-width: 1280px) {
+  #dashboard-page {
+    max-width: 1200px;
+    margin-inline: auto;
+  }
+}
+
+/* White card on the tinted page canvas — deliberately NOT the global .card
+   (gray-50 on white), the dashboard inverts that relationship. */
+.dash-card {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-100);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-lg);
+}
+@media (min-width: 480px) {
+  .dash-card {
+    padding: var(--space-xl);
+  }
+}
+
+.date-picker-wrap.is-refetching,
+.stat-grid.is-refetching {
+  opacity: 0.6;
+}
+
 /* Tighter inter-section spacing on desktop — 24px stacks added up to dead air. */
 @media (min-width: 1024px) {
-  .dashboard-header,
-  .live-cleaning,
-  .overview-card,
-  .requests-widget,
+  .dashboard-hero,
+  .live-pill-wrap,
+  .date-picker-wrap,
+  .stat-grid,
   .dashboard-mid-row {
     margin-bottom: 16px;
   }
 }
 
-/* ── Live "cleaning in progress" banner ─────────────────────────────────── */
-.live-cleaning {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 16px 18px;
-  margin-bottom: 24px;
-  border-radius: var(--radius-lg);
-  background: var(--color-warning-light);
-  border: 1.5px solid var(--color-warning);
-  box-shadow: var(--shadow-sm);
-  flex-wrap: wrap;
+/* ── Live "cleaning in progress" pill ───────────────────────────────────── */
+/* Status semantics live on the wrapper; the pill itself stays a plain link. */
+.live-pill-wrap {
+  margin-bottom: 20px;
 }
 
-.live-cleaning-indicator {
+.live-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px 16px;
+  border-radius: var(--radius-2xl);
+  background: var(--color-success-light);
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.live-pill:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.live-pill-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.live-pill-indicator {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-top: 3px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
 }
 
-.live-cleaning-dot {
+.live-pill-dot {
   position: relative;
   z-index: 1;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--color-warning);
+  background: var(--color-success);
 }
 
-.live-cleaning-dot::after {
+.live-pill-dot::after {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: var(--color-warning);
+  background: var(--color-success);
   animation: live-cleaning-pulse 1.8s ease-out infinite;
 }
 
@@ -1483,87 +1459,41 @@ function selectCompany(ico) {
   }
 }
 
-.live-cleaning-body {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.live-pill-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-success);
 }
 
-.live-cleaning-heading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.live-cleaning-tag {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-warning);
-  background: var(--color-white);
-  border: 1px solid var(--color-warning);
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-}
-
-.live-cleaning-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--color-primary);
-}
-
-.live-cleaning-meta {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  font-size: 13px;
-  color: var(--color-gray-700);
-}
-
-.live-cleaning-meta-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-}
-
-.live-cleaning-meta-item svg {
-  color: var(--color-warning);
+.live-pill-arrow {
+  color: var(--color-success);
   flex-shrink: 0;
 }
 
-.live-cleaning-link {
+.live-pill-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--color-gray-600);
+  padding-left: 24px;
+}
+
+.live-pill-meta-item {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-primary);
-  white-space: nowrap;
-  align-self: center;
+  min-width: 0;
 }
 
-.live-cleaning-link:hover {
-  color: var(--color-primary-hover);
-}
-
-@media (min-width: 640px) {
-  .live-cleaning {
-    flex-wrap: nowrap;
-    align-items: center;
-  }
-  .live-cleaning-link {
-    margin-left: auto;
-  }
+.live-pill-meta-item svg {
+  color: var(--color-success);
+  flex-shrink: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .live-cleaning-dot::after {
+  .live-pill-dot::after {
     animation: none;
   }
 }
@@ -1590,140 +1520,163 @@ function selectCompany(ico) {
   color: var(--color-gray-600);
 }
 
-/* ── Header ─────────────────────────────────────────────────────────────── */
-.dashboard-header {
+/* ── Hero ───────────────────────────────────────────────────────────────── */
+.dashboard-hero {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 20px;
+  /* Right inset clears the floating hamburger; gone once the topbar hides. */
+  padding: 4px 56px 0 0;
+}
+@media (min-width: 768px) {
+  .dashboard-hero {
+    padding: 0;
+  }
 }
 
+.hero-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: var(--color-warning-light);
+  flex-shrink: 0;
+}
+
+/* Two deliberate lines on phones; a single line once the sidebar layout kicks
+   in and there is room to spare. */
 .dashboard-greeting {
+  display: flex;
+  flex-direction: column;
   font-size: var(--fs-3xl);
   font-weight: 700;
   color: var(--color-primary);
   line-height: 1.15;
   letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
-
-/* Time-of-day icon trailing the greeting — aligned to the text baseline. */
-.greeting-icon {
-  vertical-align: -4px;
-  margin-left: 8px;
-  flex-shrink: 0;
-}
-
-.company-switcher {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.company-tile {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: var(--radius-lg);
-  background: var(--card-bg);
-  border: 1.5px solid transparent;
-  cursor: pointer;
-  transition: var(--transition);
-  text-align: left;
-  flex: 1 1 100%;
-  opacity: 0.7;
-}
-@media (min-width: 640px) {
-  .company-tile {
-    flex: 0 1 auto;
-    min-width: 180px;
+@media (min-width: 768px) {
+  .dashboard-greeting {
+    flex-direction: row;
+    flex-wrap: wrap;
+    column-gap: 0.35ch;
   }
 }
 
-.company-tile:hover {
-  opacity: 1;
-  border-color: var(--color-gray-200);
+.hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.company-tile.active {
-  opacity: 1;
-  border-color: var(--color-gray-300);
+.hero-chip-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hero-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
   background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
   box-shadow: var(--shadow-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-gray-700);
 }
 
-.company-tile-avatar {
+.hero-chip svg {
+  color: var(--color-gray-500);
+  flex-shrink: 0;
+}
+
+.hero-chip-company {
+  cursor: pointer;
+  transition: var(--transition);
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  font-family: inherit;
+}
+
+.hero-chip-company:hover {
+  border-color: var(--color-gray-300);
+}
+
+.hero-chip-company.active {
   background: var(--color-primary);
+  border-color: var(--color-primary);
   color: var(--color-white);
 }
 
-.company-tile-text {
-  display: flex;
-  flex-direction: column;
-}
-
-.company-tile-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-primary);
-}
-
-.company-tile-ico {
-  font-size: 11px;
-  color: var(--color-gray-500);
-}
-
-/* ── Overview card ──────────────────────────────────────────────────────── */
-.overview-card {
-  margin-bottom: 24px;
+/* ── Date range field ───────────────────────────────────────────────────── */
+.date-picker-wrap {
+  position: relative;
+  margin-bottom: 20px;
   transition: opacity 0.2s ease;
 }
 
-.overview-card.is-refetching {
-  opacity: 0.6;
-}
-
-.overview-head {
+.date-range-field {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-}
-
-.overview-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--color-primary);
-}
-
-.date-picker-wrap {
-  position: relative;
-}
-
-.date-range-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: var(--radius-md);
+  gap: 10px;
+  width: 100%;
+  padding: 13px 16px;
+  border-radius: var(--radius-xl);
   background: var(--color-white);
-  border: 1.5px solid var(--color-gray-200);
-  font-size: 13px;
+  border: 1px solid var(--color-gray-200);
+  box-shadow: var(--shadow-sm);
+  font-size: 14px;
   font-weight: 500;
+  font-family: inherit;
   color: var(--color-primary);
   cursor: pointer;
   transition: var(--transition);
 }
 
-.date-range-btn:hover {
+.date-range-field:hover {
   border-color: var(--color-accent);
 }
 
-/* Mobile-first: anchor to left edge so popover can't clip off-screen when button is near the right edge */
+.date-range-icon,
+.date-range-chevron {
+  color: var(--color-gray-500);
+  flex-shrink: 0;
+}
+
+.date-range-label {
+  flex: 1;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Desktop: the field doesn't need the whole row to stay legible */
+@media (min-width: 640px) {
+  .date-range-field {
+    max-width: 420px;
+  }
+}
+
+/* Full width under the field on mobile; capped to the field width above */
 .date-popover {
   position: absolute;
   top: calc(100% + 8px);
@@ -1734,14 +1687,7 @@ function selectCompany(ico) {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   padding: 16px;
-  width: min(280px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
-}
-@media (min-width: 480px) {
-  .date-popover {
-    right: 0;
-    left: auto;
-  }
+  width: min(320px, 100%);
 }
 
 .date-presets {
@@ -1765,160 +1711,188 @@ function selectCompany(ico) {
   margin-top: 8px;
 }
 
-/* Mobile-first: stacked metrics. Enhance at sm and lg. */
-.overview-metrics {
+/* ── Stat card grid ─────────────────────────────────────────────────────── */
+.stat-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 20px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+  transition: opacity 0.2s ease;
 }
 
-@media (min-width: 640px) {
-  .overview-metrics {
-    grid-template-columns: repeat(2, 1fr);
-    row-gap: 24px;
-  }
+.stat-grid > * {
+  min-width: 0;
 }
 
 @media (min-width: 1024px) {
-  .overview-metrics {
+  .stat-grid {
     grid-template-columns: repeat(4, 1fr);
-    gap: 24px;
+    gap: 16px;
   }
 }
 
-.metric {
+.stat-card {
+  position: relative;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 112px;
+  text-decoration: none;
+  overflow: hidden;
+  transition: var(--transition);
+}
+
+a.stat-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.stat-head {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  position: relative;
 }
 
-/* Dividers only appear when metrics are side-by-side */
-@media (min-width: 640px) {
-  .metric:nth-child(odd) {
-    padding-right: 24px;
-    border-right: 1px solid var(--color-gray-200);
-  }
-}
-
-@media (min-width: 1024px) {
-  .metric:nth-child(odd) {
-    padding-right: 0;
-    border-right: none;
-  }
-  .metric + .metric {
-    padding-left: 24px;
-    border-left: 1px solid var(--color-gray-200);
-  }
-}
-
-.metric-label {
-  font-size: 13px;
-  color: var(--color-gray-600);
-  font-weight: 500;
-}
-
-.metric-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.metric-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--color-primary);
-  line-height: 1.1;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.metric-value-muted {
-  color: var(--color-gray-400);
-}
-
-.metric-value-unit {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-gray-500);
-  letter-spacing: 0;
-}
-
-.metric-value-ok {
-  font-size: 17px;
-  color: var(--color-success);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.metric-value-overdue {
-  font-size: 17px;
-  color: var(--color-danger);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.metric-placeholder {
-  font-size: 14px;
-  color: var(--color-gray-500);
-}
-
-.metric-badges {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.metric-row-contract {
-  align-items: center;
-  gap: 10px;
-}
-
-.metric-contract-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+.stat-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: var(--color-gray-100);
+  color: var(--color-primary);
   flex-shrink: 0;
 }
 
-.metric-contract-icon.ok {
-  background: var(--color-success-light);
+.stat-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-gray-700);
+}
+
+.stat-body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stat-value {
+  font-size: var(--fs-3xl);
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1;
+}
+
+.stat-value-muted {
+  color: var(--color-gray-400);
+}
+
+/* Decorative flourish only — hence a static path, no chart library */
+.stat-sparkline {
+  width: 64px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.sparkline-line {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.sparkline-area {
+  fill: var(--color-accent);
+  opacity: 0.1;
+}
+
+.stat-body-status {
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.stat-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.stat-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.stat-status-paid {
   color: var(--color-success);
 }
 
-.metric-contract-icon.pending {
-  background: var(--color-light);
+.stat-status-next {
   color: var(--color-primary);
 }
 
-.metric-link {
+.stat-status-overdue {
+  color: var(--color-danger);
+}
+
+.stat-status-none {
+  color: var(--color-gray-500);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.stat-link {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
+  gap: 5px;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--color-accent);
-  font-weight: 500;
 }
 
-.metric-link:hover {
+.stat-link:hover {
   color: var(--color-primary);
 }
 
-.metric-link-muted {
-  color: var(--color-gray-500);
-  font-size: 13px;
+/* Tým card — worker profiles live on the Personál page, the card only
+   carries the count and the link to /personal. */
+.team-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.team-badge {
+  display: inline-flex;
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-gray-100);
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.team-arrow {
+  color: var(--color-primary);
+  flex-shrink: 0;
 }
 
 /* ── Požadavky a reklamace widget ───────────────────────────────────────── */
+.card-title-icon {
+  vertical-align: -3px;
+  margin-right: 6px;
+  color: var(--color-mid);
+}
+
 .requests-widget-loading {
   display: flex;
   align-items: center;
@@ -2000,8 +1974,8 @@ function selectCompany(ico) {
   .dashboard-mid-row {
     grid-template-columns: 1fr 360px;
   }
-  /* Attendance hidden: only the personnel card remains, so it takes the full
-     row instead of leaving the 360px calendar column empty. */
+  /* Attendance hidden: only the requests widget remains, so it takes the full
+     row instead of leaving the calendar column empty. */
   .dashboard-mid-row.mid-row-single {
     grid-template-columns: 1fr;
   }
@@ -2198,20 +2172,13 @@ function selectCompany(ico) {
   box-shadow: inset 0 0 0 1.5px var(--color-primary);
 }
 
-.mc-scheduled {
-  background: var(--color-light);
-  color: var(--color-primary);
-  font-weight: 600;
-}
-
 .mc-today {
   box-shadow: inset 0 0 0 1.5px var(--color-accent);
   color: var(--color-primary);
 }
 
 /* Today + cleaning status: accent ring on top of the status background. */
-.mc-today.mc-done,
-.mc-today.mc-scheduled {
+.mc-today.mc-done {
   box-shadow: inset 0 0 0 1.5px var(--color-accent);
 }
 
@@ -2233,66 +2200,15 @@ function selectCompany(ico) {
   margin-bottom: 24px;
 }
 
-/* Personnel card */
-.personnel-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.personnel-paginator {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--color-gray-600);
-}
-
-.paginator-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  border: none;
-  color: var(--color-gray-600);
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.paginator-btn:hover:not(:disabled) {
-  background: var(--color-gray-100);
-  color: var(--color-primary);
-}
-
-.paginator-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.paginator-text {
-  min-width: 28px;
-  text-align: center;
-}
-
 /* Cards in a row are stretched to equal height — make each card a flex column
    so its content can center vertically in the available space instead of
    leaving white space at the bottom. */
-.personnel-card,
 .cleaning-card,
 .chart-card,
-.recent-card {
+.recent-card,
+.requests-widget {
   display: flex;
   flex-direction: column;
-}
-
-.personnel-card .personnel-list,
-.personnel-card #dashboard-personnel-empty {
-  flex: 1;
-  justify-content: center;
 }
 
 .cleaning-card .cleaning-body {
@@ -2306,39 +2222,10 @@ function selectCompany(ico) {
   justify-content: center;
 }
 
-.personnel-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.personnel-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border-radius: var(--radius-md);
-}
-
-.personnel-avatar {
-  background: var(--color-accent);
-  overflow: hidden;
-}
-
-.personnel-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.personnel-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-primary);
-}
-
-.personnel-role {
-  font-size: 12px;
-  color: var(--color-gray-500);
+/* Requests: push the CTA to the card foot when stretched next to the calendar */
+.requests-widget .requests-widget-actions {
+  margin-top: auto;
+  padding-top: 14px;
 }
 
 /* ── Bottom row ─────────────────────────────────────────────────────────── */
