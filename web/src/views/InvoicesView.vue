@@ -1,22 +1,40 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { Download, FileText, Loader2, Sparkles } from 'lucide-vue-next'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import {
+  Download, FileText, Loader2, Sparkles, SlidersHorizontal,
+  CalendarDays, ChevronDown, Check, AlertCircle, ReceiptText, X,
+} from 'lucide-vue-next'
 import { invoiceService } from '../api'
+import BottomSheet from '../components/BottomSheet.vue'
 
 const loading = ref(true)
 const downloadingPdf = ref(null)
 const error = ref(null)
+const downloadError = ref(null)
 const invoices = ref([])
 const icos = ref([])
 const activeIco = ref(null)
-const activeFilter = ref('all')
 const lastSync = ref(null)
 const isConfigured = ref(false)
 
-const filters = [
+const selectedPeriod = ref('all')
+const statusFilter = ref('all')
+const sheetOpen = ref(false)
+const periodOpen = ref(false)
+
+const CZ_MONTHS = ['Leden', 'Únor', 'Březen', 'Duben', 'Květen', 'Červen',
+  'Červenec', 'Srpen', 'Září', 'Říjen', 'Listopad', 'Prosinec']
+
+const STATUS_META = {
+  paid:    { label: 'Zaplaceno',      pill: 'pill-paid',    icon: 'icon-paid' },
+  unpaid:  { label: 'Čeká na úhradu', pill: 'pill-unpaid',  icon: 'icon-unpaid' },
+  overdue: { label: 'Po splatnosti',  pill: 'pill-overdue', icon: 'icon-overdue' },
+}
+
+const STATUS_OPTIONS = [
   { key: 'all',     label: 'Vše' },
-  { key: 'paid',    label: 'Zaplaceno' },
-  { key: 'unpaid',  label: 'Nezaplaceno' },
+  { key: 'paid',    label: 'Zaplacené' },
+  { key: 'unpaid',  label: 'Nezaplacené' },
   { key: 'overdue', label: 'Po splatnosti' },
 ]
 
@@ -31,6 +49,8 @@ async function loadInvoices(ico = null) {
       activeIco.value = response.data.activeIco || (icos.value[0]?.ico ?? null)
       lastSync.value = response.data.lastSync
       isConfigured.value = response.data.isConfigured ?? false
+      selectedPeriod.value = periods.value[0]?.key ?? 'all'
+      statusFilter.value = 'all'
     } else {
       error.value = response.message || 'Nepodařilo se načíst faktury'
     }
@@ -41,37 +61,95 @@ async function loadInvoices(ico = null) {
   }
 }
 
-onMounted(() => loadInvoices())
+function onDocumentClick(e) {
+  if (periodOpen.value && !e.target.closest('#invoices-period')) periodOpen.value = false
+}
+
+function onDocumentKeydown(e) {
+  // BottomSheet handles its own Escape; only the topmost layer should react
+  if (e.key === 'Escape' && !sheetOpen.value) periodOpen.value = false
+}
+
+onMounted(() => {
+  loadInvoices()
+  document.addEventListener('click', onDocumentClick)
+  document.addEventListener('keydown', onDocumentKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('keydown', onDocumentKeydown)
+})
 
 async function switchIco(ico) {
+  sheetOpen.value = false
   if (ico === activeIco.value) return
   activeIco.value = ico
   await loadInvoices(ico)
 }
 
-const filtered = computed(() => {
-  if (activeFilter.value === 'all') return invoices.value
-  return invoices.value.filter(i => i.status === activeFilter.value)
+const activeCompany = computed(() => icos.value.find(i => i.ico === activeIco.value) || null)
+
+const periods = computed(() => {
+  const keys = [...new Set(invoices.value
+    .filter(i => i.issued)
+    .map(i => i.issued.slice(0, 7)))]
+    .sort()
+    .reverse()
+  return keys.map(k => {
+    const [y, m] = k.split('-')
+    return { key: k, label: `${CZ_MONTHS[Number(m) - 1]} ${y}` }
+  })
 })
 
-const totals = computed(() => ({
-  all:     invoices.value.length,
-  paid:    invoices.value.filter(i => i.status === 'paid').length,
-  unpaid:  invoices.value.filter(i => i.status === 'unpaid').length,
-  overdue: invoices.value.filter(i => i.status === 'overdue').length,
-  debt:    invoices.value.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.amount || 0), 0),
-}))
+const periodLabel = computed(() =>
+  selectedPeriod.value === 'all'
+    ? 'Vše'
+    : periods.value.find(p => p.key === selectedPeriod.value)?.label ?? 'Vše')
 
-function statusBadge(s) {
-  if (s === 'paid')    return { cls: 'badge-success', label: 'Zaplaceno' }
-  if (s === 'overdue') return { cls: 'badge-danger',  label: 'Po splatnosti' }
-  return { cls: 'badge-info', label: 'Nezaplaceno' }
+const filtered = computed(() =>
+  invoices.value.filter(i =>
+    (selectedPeriod.value === 'all' || (i.issued || '').startsWith(selectedPeriod.value)) &&
+    (statusFilter.value === 'all' || i.status === statusFilter.value)))
+
+// Global figures ignore period/status filters on purpose: "what you owe now"
+// must not understate debt while browsing a single month
+const outstanding = computed(() =>
+  invoices.value.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.amount || 0), 0))
+
+const overdueCount = computed(() => invoices.value.filter(i => i.status === 'overdue').length)
+
+const filtersActive = computed(() => statusFilter.value !== 'all')
+
+function selectPeriod(key) {
+  selectedPeriod.value = key
+  periodOpen.value = false
+}
+
+function overdueLabel(n) {
+  if (n === 1) return 'Máte 1 fakturu po splatnosti'
+  if (n >= 2 && n <= 4) return `Máte ${n} faktury po splatnosti`
+  return `Máte ${n} faktur po splatnosti`
+}
+
+function showOverdue() {
+  statusFilter.value = 'overdue'
+  selectedPeriod.value = 'all'
+  document.getElementById('invoices-list-header')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function resetFilters() {
+  selectedPeriod.value = 'all'
+  statusFilter.value = 'all'
+}
+
+function statusMeta(s) {
+  return STATUS_META[s] || STATUS_META.unpaid
 }
 
 function formatDate(d) {
   if (!d) return ''
-  const [y, m, day] = d.split('-')
-  return `${day}.${m}.${y}`
+  return new Date(d).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' })
 }
 
 function formatDateTime(d) {
@@ -86,26 +164,15 @@ function formatDateTime(d) {
   })
 }
 
-function formatAmount(n) {
-  return (n || 0).toLocaleString('cs-CZ') + ' Kč'
-}
-
-function dueDays(inv) {
-  if (inv.daysRelative === 0) return 'Dnes'
-  if (inv.daysRelative > 0)   return `Za ${inv.daysRelative} dní`
-  return `${Math.abs(inv.daysRelative)} dní po splatnosti`
-}
-
-function dueDaysCls(inv) {
-  if (inv.status === 'paid')    return 'text-success'
-  if (inv.daysRelative < 0)    return 'text-danger'
-  if (inv.daysRelative <= 5)   return 'text-warning'
-  return 'text-muted'
+function formatAmount(n, cur = 'Kč') {
+  const label = cur === 'CZK' ? 'Kč' : cur
+  return `${(n || 0).toLocaleString('cs-CZ')} ${label}`
 }
 
 async function downloadPdf(inv) {
   if (downloadingPdf.value === inv.dbId) return
   downloadingPdf.value = inv.dbId
+  downloadError.value = null
   try {
     const blob = await invoiceService.downloadPdf(inv.dbId)
     const url = window.URL.createObjectURL(blob)
@@ -117,7 +184,7 @@ async function downloadPdf(inv) {
     document.body.removeChild(link)
     window.URL.revokeObjectURL(url)
   } catch (err) {
-    error.value = 'Nepodařilo se stáhnout PDF'
+    downloadError.value = `Nepodařilo se stáhnout PDF faktury ${inv.id}`
   } finally {
     downloadingPdf.value = null
   }
@@ -125,7 +192,7 @@ async function downloadPdf(inv) {
 </script>
 
 <template>
-  <div>
+  <div id="invoices-page" class="invoices-shell">
     <!-- Loading state -->
     <div v-if="loading" id="invoices-loading" class="card" style="padding:40px; text-align:center;">
       <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
@@ -139,79 +206,28 @@ async function downloadPdf(inv) {
 
     <!-- Content -->
     <template v-else>
-      <div id="invoices-header" class="page-header">
+      <div id="invoices-header" class="invoices-header">
         <div id="invoices-header-text">
-          <h1 id="invoices-title" class="page-title">Faktury</h1>
-          <p id="invoices-subtitle" class="page-subtitle">
-            Vydané faktury<span v-if="activeIco" id="invoices-active-ico"> · IČO: {{ activeIco }}</span>
-            <span v-if="lastSync" id="invoices-last-sync" class="last-sync"> · Aktualizace: {{ formatDateTime(lastSync) }}</span>
+          <h1 id="invoices-title" class="invoices-title">Faktury</h1>
+          <p v-if="icos.length > 1 && activeCompany" id="invoices-company" class="invoices-company">
+            {{ activeCompany.name }} · IČO {{ activeCompany.ico }}
           </p>
         </div>
-
-        <div id="invoices-actions" class="invoices-actions">
-          <!-- IČO tabs (multi-IČO) -->
-          <div id="invoices-ico-tabs" class="ico-tabs" v-if="icos.length > 1">
-            <button
-              v-for="ico in icos"
-              :key="ico.ico"
-              :id="'ico-tab-' + ico.ico"
-              class="ico-tab"
-              :class="{ active: activeIco === ico.ico }"
-              @click="switchIco(ico.ico)"
-            >
-              {{ ico.ico }}<span class="ico-name">{{ ico.name }}</span>
-            </button>
-          </div>
-        </div>
+        <button
+          v-if="invoices.length > 0 || icos.length > 1"
+          id="invoices-filter-btn"
+          class="invoices-filter-btn"
+          aria-label="Filtry"
+          @click="sheetOpen = true"
+        >
+          <SlidersHorizontal :size="18" />
+          <span v-if="filtersActive" id="invoices-filter-dot" class="filter-dot" aria-hidden="true"></span>
+        </button>
       </div>
 
       <!-- Not configured warning -->
       <div v-if="!isConfigured" id="invoices-not-configured" class="alert alert-info" style="margin-bottom: 16px;">
         Integrace s iDoklad není nakonfigurována. Faktury budou zobrazeny po nastavení připojení k fakturačnímu systému.
-      </div>
-
-      <!-- Summary bar -->
-      <div v-if="invoices.length > 0" id="invoices-summary" class="summary-bar card" style="margin-bottom:16px;">
-        <div id="summary-item-total" class="summary-item">
-          <span id="summary-total" class="summary-val">{{ totals.all }}</span>
-          <span id="summary-total-lbl" class="summary-lbl">Celkem faktur</span>
-        </div>
-        <div id="summary-sep-1" class="summary-sep" />
-        <div id="summary-item-paid" class="summary-item">
-          <span id="summary-paid" class="summary-val text-success">{{ totals.paid }}</span>
-          <span id="summary-paid-lbl" class="summary-lbl">Zaplaceno</span>
-        </div>
-        <div id="summary-sep-2" class="summary-sep" />
-        <div id="summary-item-unpaid" class="summary-item">
-          <span id="summary-unpaid" class="summary-val text-mid">{{ totals.unpaid }}</span>
-          <span id="summary-unpaid-lbl" class="summary-lbl">Nezaplaceno</span>
-        </div>
-        <div id="summary-sep-3" class="summary-sep" />
-        <div id="summary-item-overdue" class="summary-item">
-          <span id="summary-overdue" class="summary-val text-danger">{{ totals.overdue }}</span>
-          <span id="summary-overdue-lbl" class="summary-lbl">Po splatnosti</span>
-        </div>
-        <div id="summary-sep-4" class="summary-sep" />
-        <div id="summary-item-debt" class="summary-item">
-          <span id="summary-debt" class="summary-val" :class="totals.debt > 0 ? 'text-danger' : 'text-success'">
-            {{ formatAmount(totals.debt) }}
-          </span>
-          <span id="summary-debt-lbl" class="summary-lbl">Celkem k úhradě</span>
-        </div>
-      </div>
-
-      <!-- Filters -->
-      <div v-if="invoices.length > 0" id="invoices-filters" class="chip-group" style="margin-bottom:16px;">
-        <button
-          v-for="f in filters"
-          :key="f.key"
-          :id="'filter-' + f.key"
-          class="chip"
-          :class="{ active: activeFilter === f.key }"
-          @click="activeFilter = f.key"
-        >
-          {{ f.label }}
-        </button>
       </div>
 
       <!-- Brand-new-client onboarding hero for the list -->
@@ -246,225 +262,661 @@ async function downloadPdf(inv) {
         </div>
       </div>
 
-      <!-- Table + mobile cards -->
-      <div v-else id="invoices-table-card" class="card">
-        <div v-if="filtered.length === 0" id="invoices-empty" class="empty-state">
-          <FileText id="invoices-empty-icon" :size="40" class="empty-state-icon" />
-          <p id="invoices-empty-text" class="empty-state-title">Žádné faktury pro tento filtr</p>
-          <p class="empty-state-text">Zkuste vybrat jiný stav nebo zobrazit vše.</p>
+      <template v-else>
+        <!-- Period selector -->
+        <div id="invoices-period" class="period-card">
+          <button
+            id="invoices-period-btn"
+            class="period-btn"
+            aria-haspopup="listbox"
+            :aria-expanded="periodOpen"
+            aria-controls="invoices-period-menu"
+            @click="periodOpen = !periodOpen"
+          >
+            <span id="invoices-period-icon" class="period-icon" aria-hidden="true">
+              <CalendarDays :size="18" />
+            </span>
+            <span id="invoices-period-text" class="period-text">
+              <span class="period-label">Období</span>
+              <span id="invoices-period-value" class="period-value">{{ periodLabel }}</span>
+            </span>
+            <ChevronDown :size="18" class="period-chevron" :class="{ open: periodOpen }" aria-hidden="true" />
+          </button>
+
+          <div v-if="periodOpen" id="invoices-period-menu" class="period-menu" role="listbox" aria-label="Období">
+            <button
+              id="invoices-period-option-all"
+              class="period-option"
+              role="option"
+              :aria-selected="selectedPeriod === 'all'"
+              :class="{ active: selectedPeriod === 'all' }"
+              @click="selectPeriod('all')"
+            >
+              <span>Vše</span>
+              <Check v-if="selectedPeriod === 'all'" :size="16" aria-hidden="true" />
+            </button>
+            <button
+              v-for="p in periods"
+              :key="p.key"
+              :id="'invoices-period-option-' + p.key"
+              class="period-option"
+              role="option"
+              :aria-selected="selectedPeriod === p.key"
+              :class="{ active: selectedPeriod === p.key }"
+              @click="selectPeriod(p.key)"
+            >
+              <span>{{ p.label }}</span>
+              <Check v-if="selectedPeriod === p.key" :size="16" aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
-        <template v-else>
-          <!-- Mobile: card list (< 768px) -->
-          <div id="invoices-cards" class="invoices-cards">
-            <article
-              v-for="inv in filtered"
-              :key="inv.dbId"
-              :id="'invoice-card-' + inv.dbId"
-              class="mobile-card invoice-card"
-            >
-              <header class="mobile-card-header">
-                <span class="invoice-card-number">{{ inv.id }}</span>
-                <span class="badge" :class="statusBadge(inv.status).cls">
-                  {{ statusBadge(inv.status).label }}
-                </span>
-              </header>
-              <div class="mobile-card-body">
-                <span class="mobile-card-row-label">Vystaveno</span>
-                <span class="mobile-card-row-value">{{ formatDate(inv.issued) }}</span>
-                <span class="mobile-card-row-label">Splatnost</span>
-                <span class="mobile-card-row-value">{{ formatDate(inv.due) }}</span>
-                <span class="mobile-card-row-label">Částka</span>
-                <span class="mobile-card-row-value invoice-card-amount">{{ formatAmount(inv.amount) }}</span>
-                <span class="mobile-card-row-label">VS</span>
-                <span class="mobile-card-row-value">{{ inv.varSymbol }}</span>
-                <template v-if="inv.status !== 'paid'">
-                  <span class="mobile-card-row-label">Zbývá</span>
-                  <span class="mobile-card-row-value" :class="dueDaysCls(inv)">{{ dueDays(inv) }}</span>
-                </template>
-              </div>
-              <footer class="mobile-card-footer">
-                <button
-                  :id="'download-pdf-card-' + inv.dbId"
-                  class="btn btn-outline btn-full"
-                  @click="downloadPdf(inv)"
-                  :disabled="downloadingPdf === inv.dbId"
-                >
-                  <Loader2 v-if="downloadingPdf === inv.dbId" :size="16" class="spin" />
-                  <Download v-else :size="16" />
-                  <span>Stáhnout PDF</span>
-                </button>
-              </footer>
-            </article>
-          </div>
+        <!-- Summary card -->
+        <div id="invoices-summary" class="summary-card">
+          <span id="invoices-summary-label" class="summary-label">Celkem k úhradě</span>
+          <p id="invoices-outstanding" class="summary-amount" :class="{ 'is-paid': outstanding === 0 }">
+            {{ formatAmount(outstanding) }}
+          </p>
+          <p v-if="outstanding === 0" id="invoices-all-paid" class="summary-helper">Vše zaplaceno</p>
+          <button
+            v-if="overdueCount > 0"
+            id="invoices-overdue-alert"
+            class="overdue-strip"
+            aria-label="Zobrazit faktury po splatnosti"
+            @click="showOverdue"
+          >
+            <AlertCircle :size="16" aria-hidden="true" />
+            <span>{{ overdueLabel(overdueCount) }}</span>
+          </button>
+        </div>
 
-          <!-- Desktop: standard table (≥ 768px) -->
-          <div class="table-wrap invoices-table-wrap">
-            <table id="invoices-table" class="data-table">
-              <thead>
-                <tr>
-                  <th>Číslo faktury</th>
-                  <th>Vystaveno</th>
-                  <th>Splatnost</th>
-                  <th class="text-right">Částka</th>
-                  <th>VS</th>
-                  <th>Stav</th>
-                  <th>Zbývá / uplynulo</th>
-                  <th>Akce</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="inv in filtered" :key="inv.dbId" :id="'invoice-row-' + inv.dbId">
-                  <td class="fw-600" style="color:var(--color-primary)">{{ inv.id }}</td>
-                  <td class="text-muted">{{ formatDate(inv.issued) }}</td>
-                  <td>{{ formatDate(inv.due) }}</td>
-                  <td class="text-right fw-500">{{ formatAmount(inv.amount) }}</td>
-                  <td class="text-muted">{{ inv.varSymbol }}</td>
-                  <td>
-                    <span class="badge" :class="statusBadge(inv.status).cls">
-                      {{ statusBadge(inv.status).label }}
-                    </span>
-                  </td>
-                  <td :class="dueDaysCls(inv)" style="font-size:13px;">
-                    {{ inv.status === 'paid' ? '—' : dueDays(inv) }}
-                  </td>
-                  <td>
-                    <button
-                      :id="'download-pdf-' + inv.dbId"
-                      class="btn btn-ghost btn-sm"
-                      @click="downloadPdf(inv)"
-                      :disabled="downloadingPdf === inv.dbId"
-                      title="Stáhnout PDF"
-                    >
-                      <Loader2 v-if="downloadingPdf === inv.dbId" :size="16" class="spin" />
-                      <Download v-else :size="16" />
-                      <span>PDF</span>
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+        <!-- PDF download error -->
+        <div v-if="downloadError" id="invoices-download-error" class="download-error" role="alert">
+          <AlertCircle :size="16" aria-hidden="true" />
+          <span id="invoices-download-error-text" class="download-error-text">{{ downloadError }}</span>
+          <button
+            id="invoices-download-error-close"
+            class="download-error-close"
+            aria-label="Zavřít upozornění"
+            @click="downloadError = null"
+          >
+            <X :size="14" />
+          </button>
+        </div>
+
+        <!-- Section header -->
+        <div id="invoices-list-header" class="list-header">
+          <span id="invoices-list-label" class="list-header-label">Seznam dokladů</span>
+          <span id="invoices-found-count" class="list-header-count">{{ filtered.length }} nalezeno</span>
+        </div>
+
+        <!-- Empty filter combo -->
+        <div v-if="filtered.length === 0" id="invoices-empty" class="empty-state">
+          <FileText id="invoices-empty-icon" :size="40" class="empty-state-icon" />
+          <p id="invoices-empty-title" class="empty-state-title">Žádné faktury pro zvolené filtry</p>
+          <p id="invoices-empty-text" class="empty-state-text">Zkuste jiné období nebo stav.</p>
+          <button id="invoices-reset-filters" class="btn btn-outline" @click="resetFilters">
+            Zrušit filtry
+          </button>
+        </div>
+
+        <!-- Invoice list -->
+        <div v-else id="invoices-list" class="invoices-list">
+          <article
+            v-for="inv in filtered"
+            :key="inv.dbId"
+            :id="'invoice-card-' + inv.dbId"
+            class="invoice-card"
+          >
+            <span class="invoice-icon" :class="statusMeta(inv.status).icon" aria-hidden="true">
+              <ReceiptText :size="20" />
+            </span>
+            <div class="invoice-main">
+              <span class="invoice-number">#{{ inv.id }}</span>
+              <span v-if="inv.status === 'paid'" class="invoice-date">{{ formatDate(inv.issued) }}</span>
+              <span v-else class="invoice-date" :class="{ 'is-overdue': inv.status === 'overdue' }">
+                Splatnost {{ formatDate(inv.due) }}
+              </span>
+            </div>
+            <div class="invoice-right">
+              <span class="invoice-amount">{{ formatAmount(inv.amount, inv.currency || 'Kč') }}</span>
+              <span class="invoice-pill" :class="statusMeta(inv.status).pill">{{ statusMeta(inv.status).label }}</span>
+            </div>
+            <button
+              :id="'download-pdf-' + inv.dbId"
+              class="invoice-download"
+              :aria-label="'Stáhnout PDF faktury ' + inv.id"
+              :disabled="downloadingPdf === inv.dbId"
+              @click="downloadPdf(inv)"
+            >
+              <Loader2 v-if="downloadingPdf === inv.dbId" :size="16" class="spin" />
+              <Download v-else :size="16" />
+            </button>
+          </article>
+        </div>
+
+        <p v-if="lastSync" id="invoices-last-sync" class="invoices-sync">
+          Aktualizace: {{ formatDateTime(lastSync) }}
+        </p>
+      </template>
+
+      <BottomSheet :show="sheetOpen" title="Filtry" @close="sheetOpen = false">
+        <section id="sheet-status-section" class="sheet-section">
+          <h3 id="sheet-status-label" class="sheet-section-label">Stav platby</h3>
+          <div id="sheet-status-options" aria-labelledby="sheet-status-label">
+            <button
+              v-for="opt in STATUS_OPTIONS"
+              :key="opt.key"
+              :id="'sheet-status-' + opt.key"
+              class="sheet-option"
+              :aria-pressed="statusFilter === opt.key"
+              :class="{ active: statusFilter === opt.key }"
+              @click="statusFilter = opt.key"
+            >
+              <span>{{ opt.label }}</span>
+              <Check v-if="statusFilter === opt.key" :size="16" aria-hidden="true" />
+            </button>
           </div>
+        </section>
+
+        <section v-if="icos.length > 1" id="sheet-ico-section" class="sheet-section">
+          <h3 id="sheet-ico-label" class="sheet-section-label">Společnost</h3>
+          <div id="sheet-ico-options" aria-labelledby="sheet-ico-label">
+            <button
+              v-for="ico in icos"
+              :key="ico.ico"
+              :id="'sheet-ico-' + ico.ico"
+              class="sheet-option sheet-option-two-line"
+              :aria-pressed="activeIco === ico.ico"
+              :class="{ active: activeIco === ico.ico }"
+              @click="switchIco(ico.ico)"
+            >
+              <span class="sheet-option-text">
+                <span class="sheet-option-name">{{ ico.name }}</span>
+                <span class="sheet-option-sub">IČO {{ ico.ico }}</span>
+              </span>
+              <Check v-if="activeIco === ico.ico" :size="16" aria-hidden="true" />
+            </button>
+          </div>
+        </section>
+
+        <template #footer>
+          <button id="sheet-done" class="btn btn-primary btn-full" @click="sheetOpen = false">
+            Hotovo
+          </button>
         </template>
-      </div>
+      </BottomSheet>
     </template>
   </div>
 </template>
 
 <style scoped>
-/* IČO tabs */
-.ico-tabs {
+.invoices-shell {
+  max-width: 720px;
+}
+
+/* ═══ Header ═══ */
+.invoices-header {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.ico-tab {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 6px 14px;
-  border-radius: var(--radius-md);
-  border: 1.5px solid var(--color-gray-300);
-  background: white;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-gray-700);
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.ico-tab.active {
-  border-color: var(--color-primary);
-  background: var(--color-light);
-  color: var(--color-primary);
-}
-
-.ico-name {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--color-gray-600);
-  margin-top: 1px;
-}
-
-/* Summary bar — mobile-first: 2-col grid, debt spans full width;
-   flat row at ≥1024 with separators. */
-.summary-bar {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
   align-items: center;
-  gap: 14px 12px;
-  padding: 16px 18px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.summary-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  text-align: center;
-}
-
-#summary-item-debt {
-  grid-column: 1 / -1;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-gray-200);
-}
-
-.summary-val {
-  font-size: 20px;
+.invoices-title {
+  font-size: var(--fs-2xl);
   font-weight: 700;
   color: var(--color-primary);
-  line-height: 1.1;
+  line-height: 1.2;
 }
 
-.summary-lbl {
+.invoices-company {
+  font-size: 13px;
+  color: var(--color-gray-500);
+  margin-top: 2px;
+}
+
+.invoices-filter-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-white);
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+.invoices-filter-btn:hover {
+  background: var(--color-primary-hover);
+}
+
+.filter-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-blue);
+  border: 2px solid var(--color-white);
+}
+
+/* ═══ Period selector ═══ */
+.period-card {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.period-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-xl);
+  background: var(--color-white);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition);
+}
+.period-btn:hover {
+  border-color: var(--color-blue-border);
+}
+
+.period-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--color-blue-light);
+  color: var(--color-blue);
+  flex-shrink: 0;
+}
+
+.period-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.period-label {
   font-size: 11px;
-  color: var(--color-gray-600);
+  font-weight: 600;
+  color: var(--color-gray-500);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+}
+
+.period-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.period-chevron {
+  color: var(--color-gray-400);
+  transition: transform var(--transition);
+  flex-shrink: 0;
+}
+.period-chevron.open {
+  transform: rotate(180deg);
+}
+
+.period-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 20;
+  padding: 6px;
+}
+
+.period-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-size: 14px;
+  color: var(--color-gray-700);
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition);
+}
+.period-option:hover {
+  background: var(--color-gray-100);
+}
+.period-option.active {
+  color: var(--color-blue);
+  font-weight: 600;
+  background: var(--color-blue-light);
+}
+
+/* ═══ Summary card ═══ */
+.summary-card {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  padding: 18px;
+  margin-bottom: 20px;
+}
+
+.summary-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+.summary-amount {
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1.15;
+}
+.summary-amount.is-paid {
+  color: var(--color-success);
+}
+
+.summary-helper {
+  font-size: 13px;
+  color: var(--color-gray-500);
+  margin-top: 4px;
+}
+
+.overdue-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-danger-light);
+  color: var(--color-danger);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition);
+}
+.overdue-strip:hover {
+  filter: brightness(0.97);
+}
+.overdue-strip svg {
+  flex-shrink: 0;
+}
+
+/* ═══ Download error ═══ */
+.download-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-danger-light);
+  color: var(--color-danger);
+  font-size: 13px;
   font-weight: 500;
 }
-
-.summary-sep {
-  width: 1px;
-  height: 36px;
-  background: var(--color-gray-200);
+.download-error svg {
   flex-shrink: 0;
-  display: none;
 }
 
-@media (min-width: 640px) {
-  .summary-bar {
-    grid-template-columns: repeat(4, 1fr);
-  }
-  #summary-item-debt {
-    grid-column: 1 / -1;
-  }
+.download-error-text {
+  flex: 1;
+  min-width: 0;
 }
 
-@media (min-width: 1024px) {
-  .summary-bar {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 0;
-    padding: 16px 22px;
-  }
-  .summary-item { flex: 1; }
-  .summary-val { font-size: 22px; }
-  .summary-sep { display: block; }
-  #summary-item-debt {
-    grid-column: unset;
-    padding-top: 0;
-    border-top: none;
-  }
+.download-error-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-danger);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+.download-error-close:hover {
+  background: var(--color-white);
 }
 
-.last-sync {
+/* ═══ List header ═══ */
+.list-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.list-header-label {
   font-size: 12px;
+  font-weight: 700;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.list-header-count {
+  font-size: 12px;
+  color: var(--color-gray-400);
+}
+
+/* ═══ Invoice cards ═══ */
+.invoices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.invoice-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-xl);
+  padding: 14px 14px 14px 16px;
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+}
+.invoice-card:hover {
+  border-color: var(--color-blue-border);
+  box-shadow: var(--shadow-md);
+}
+
+.invoice-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  flex-shrink: 0;
+}
+.icon-paid    { background: var(--color-success-light); color: var(--color-success); }
+.icon-unpaid  { background: var(--color-blue-light);    color: var(--color-blue); }
+.icon-overdue { background: var(--color-danger-light);  color: var(--color-danger); }
+
+.invoice-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.invoice-number {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invoice-date {
+  font-size: 13px;
   color: var(--color-gray-500);
 }
+.invoice-date.is-overdue {
+  color: var(--color-danger);
+}
 
+.invoice-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.invoice-amount {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.invoice-pill {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pill-paid    { background: var(--color-success-light); color: var(--color-success); }
+.pill-unpaid  { background: var(--color-blue-light);    color: var(--color-blue); }
+.pill-overdue { background: var(--color-danger-light);  color: var(--color-danger); }
+
+.invoice-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-gray-500);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+.invoice-download:hover:not(:disabled) {
+  background: var(--color-gray-100);
+  color: var(--color-primary);
+}
+.invoice-download:disabled {
+  cursor: default;
+}
+
+/* ═══ Last sync ═══ */
+.invoices-sync {
+  font-size: 12px;
+  color: var(--color-gray-500);
+  text-align: center;
+  margin-top: 16px;
+}
+
+/* ═══ Filter sheet content ═══ */
+.sheet-section {
+  margin-bottom: 16px;
+}
+.sheet-section:last-child {
+  margin-bottom: 0;
+}
+
+.sheet-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+.sheet-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-size: 14px;
+  color: var(--color-gray-700);
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition);
+}
+.sheet-option:hover {
+  background: var(--color-gray-100);
+}
+.sheet-option.active {
+  color: var(--color-blue);
+  font-weight: 600;
+  background: var(--color-blue-light);
+}
+
+.sheet-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.sheet-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-option-sub {
+  font-size: 12px;
+  color: var(--color-gray-500);
+  font-weight: 400;
+}
+
+/* ═══ Misc ═══ */
 .spin {
   animation: spin 2s linear infinite;
 }
@@ -472,37 +924,6 @@ async function downloadPdf(inv) {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
-}
-
-/* Invoices: mobile cards by default, table at md */
-.invoices-cards {
-  display: grid;
-  gap: 12px;
-}
-.invoices-table-wrap {
-  display: none;
-}
-@media (min-width: 768px) {
-  .invoices-cards { display: none; }
-  .invoices-table-wrap { display: block; }
-}
-
-.invoice-card-number {
-  font-size: var(--fs-lg);
-  color: var(--color-primary);
-}
-.invoice-card-amount {
-  font-weight: 600;
-  color: var(--color-primary);
-  font-size: var(--fs-lg);
-}
-
-/* Actions in header — on mobile stack below the title, on sm+ align right */
-.invoices-actions {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  flex-wrap: wrap;
 }
 
 /* Onboarding hero spacing within list views */
@@ -538,5 +959,18 @@ async function downloadPdf(inv) {
 .invoices-perk svg {
   color: var(--color-accent);
   flex-shrink: 0;
+}
+
+/* ═══ Desktop polish ═══ */
+@media (min-width: 768px) {
+  .invoice-card {
+    padding: 18px 20px;
+  }
+  .summary-card {
+    padding: 22px 24px;
+  }
+  .summary-amount {
+    font-size: 34px;
+  }
 }
 </style>
