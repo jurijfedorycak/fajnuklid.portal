@@ -221,7 +221,7 @@ async function downloadDocument(doc) {
     <div
       v-else-if="data.contractsEnabled && !data.hasDocuments"
       id="documents-pending"
-      class="onboarding-hero documents-pending"
+      class="onboarding-hero"
     >
       <div class="onboarding-hero-icon onboarding-hero-icon--soft">
         <FileSignature :size="28" aria-hidden="true" />
@@ -414,11 +414,6 @@ async function downloadDocument(doc) {
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
-}
-
-.documents-pending {
-  max-width: 560px;
-  margin: 0 auto;
 }
 
 .documents-pending-meta {
