@@ -9,19 +9,16 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\ClientRepository;
 use App\Repositories\StaffContactRepository;
-use App\Services\R2StorageService;
 
 class ContactController extends Controller
 {
     private StaffContactRepository $staffContactRepo;
     private ClientRepository $clientRepo;
-    private R2StorageService $storage;
 
     public function __construct()
     {
         $this->staffContactRepo = new StaffContactRepository();
         $this->clientRepo = new ClientRepository();
-        $this->storage = new R2StorageService();
     }
 
     public function index(Request $request): void
@@ -36,27 +33,41 @@ class ContactController extends Controller
             return [
                 'id' => $c['id'],
                 'name' => $c['name'],
-                'role' => $c['position'],
                 'phone' => $c['phone'],
                 'email' => $c['email'],
-                'photo_url' => $this->storage->resolveProxyUrl($c['photo_url'] ?? null),
             ];
         }, $staffContacts);
 
-        // Company info for Fajnuklid (static for now)
+        // Company info for Fajnuklid (static for now, verified against ARES)
         $companies = [
             [
-                'name' => 'FAJN ÚKLID s.r.o.',
-                'ico' => '12345678',
-                'dic' => 'CZ12345678',
-                'address' => 'Příkladná 123, 150 00 Praha 5',
-                'registration' => 'Zapsán v OR vedeném Městským soudem v Praze, oddíl C, vložka XXXXX',
+                'name' => 'FAJN ÚKLID PRAHA s.r.o.',
+                'ico' => '08999457',
+                'dic' => 'CZ08999457',
+                'address' => 'Bellušova 1854/24, 155 00 Praha 5',
+                'registration' => 'Zapsaná v obchodním rejstříku vedeném Městským soudem v Praze, oddíl C, vložka 328945',
             ],
+            [
+                'name' => 'Fajn Facility Management s.r.o.',
+                'ico' => '21328331',
+                'dic' => null,
+                'address' => 'Bellušova 1854/24, 155 00 Praha 5',
+                'registration' => 'Zapsaná v obchodním rejstříku vedeném Městským soudem v Praze, oddíl C, vložka 400210',
+            ],
+        ];
+
+        // Visiting office (static for now)
+        $office = [
+            'name' => 'BFine.Offices',
+            'addressLine1' => 'Karlovo náměstí 313/8',
+            'addressLine2' => '120 00 Praha 2, 4. patro',
+            'note' => 'Schůzky a návštěvy po předchozí domluvě.',
         ];
 
         Response::success([
             'contacts' => $contacts,
             'companies' => $companies,
+            'office' => $office,
             'whatsappGroupUrl' => $client['whatsapp_group_url'] ?? null,
         ]);
     }
