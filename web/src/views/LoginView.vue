@@ -1,21 +1,9 @@
 <script setup>
 import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  Eye,
-  EyeOff,
-  LogIn,
-  Loader2,
-  ClipboardCheck,
-  FileText,
-  Users,
-  MessageSquare,
-  Clock,
-  Shield
-} from 'lucide-vue-next'
+import { Eye, EyeOff, Loader2 } from 'lucide-vue-next'
 import { useAuth } from '../stores/auth'
 import { handleExternalClick } from '../utils/openExternal'
-import logoSrc from '../assets/logo.svg'
 
 const router = useRouter()
 const { login, isAdmin } = useAuth()
@@ -26,9 +14,6 @@ const showPassword = ref(false)
 const error = ref('')
 const loading = ref(false)
 const errorMessageRef = ref(null)
-
-// Year is static for the duration of the session
-const currentYear = new Date().getFullYear()
 
 async function handleLogin() {
   error.value = ''
@@ -58,79 +43,96 @@ async function handleLogin() {
     loading.value = false
   }
 }
-
-const benefits = [
-  {
-    icon: ClipboardCheck,
-    title: 'Přehled docházky',
-    description: 'Sledujte, kdo a kdy u vás uklízel. Máte vše pod kontrolou.'
-  },
-  {
-    icon: FileText,
-    title: 'Smlouvy a faktury',
-    description: 'Všechny dokumenty na jednom místě, kdykoliv k dispozici.'
-  },
-  {
-    icon: Users,
-    title: 'Váš úklidový tým',
-    description: 'Poznáte své pracovníky a máte na ně přímý kontakt.'
-  },
-  {
-    icon: MessageSquare,
-    title: 'Snadná komunikace',
-    description: 'Reklamace, požadavky, dotazy – vše vyřídíte online.'
-  },
-  {
-    icon: Clock,
-    title: 'Dostupné 24/7',
-    description: 'Přístup k informacím kdykoliv, z počítače i mobilu.'
-  },
-  {
-    icon: Shield,
-    title: 'Bezpečné a soukromé',
-    description: 'Vaše data jsou v bezpečí a vidíte pouze své informace.'
-  }
-]
 </script>
 
 <template>
   <div id="login-page" class="login-page">
-    <!-- Skip link for keyboard users -->
-    <a id="login-skip-link" href="#login-form" class="skip-link">
+    <a id="login-skip-link" href="#login-email-input" class="skip-link">
       Přeskočit na přihlášení
     </a>
 
-    <div id="login-container" class="login-container">
-      <!-- Marketing Panel -->
-      <div id="login-marketing-panel" class="login-marketing">
-        <div id="login-marketing-content" class="login-marketing-content">
-          <h1 id="login-marketing-title" class="login-marketing-title">
-            Klientský portál<br />
-            <span class="login-marketing-highlight">Fajn Úklid</span>
-          </h1>
-          <p id="login-marketing-subtitle" class="login-marketing-subtitle">
-            Mějte přehled o úklidu vašich prostor. Vše důležité na jednom místě.
-          </p>
+    <main id="login-card" class="login-card">
+      <h1 id="login-title" class="login-title">Přihlásit se</h1>
 
-          <ul id="login-benefits-list" class="login-benefits">
-            <li
-              v-for="(benefit, index) in benefits"
-              :key="index"
-              :id="`login-benefit-${index}`"
-              class="login-benefit"
+      <form
+        id="login-form"
+        class="login-form"
+        @submit.prevent="handleLogin"
+        :aria-busy="loading"
+      >
+        <div id="login-fields" class="login-fields">
+          <input
+            id="login-email-input"
+            v-model="email"
+            type="email"
+            inputmode="email"
+            class="login-input"
+            placeholder="Email"
+            aria-label="Email"
+            autocomplete="email"
+            aria-required="true"
+            :aria-describedby="error ? 'login-error-message' : undefined"
+          />
+
+          <div id="login-password-wrap" class="login-password-wrap">
+            <input
+              id="login-password-input"
+              v-model="password"
+              :type="showPassword ? 'text' : 'password'"
+              class="login-input login-input-password"
+              placeholder="Heslo"
+              aria-label="Heslo"
+              autocomplete="current-password"
+              aria-required="true"
+              :aria-describedby="error ? 'login-error-message' : undefined"
+            />
+            <button
+              id="login-password-toggle"
+              type="button"
+              class="login-eye"
+              @click="showPassword = !showPassword"
+              :aria-label="showPassword ? 'Skrýt heslo' : 'Zobrazit heslo'"
+              :aria-pressed="showPassword"
             >
-              <div class="login-benefit-icon" aria-hidden="true">
-                <component :is="benefit.icon" :size="20" />
-              </div>
-              <div class="login-benefit-text">
-                <strong>{{ benefit.title }}</strong>
-                <span>{{ benefit.description }}</span>
-              </div>
-            </li>
-          </ul>
+              <EyeOff v-if="showPassword" :size="18" aria-hidden="true" />
+              <Eye v-else :size="18" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
 
-          <p id="login-marketing-cta" class="login-marketing-cta">
-            Ještě nejste klientem?
+        <RouterLink
+          id="login-forgot-password-link"
+          class="login-forgot"
+          to="/zapomenute-heslo"
+        >
+          Zapomněli jste heslo?
+        </RouterLink>
+
+        <div
+          v-if="error"
+          id="login-error-message"
+          ref="errorMessageRef"
+          class="alert alert-danger login-alert"
+          role="alert"
+          aria-live="assertive"
+          tabindex="-1"
+        >
+          {{ error }}
+        </div>
+
+        <div id="login-actions" class="login-actions">
+          <button
+            id="login-submit-btn"
+            type="submit"
+            class="login-submit"
+            :disabled="loading"
+          >
+            <Loader2 v-if="loading" :size="18" class="spin" aria-hidden="true" />
+            <span>{{ loading ? 'Přihlašuji…' : 'Přihlásit se' }}</span>
+          </button>
+
+          <p id="login-signup" class="login-signup">
+            Nemáte účet?
             <a
               id="login-contact-link"
               href="https://fajnuklid.cz"
@@ -138,322 +140,196 @@ const benefits = [
               rel="noopener noreferrer"
               @click="handleExternalClick($event, 'https://fajnuklid.cz')"
             >
-              Zjistěte více o našich službách
+              Kontaktujte nás
             </a>
           </p>
         </div>
-      </div>
-
-      <!-- Login Form Panel -->
-      <div id="login-form-panel" class="login-form-panel">
-        <div id="login-card" class="login-card">
-          <div id="login-logo" class="login-logo">
-            <div id="login-logo-wrapper" class="login-logo-wrapper">
-              <img
-                id="login-logo-img"
-                :src="logoSrc"
-                alt="Fajn Úklid logo"
-                class="login-logo-img"
-              />
-            </div>
-            <p id="login-tagline" class="login-tagline">Váš klientský portál</p>
-          </div>
-
-          <form
-            id="login-form"
-            @submit.prevent="handleLogin"
-            class="auth-form"
-            :aria-busy="loading"
-          >
-            <div class="form-group">
-              <label class="form-label" for="login-email-input">
-                E-mail
-                <span class="required-indicator" aria-hidden="true">*</span>
-              </label>
-              <input
-                id="login-email-input"
-                v-model="email"
-                type="email"
-                inputmode="email"
-                class="form-input"
-                autocomplete="email"
-                aria-required="true"
-                :aria-describedby="error ? 'login-error-message' : undefined"
-              />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label" for="login-password-input">
-                Heslo
-                <span class="required-indicator" aria-hidden="true">*</span>
-              </label>
-              <div class="input-with-icon">
-                <input
-                  id="login-password-input"
-                  v-model="password"
-                  :type="showPassword ? 'text' : 'password'"
-                  class="form-input"
-                  autocomplete="current-password"
-                  aria-required="true"
-                  :aria-describedby="error ? 'login-error-message' : undefined"
-                />
-                <button
-                  id="login-password-toggle"
-                  type="button"
-                  class="input-eye"
-                  @click="showPassword = !showPassword"
-                  :aria-label="showPassword ? 'Skrýt heslo' : 'Zobrazit heslo'"
-                  :aria-pressed="showPassword"
-                >
-                  <EyeOff v-if="showPassword" :size="16" aria-hidden="true" />
-                  <Eye v-else :size="16" aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-
-            <div
-              v-if="error"
-              id="login-error-message"
-              ref="errorMessageRef"
-              class="alert alert-danger auth-alert"
-              role="alert"
-              aria-live="assertive"
-              tabindex="-1"
-            >
-              {{ error }}
-            </div>
-
-            <button
-              id="login-submit-btn"
-              type="submit"
-              class="btn btn-primary btn-full btn-lg"
-              :disabled="loading"
-            >
-              <Loader2 v-if="loading" :size="18" class="spin" aria-hidden="true" />
-              <LogIn v-else :size="18" aria-hidden="true" />
-              <span>{{ loading ? 'Přihlašuji...' : 'Přihlásit se' }}</span>
-            </button>
-
-            <div class="auth-forgot-link">
-              <RouterLink id="login-forgot-password-link" to="/zapomenute-heslo">
-                Zapomněli jste heslo?
-              </RouterLink>
-            </div>
-          </form>
-        </div>
-
-      </div>
-
-      <footer id="login-footer" class="login-footer">
-        © {{ currentYear }} FAJN UKLID s.r.o. - Klientský portál
-      </footer>
-    </div>
+      </form>
+    </main>
   </div>
 </template>
 
 <style scoped>
 .login-page {
   min-height: 100vh;
-  background: var(--gradient-auth-bg);
-  padding-bottom: env(safe-area-inset-bottom, 0);
-}
-
-.login-container {
+  min-height: 100dvh;
+  background-color: var(--color-white);
   display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
-
-/* Marketing Panel */
-.login-marketing {
-  flex: none;
-  background: rgba(22, 36, 56, 0.55);
-  border-radius: var(--radius-xl);
-  margin: 0 1.5rem 2rem;
-  padding: 2rem 1.5rem;
-  color: var(--color-white);
-  order: 1;
-}
-
-.login-marketing-content {
-  max-width: 30rem;
-  margin: auto;
-}
-
-.login-marketing-title {
-  font-size: 2rem;
-  font-weight: 700;
-  line-height: 1.2;
-  margin-bottom: 1rem;
-}
-
-.login-marketing-highlight {
-  color: var(--color-light);
-}
-
-.login-marketing-subtitle {
-  font-size: 1rem;
-  opacity: 0.85;
-  margin-bottom: 2.5rem;
-  line-height: 1.6;
-}
-
-.login-benefits {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 2.5rem 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.login-benefit {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.875rem;
-}
-
-.login-benefit-icon {
-  width: 2.5rem;
-  height: 2.5rem;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-}
-
-.login-benefit-text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.login-benefit-text strong {
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.login-benefit-text span {
-  font-size: 0.8125rem;
-  opacity: 0.75;
-  line-height: 1.4;
-}
-
-.login-marketing-cta {
-  font-size: 0.8125rem;
-  opacity: 0.7;
-  padding-top: 1.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
-}
-
-.login-marketing-cta a {
-  color: var(--color-light);
-  text-decoration: underline;
-}
-
-.login-marketing-cta a:hover {
-  color: var(--color-white);
-}
-
-/* Form Panel */
-.login-form-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
+  align-items: stretch;
+  padding: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
 }
 
 .login-card {
   background: var(--color-white);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-auth-card);
-  padding: 2.5rem 2.25rem;
+  border-radius: 24px;
   width: 100%;
-  max-width: 26.25rem;
+  display: flex;
+  flex-direction: column;
+  /* Heading sits about a fifth down the screen on phones */
+  padding: 20vh 24px 28px;
+  padding-top: 20dvh;
 }
 
-.login-logo {
-  text-align: center;
-  margin-bottom: 2rem;
+.login-title {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-gray-900);
+  margin-bottom: 36px;
 }
 
-.login-logo-wrapper {
-  background: var(--color-primary);
-  border-radius: 0.875rem;
-  padding: 1rem 1.5rem;
-  display: inline-flex;
+.login-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.login-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-input {
+  width: 100%;
+  padding: 16px 18px;
+  background: var(--auth-input-bg);
+  border: none;
+  border-radius: 14px;
+  font-size: 16px;
+  color: var(--color-gray-900);
+  outline: none;
+  transition: var(--transition);
+}
+
+/* Placeholders act as the field labels here — gray-600 keeps WCAG AA contrast on the tinted input */
+.login-input::placeholder {
+  color: var(--color-gray-600);
+  opacity: 1;
+}
+
+.login-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-gray-900);
+}
+
+.login-password-wrap {
+  position: relative;
+}
+
+.login-input-password {
+  padding-right: 52px;
+}
+
+.login-eye {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--color-gray-500);
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 0.75rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
 
-.login-logo-img {
-  height: 2.5rem;
-  width: auto;
+.login-eye:hover {
+  color: var(--color-gray-900);
 }
 
-.login-tagline {
-  font-size: 0.875rem;
-  color: var(--color-gray-600);
+.login-eye:focus-visible {
+  outline: 2px solid var(--color-gray-900);
+  outline-offset: -4px;
 }
 
-.login-footer {
-  order: 2;
-  padding: 1.5rem;
-  font-size: 0.75rem;
-  color: var(--color-text-on-gradient);
+.login-forgot {
+  display: block;
   text-align: center;
+  margin-top: 22px;
+  font-size: 14px;
+  color: var(--color-gray-800);
 }
 
-/* Desktop: Side-by-side layout */
-@media (min-width: 64rem) {
-  .login-container {
-    flex-direction: row;
-    position: relative;
-  }
-
-  .login-marketing {
-    flex: 1;
-    display: flex;
-    background: transparent;
-    border-radius: 0;
-    margin: 0;
-    padding: 3rem;
-    order: 0;
-  }
-
-  .login-form-panel {
-    flex: 1.5;
-    background: transparent;
-    min-height: 100vh;
-  }
-
-  .login-footer {
-    position: absolute;
-    bottom: 1rem;
-    right: 0;
-    left: 0;
-    order: unset;
-    padding: 0;
-  }
+.login-forgot:hover {
+  color: var(--color-gray-900);
+  text-decoration: underline;
 }
 
-/* Tablet adjustments */
-@media (max-width: 63.9375rem) and (min-width: 37.5rem) {
+.login-alert {
+  margin-top: 16px;
+  font-size: 13px;
+}
+
+/* Auto margin anchors the CTA block to the card bottom; padding keeps a minimum gap */
+.login-actions {
+  margin-top: auto;
+  padding-top: 40px;
+}
+
+.login-submit {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 17px 18px;
+  background: var(--auth-btn-bg);
+  color: var(--color-white);
+  border: none;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  transition: var(--transition);
+  cursor: pointer;
+}
+
+.login-submit:hover:not(:disabled) {
+  background: var(--auth-btn-bg-hover);
+}
+
+.login-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-submit:focus-visible {
+  outline: 2px solid var(--color-gray-900);
+  outline-offset: 2px;
+}
+
+.login-signup {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--color-gray-500);
+}
+
+.login-signup a {
+  color: var(--color-gray-900);
+  font-weight: 700;
+}
+
+.login-signup a:hover {
+  text-decoration: underline;
+}
+
+/* PC: same card, centered instead of filling the screen */
+@media (min-width: 640px) {
+  .login-page {
+    align-items: center;
+    padding: 32px;
+  }
+
   .login-card {
-    padding: 3rem 2.5rem;
-  }
-}
-
-/* Mobile adjustments */
-@media (max-width: 30rem) {
-  .login-card {
-    padding: 2rem 1.5rem;
-    box-shadow: var(--shadow-lg);
+    max-width: 400px;
+    min-height: 620px;
+    padding: 48px 36px 32px;
   }
 }
 </style>
