@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import Sidebar from '../components/layout/Sidebar.vue'
+import MobileBottomNav from '../components/layout/MobileBottomNav.vue'
 import logoDarkSrc from '../assets/logo-dark.svg'
 
 const sidebarOpen = ref(false)
@@ -18,11 +19,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <Sidebar :open="sidebarOpen" @close="sidebarOpen = false" />
 
     <div class="main-wrapper">
-      <!-- Mobile topbar -->
+      <!-- Mobile topbar — branding only; navigation lives in the floating bottom bar -->
       <header id="mobile-topbar" class="mobile-topbar">
-        <button id="mobile-hamburger-btn" class="hamburger" @click="sidebarOpen = true" aria-label="Otevřít menu">
-          <span /><span /><span />
-        </button>
         <img id="mobile-logo" :src="logoDarkSrc" alt="Fajn Úklid" class="mobile-logo" />
       </header>
 
@@ -30,6 +28,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <RouterView />
       </main>
     </div>
+
+    <MobileBottomNav @open="sidebarOpen = true" />
   </div>
 </template>
 
@@ -57,13 +57,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   flex: 1;
   min-height: 0;
   /* The app shell is position:fixed so body padding can't see the home indicator
-     — keep the inset on the scroll container itself instead. */
-  padding: var(--space-lg) var(--space-lg) calc(var(--space-lg) + env(safe-area-inset-bottom, 0));
+     — keep the inset on the scroll container itself instead. The extra bottom
+     clearance keeps content from hiding behind the floating bottom nav. */
+  padding: var(--space-lg) var(--space-lg) calc(66px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
 }
 @media (min-width: 480px) {
   .main-content {
-    padding: var(--space-xl) var(--space-xl) calc(var(--space-xl) + env(safe-area-inset-bottom, 0));
+    padding: var(--space-xl) var(--space-xl) calc(66px + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -83,32 +84,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .mobile-logo {
   height: 24px;
   width: auto;
-}
-
-.hamburger {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  background: none;
-  border: none;
-  padding: 10px;
-  min-width: 44px;
-  min-height: 44px;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-.hamburger:focus-visible {
-  outline: 2px solid var(--color-mid);
-  outline-offset: 2px;
-}
-.hamburger span {
-  display: block;
-  width: 22px;
-  height: 2px;
-  background: var(--color-primary);
-  border-radius: 2px;
 }
 
 /* Desktop: persistent sidebar, hide mobile topbar, spacious padding */

@@ -60,6 +60,9 @@
   --illustration-fill: #e9f0fb;
   --illustration-shade: #d2e0f6;
 
+  /* Subtle highlight for items sitting on a dark surface */
+  --overlay-on-dark: rgba(255, 255, 255, 0.14);
+
   /* Sidebar light theme */
   --sidebar-bg: var(--color-white);
   --sidebar-text: var(--color-gray-800);

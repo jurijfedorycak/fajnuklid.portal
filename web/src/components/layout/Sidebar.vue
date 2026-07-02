@@ -2,11 +2,10 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
-  LayoutDashboard, FileText, Users, FileSignature,
-  Clock, Phone, Settings, LogOut, UserCog, Palette, ClipboardList,
-  ChevronLeft,
+  Settings, LogOut, ChevronLeft,
 } from 'lucide-vue-next'
 import { useAuth } from '../../stores/auth'
+import { useNavItems } from '../../composables/useNavItems'
 import { adminService } from '../../api/services/adminService'
 import logoDarkSrc from '../../assets/logo-dark.svg'
 
@@ -15,35 +14,21 @@ const emit = defineEmits(['close'])
 
 const router = useRouter()
 const route = useRoute()
-const { user, isAdmin, attendanceEnabled, logout } = useAuth()
+const { user, isAdmin, logout } = useAuth()
+const { navItems: baseNavItems } = useNavItems()
 
 const displayName = computed(() => user.value?.display_name || user.value?.email || 'Klient')
 const activeIco = computed(() => user.value?.active_ico || '')
 
-// Docházka is gated on the client's FreshQR activation — clients with no
-// activated QR system never see the attendance tab (see attendanceEnabled).
-const clientNavItems = computed(() => [
-  { name: 'Přehled',      route: '/prehled',   icon: LayoutDashboard },
-  ...(attendanceEnabled.value ? [{ name: 'Docházka a záznamy', route: '/dochazka', icon: Clock }] : []),
-  { name: 'Požadavky a reklamace', route: '/zadosti', icon: ClipboardList },
-  { name: 'Smlouvy a dokumenty', route: '/smlouva', icon: FileSignature },
-  { name: 'Personál',     route: '/personal',  icon: Users },
-  { name: 'Fakturace',    route: '/faktury',   icon: FileText },
-  { name: 'Kontakty',     route: '/kontakt',   icon: Phone },
-])
-
 const openRequestsCount = ref(0)
 
-const adminNavItems = computed(() => [
-  { name: 'Klienti',      route: '/admin/clients',        icon: Users },
-  { name: 'Zaměstnanci',  route: '/admin/employees',      icon: UserCog },
-  { name: 'Tým Fajn',     route: '/admin/staff-contacts', icon: Phone },
-  { name: 'Žádosti',      route: '/admin/zadosti',        icon: ClipboardList, badgeCount: openRequestsCount.value },
-  { name: 'Design',       route: '/admin/design-tokens',  icon: Palette },
-  { name: 'Nastavení',    route: '/admin/nastaveni',      icon: Settings },
-])
-
-const navItems = computed(() => isAdmin.value ? adminNavItems.value : clientNavItems.value)
+// Inject the admin open-requests badge onto its route without duplicating the
+// shared nav definitions.
+const navItems = computed(() => baseNavItems.value.map(item =>
+  item.route === '/admin/zadosti' && openRequestsCount.value
+    ? { ...item, badgeCount: openRequestsCount.value }
+    : item
+))
 
 async function loadOpenRequestsCount() {
   try {
