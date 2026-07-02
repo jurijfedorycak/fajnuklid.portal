@@ -82,6 +82,25 @@ class FreshQRClientTest extends TestCase
         $this->assertEquals('configuration', $error['context']);
     }
 
+    public function testGetProjectReportsForMonthsFailsAllMonthsWhenNotConfigured(): void
+    {
+        $client = $this->buildClient('');
+
+        $result = $client->getProjectReportsForMonths([[2026, 1], [2026, 2]]);
+
+        $this->assertSame(['2026-01' => null, '2026-02' => null], $result);
+        $error = $client->getLastError();
+        $this->assertNotNull($error);
+        $this->assertEquals('configuration', $error['context']);
+    }
+
+    public function testGetProjectReportsForMonthsReturnsEmptyMapForEmptyInput(): void
+    {
+        $client = $this->buildClient();
+
+        $this->assertSame([], $client->getProjectReportsForMonths([]));
+    }
+
     public function testReadOnlyContractRejectsNonGetRequests(): void
     {
         $client = $this->buildClient();

@@ -179,10 +179,13 @@ class FreshQRService
 
     /**
      * Range variant of getCleaningDaysForCompanies used by the Docházka overview
-     * (period switcher: day / week / month / quarter / year). Fetches each
-     * calendar year the range spans in a single call (month omitted) — for a
-     * whole-year period that's one round-trip instead of twelve — then filters
-     * the assembled cleaning days down to [$from, $to] inclusive.
+     * (period switcher: day / week / month / quarter / year). FreshQR only
+     * answers month-scoped report queries (year-only requests fail upstream
+     * with HTTP 400), so the window is walked month by month — the client
+     * fetches them in parallel — and the assembled cleaning days are filtered
+     * down to [$from, $to] inclusive. Months entirely in the future are never
+     * requested: FreshQR carries no future data, so each one is a saved
+     * round-trip (a whole-year period would otherwise always cost 12).
      *
      * No DB caching: every call hits FreshQR live (product decision). A year
      * period therefore pulls a full year of the materialized report; acceptable
@@ -212,18 +215,22 @@ class FreshQRService
 
         $this->client->resetLastError();
 
+        $today = self::today();
+
         $records = [];
         $anyFetchFailed = false;
-        for ($year = (int) $from->format('Y'); $year <= (int) $to->format('Y'); $year++) {
-            $yearRecords = $this->client->getProjectReports($year, null);
-            if ($yearRecords === null) {
-                $anyFetchFailed = true;
-                continue;
+        $months = self::monthsInRange($from, $to, $today);
+        if ($months !== []) {
+            foreach ($this->client->getProjectReportsForMonths($months) as $monthRecords) {
+                if ($monthRecords === null) {
+                    $anyFetchFailed = true;
+                    continue;
+                }
+                $records = array_merge($records, $monthRecords);
             }
-            $records = array_merge($records, $yearRecords);
         }
 
-        // Total FreshQR outage across every spanned year — keep the surface active
+        // Total FreshQR outage across every spanned month — keep the surface active
         // (don't fall back to onboarding) but surface a banner-friendly error.
         if ($anyFetchFailed && $records === []) {
             return [
@@ -233,8 +240,6 @@ class FreshQRService
                 'error' => 'Přehled docházky se nepodařilo načíst. Zkuste to prosím později.',
             ];
         }
-
-        $today = self::today();
 
         // Append live open scans only when the range includes today — the
         // materialized report never carries in-progress cleanings.
@@ -255,11 +260,33 @@ class FreshQRService
         return [
             'active' => true,
             'cleaningDays' => $filtered,
-            // A partial failure (one spanned year unreachable) still returns the
-            // years we did get, but flag it so the FE can hint the data is incomplete.
+            // A partial failure (one spanned month unreachable) still returns the
+            // months we did get, but flag it so the FE can hint the data is incomplete.
             'error' => $anyFetchFailed ? 'Některá data se nepodařilo načíst, přehled může být neúplný.' : null,
             'companies' => $companies,
         ];
+    }
+
+    /**
+     * [year, month] pairs spanned by [$from, $to], truncated at the current
+     * month so future months are never requested.
+     *
+     * @return list<array{0:int,1:int}>
+     */
+    private static function monthsInRange(\DateTimeImmutable $from, \DateTimeImmutable $to, string $today): array
+    {
+        // Compared as zero-padded 'Y-m' strings, not as instants — $today is a
+        // Europe/Prague date while $from/$to may carry another timezone, and an
+        // instant comparison across offsets could silently drop the current month.
+        $endYm = min($to->format('Y-m'), substr($today, 0, 7));
+
+        $cursor = $from->modify('first day of this month');
+        $months = [];
+        while ($cursor->format('Y-m') <= $endYm) {
+            $months[] = [(int) $cursor->format('Y'), (int) $cursor->format('n')];
+            $cursor = $cursor->modify('+1 month');
+        }
+        return $months;
     }
 
     /**

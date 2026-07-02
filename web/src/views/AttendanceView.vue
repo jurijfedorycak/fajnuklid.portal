@@ -1,7 +1,10 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Loader2, Calendar as CalendarIcon, Phone, Mail, Eye, BarChart3, ArrowUp, ArrowDown, Minus } from 'lucide-vue-next'
+import {
+  ChevronLeft, ChevronRight, ChevronDown, Loader2, Calendar as CalendarIcon,
+  Clock, Phone, Mail, Eye, BarChart3, ArrowUp, ArrowDown, Minus, FolderOpen,
+} from 'lucide-vue-next'
 import { attendanceService, maintenanceRequestService } from '../api'
 import { REQUEST_STATUSES } from '../api/services/maintenanceRequestService'
 import { useAuth } from '../stores/auth'
@@ -39,8 +42,15 @@ const cleaningDays = ref([])
 const hourlySummary = ref([])
 const freshqrActive = ref(false)
 
-// Overview ("Přehledy") — visit / worked-time aggregates over a selectable
-// period, fetched independently of the calendar's month navigation.
+// Tabs — the product-owner design splits the page into three views:
+// Měsíc (calendar + day records), Rok (year aggregates), Přehled (period switch).
+const TABS = [
+  { key: 'month', label: 'Měsíc' },
+  { key: 'year', label: 'Rok' },
+  { key: 'overview', label: 'Přehled' },
+]
+const activeTab = ref('month')
+
 const PERIOD_OPTIONS = [
   { key: 'day', label: 'Dnes', prevLabel: 'včera' },
   { key: 'week', label: 'Týden', prevLabel: 'minulý týden' },
@@ -49,21 +59,29 @@ const PERIOD_OPTIONS = [
   { key: 'year', label: 'Rok', prevLabel: 'loni' },
 ]
 const overviewPeriod = ref('month')
-const overview = ref(null)
-const overviewLoading = ref(true)
-const overviewError = ref(null)
+
+// Period-keyed summary cache — the month summary drives the delta chips on the
+// Měsíc stat cards, the year summary drives the Rok tab, and the Přehled tab
+// reads whatever period its switch selects. Each period is fetched at most once
+// per preview target.
+const summaries = ref({})
+const summaryLoading = ref({})
+const summaryError = ref({})
+
 const requestsByDay = ref({})
 const openPopoverDate = ref(null)
-const popoverItems = ref([])
-const popoverLoading = ref(false)
 const popoverAnchorRect = ref(null)
-const popoverMode = ref(null)
 const openHourlyBreakdownIco = ref(null)
 const hourlyBreakdownAnchorRect = ref(null)
 
+// Selected calendar day — drives the "Záznamy dne" section under the stats.
+const selectedDate = ref(null)
+const dayRequests = ref([])
+const dayRequestsLoading = ref(false)
+
 // Device hover capability — captured once at setup. Drives whether mouseenter
-// on a day cell with detailed cleanings opens the popover; touch-only devices
-// keep the existing click-to-open behaviour.
+// on a day cell with detailed cleanings opens the peek popover; touch-only
+// devices rely on tap-to-select and the Záznamy dne section instead.
 const supportsHover = typeof window !== 'undefined'
   && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches === true
 
@@ -97,41 +115,33 @@ const MONTHS = [
   'Červenec','Srpen','Září','Říjen','Listopad','Prosinec',
 ]
 
-// Fetch data
-async function fetchAttendance() {
-  loading.value = true
-  error.value = null
+const monthPrefix = computed(() => `${viewYear.value}-${String(viewMonth.value + 1).padStart(2,'0')}-`)
+
+// Fetch data. The token discards slow responses that resolve after the user
+// already navigated to a different month (or preview target) — otherwise the
+// last response to *arrive* would win over the last month *requested*.
+let loadToken = 0
+
+async function fetchAttendanceData() {
   try {
     const response = await attendanceService.getAttendance(
       viewYear.value,
       viewMonth.value + 1,
       previewClientId.value
     )
-    if (response.success) {
-      cleaningDays.value = response.data.cleaningDays || []
-      hourlySummary.value = response.data.hourlySummary || []
-      freshqrActive.value = response.data.freshqrActive || false
-      upstreamError.value = response.data.error || null
-      previewClientName.value = response.data.preview?.clientName || null
-    } else {
-      error.value = response.message || 'Nepodařilo se načíst data'
-    }
+    if (response.success) return { data: response.data }
+    return { error: response.message || 'Nepodařilo se načíst data' }
   } catch (err) {
-    error.value = err.message || 'Nepodařilo se načíst data'
-  } finally {
-    loading.value = false
+    return { error: err.message || 'Nepodařilo se načíst data' }
   }
 }
 
-async function fetchRequestsForMonth() {
+async function fetchRequestsData() {
   // Preview mode renders only the FreshQR side of the customer view — maintenance
   // requests are scoped to the logged-in user, so calling this endpoint as an
   // admin would return the admin's own (empty) requests, not the previewed
   // client's. Skipping the call keeps the preview honest.
-  if (isPreview.value) {
-    requestsByDay.value = {}
-    return
-  }
+  if (isPreview.value) return {}
   try {
     const res = await maintenanceRequestService.getCalendar(viewYear.value, viewMonth.value + 1)
     if (res.success) {
@@ -142,40 +152,80 @@ async function fetchRequestsForMonth() {
           statuses: r.statuses || {},
         }
       }
-      requestsByDay.value = map
+      return map
     }
   } catch (e) {
     // silent
   }
+  return {}
 }
 
-// Overview aggregates are period-scoped, not month-scoped, so they load on their
-// own cadence — on mount, when the period switches, or when the preview target
-// changes. Deliberately NOT tied to calendar month navigation.
-async function fetchSummary() {
-  overviewLoading.value = true
-  overviewError.value = null
+// Summary responses are only committed when the epoch they started under is
+// still current — a preview-target switch or day rollover bumps the epoch, so a
+// stale in-flight response can't poison the per-period cache (ensureSummary
+// would otherwise treat the poisoned slot as valid forever).
+let summaryEpoch = 0
+
+async function fetchSummaryFor(period) {
+  const epoch = summaryEpoch
+  summaryLoading.value = { ...summaryLoading.value, [period]: true }
+  summaryError.value = { ...summaryError.value, [period]: null }
   try {
-    const res = await attendanceService.getSummary(overviewPeriod.value, previewClientId.value)
+    const res = await attendanceService.getSummary(period, previewClientId.value)
+    if (epoch !== summaryEpoch) return
     if (res.success) {
-      overview.value = res.data
+      summaries.value = { ...summaries.value, [period]: res.data }
     } else {
-      overviewError.value = res.message || 'Nepodařilo se načíst přehled'
+      summaryError.value = { ...summaryError.value, [period]: res.message || 'Nepodařilo se načíst přehled' }
     }
   } catch (e) {
-    overviewError.value = e.message || 'Nepodařilo se načíst přehled'
+    if (epoch !== summaryEpoch) return
+    summaryError.value = { ...summaryError.value, [period]: e.message || 'Nepodařilo se načíst přehled' }
   } finally {
-    overviewLoading.value = false
+    if (epoch === summaryEpoch) {
+      summaryLoading.value = { ...summaryLoading.value, [period]: false }
+    }
   }
 }
 
+function ensureSummary(period) {
+  if (!summaries.value[period] && !summaryLoading.value[period]) fetchSummaryFor(period)
+}
+
+function invalidateSummaries() {
+  summaryEpoch++
+  summaries.value = {}
+  summaryLoading.value = {}
+  summaryError.value = {}
+  ensureSummary('month')
+  if (activeTab.value !== 'month') ensureSummary(activeSummaryPeriod.value)
+}
+
 async function loadAll() {
-  await Promise.all([fetchAttendance(), fetchRequestsForMonth()])
+  const token = ++loadToken
+  selectedDate.value = null
+  loading.value = true
+  error.value = null
+  const [att, reqs] = await Promise.all([fetchAttendanceData(), fetchRequestsData()])
+  if (token !== loadToken) return
+  requestsByDay.value = reqs
+  if (att.error) {
+    error.value = att.error
+    upstreamError.value = null
+  } else {
+    cleaningDays.value = att.data.cleaningDays || []
+    hourlySummary.value = att.data.hourlySummary || []
+    freshqrActive.value = att.data.freshqrActive || false
+    upstreamError.value = att.data.error || null
+    previewClientName.value = att.data.preview?.clientName || null
+  }
+  loading.value = false
+  autoSelectDay()
 }
 
 onMounted(() => {
   loadAll()
-  fetchSummary()
+  ensureSummary('month')
 })
 
 // Refetch when month changes or when the preview target changes mid-tab (e.g.
@@ -188,16 +238,15 @@ watch([viewYear, viewMonth, previewClientId], () => {
   loadAll()
 })
 
-// Overview reacts to its own period control and to preview target changes only.
-watch(overviewPeriod, fetchSummary)
-watch(previewClientId, fetchSummary)
+// Summary cache is per client — a preview target switch invalidates everything.
+watch(previewClientId, invalidateSummaries)
 
 // When the wall-clock day rolls over while the page is open, refetch so today's
 // "ongoing" state and any cleanings that started after midnight show up. The
-// guard ensures we don't refetch on the very first tick (when `today` is set
-// from its initial value).
-watch(today, (next, prev) => {
-  if (prev !== undefined) loadAll()
+// summaries move too ("Dnes" period, month deltas), so the cache goes with them.
+watch(today, () => {
+  invalidateSummaries()
+  loadAll()
 })
 
 const dayMap = computed(() => {
@@ -211,9 +260,8 @@ const dayMap = computed(() => {
   return m
 })
 
-// True iff any rendered day actually carries detailed cleanings — drives the
-// optional "víc úklidů v jednom dni" legend chip and the suppression of the
-// "no detail" privacy note. Quiet months show the privacy note even on
+// True iff any rendered day actually carries detailed cleanings — suppresses the
+// privacy note on Detailed-mode IČOs. Quiet months show the privacy note even on
 // Detailed-mode IČOs; that's acceptable because the note is informative, not
 // a policy statement.
 const hasAnyDetailedCleaning = computed(() =>
@@ -259,8 +307,11 @@ const calendarDays = computed(() => {
       ongoing: info?.ongoing || false,
       cleanings,
       cleaningsCount: cleanings.length,
+      // Days in privacy mode carry no cleaning detail but still get one dot.
+      dotCount: cleanings.length > 0 ? Math.min(cleanings.length, 3) : (info ? 1 : 0),
       requests,
       priorityStatus: pickPriorityStatus(requests.statuses),
+      hasContent: !!info || requests.total > 0,
       isToday, isPast,
     })
   }
@@ -269,14 +320,12 @@ const calendarDays = computed(() => {
 
 const monthLabel = computed(() => `${MONTHS[viewMonth.value]} ${viewYear.value}`)
 
-// The summary is shown only when the selected month is the current calendar
-// month. Past months are hidden on purpose: invoiced totals can diverge from
-// the raw FreshQR sum (manual adjustments, renegotiated rates, complaint
+// The hourly summary is shown only when the selected month is the current
+// calendar month. Past months are hidden on purpose: invoiced totals can diverge
+// from the raw FreshQR sum (manual adjustments, renegotiated rates, complaint
 // credits) and we don't want clients comparing a provisional figure against
 // the real invoice. Future months are hidden because they're always zero.
 const isCurrentMonth = computed(() => {
-  // today.value is 'YYYY-MM-DD'; pluck Y and M, compare zero-based month with
-  // viewMonth so navigating to a past month hides the summary correctly.
   const [yStr, mStr] = today.value.split('-')
   return viewYear.value === Number(yStr) && viewMonth.value === Number(mStr) - 1
 })
@@ -382,34 +431,109 @@ function closeHourlyBreakdown() {
   hourlyBreakdownAnchorRect.value = null
 }
 
-const monthStats = computed(() => {
-  const prefix = `${viewYear.value}-${String(viewMonth.value + 1).padStart(2,'0')}-`
-  const days = cleaningDays.value.filter(d => d.date.startsWith(prefix))
-  return {
-    total: days.length,
-    done: days.filter(d => !d.ongoing).length,
-    ongoing: days.filter(d => d.ongoing).length,
+// --- Month stat cards (Návštěv / Celkový čas) ---
+const monthDays = computed(() =>
+  cleaningDays.value.filter(d => d.date.startsWith(monthPrefix.value))
+)
+
+// Detailed-mode days count each cleaning as a visit; privacy-mode days carry no
+// detail, so the day itself counts as one visit.
+const monthVisitCount = computed(() =>
+  monthDays.value.reduce(
+    (n, d) => n + (Array.isArray(d.cleanings) && d.cleanings.length > 0 ? d.cleanings.length : 1),
+    0
+  )
+)
+
+const monthMinutes = computed(() => {
+  let total = 0
+  for (const d of monthDays.value) {
+    for (const c of (d.cleanings || [])) {
+      const m = pickCleaningMinutes(c)
+      if (m !== null) total += m
+    }
+  }
+  return total
+})
+
+// "—" covers privacy-mode months where visits happened but times are hidden;
+// an empty month reads "0" like the design's empty state.
+const monthTimeText = computed(() => {
+  if (monthMinutes.value > 0) return formatDuration(monthMinutes.value)
+  return monthVisitCount.value === 0 ? '0' : '—'
+})
+
+const monthOverview = computed(() => summaries.value['month'] || null)
+
+// Delta chips replicate the design's "+5%" / "+2h" hints. They only make sense
+// on the current month, where the stat cards and the month summary describe the
+// same range.
+const monthVisitDelta = computed(() => {
+  if (!isCurrentMonth.value || !monthOverview.value) return 0
+  return (monthOverview.value.current.visitCount || 0) - (monthOverview.value.previous.visitCount || 0)
+})
+const monthVisitDeltaText = computed(() => {
+  const d = monthVisitDelta.value
+  if (d === 0) return null
+  const prev = monthOverview.value.previous.visitCount || 0
+  if (prev > 0) {
+    const pct = Math.round((d / prev) * 100)
+    if (pct !== 0) return `${d > 0 ? '+' : '−'}${Math.abs(pct)} %`
+  }
+  return `${d > 0 ? '+' : '−'}${Math.abs(d)}`
+})
+const monthMinutesDelta = computed(() => {
+  if (!isCurrentMonth.value || !monthOverview.value?.current?.hasTimeData) return 0
+  return (monthOverview.value.current.totalMinutes || 0) - (monthOverview.value.previous.totalMinutes || 0)
+})
+const monthTimeDeltaText = computed(() => {
+  const d = monthMinutesDelta.value
+  if (d === 0) return null
+  return `${d > 0 ? '+' : '−'}${formatDuration(Math.abs(d))}`
+})
+
+// --- Header status badge ---
+const hasOngoingToday = computed(() =>
+  cleaningDays.value.some(d => d.ongoing && d.date === today.value)
+)
+const headerStatus = computed(() => {
+  if (loading.value) return { key: 'updating', label: 'Aktualizace…' }
+  if (upstreamError.value) return { key: 'offline', label: 'Offline' }
+  if (freshqrActive.value && hasOngoingToday.value) return { key: 'ongoing', label: 'Úklid probíhá' }
+  return null
+})
+
+// --- Overview / year tab derived state ---
+const activeSummaryPeriod = computed(() =>
+  activeTab.value === 'year' ? 'year' : overviewPeriod.value
+)
+const activeSummary = computed(() => summaries.value[activeSummaryPeriod.value] || null)
+const activeSummaryLoading = computed(() => !!summaryLoading.value[activeSummaryPeriod.value])
+const activeSummaryError = computed(() => summaryError.value[activeSummaryPeriod.value] || null)
+
+watch([activeTab, activeSummaryPeriod], () => {
+  if (activeTab.value === 'year' || activeTab.value === 'overview') {
+    ensureSummary(activeSummaryPeriod.value)
   }
 })
 
-// --- Overview ("Přehledy") derived state ---
-const overviewMeta = computed(() =>
-  PERIOD_OPTIONS.find(p => p.key === overview.value?.period) || null
-)
-const prevLabel = computed(() => overviewMeta.value?.prevLabel || 'minulé období')
-const hasTimeData = computed(() => !!overview.value?.current?.hasTimeData)
-
-const visitDelta = computed(() => {
-  if (!overview.value) return 0
-  return (overview.value.current.visitCount || 0) - (overview.value.previous.visitCount || 0)
-})
-const minutesDelta = computed(() => {
-  if (!overview.value) return 0
-  return (overview.value.current.totalMinutes || 0) - (overview.value.previous.totalMinutes || 0)
-})
-const maxObjectMinutes = computed(() =>
-  (overview.value?.current?.perObject || []).reduce((m, o) => Math.max(m, o.totalMinutes || 0), 0)
-)
+function prevLabelOf(summary) {
+  return PERIOD_OPTIONS.find(p => p.key === summary?.period)?.prevLabel || 'minulé období'
+}
+function hasTimeDataOf(summary) {
+  return !!summary?.current?.hasTimeData
+}
+function visitDeltaOf(summary) {
+  if (!summary) return 0
+  return (summary.current.visitCount || 0) - (summary.previous.visitCount || 0)
+}
+function minutesDeltaOf(summary) {
+  if (!summary) return 0
+  return (summary.current.totalMinutes || 0) - (summary.previous.totalMinutes || 0)
+}
+function maxObjectMinutesOf(summary) {
+  return (summary?.current?.perObject || []).reduce((m, o) => Math.max(m, o.totalMinutes || 0), 0)
+}
 
 function pluralUklid(n) {
   const abs = Math.abs(n)
@@ -419,6 +543,11 @@ function pluralUklid(n) {
 }
 function formatVisits(n) {
   return `${n} ${pluralUklid(n)}`
+}
+function pluralRequests(n) {
+  if (n === 1) return '1 požadavek'
+  if (n >= 2 && n <= 4) return `${n} požadavky`
+  return `${n} požadavků`
 }
 
 function deltaClass(d) {
@@ -432,16 +561,16 @@ function deltaCount(d) {
   if (d === 0) return 'beze změny'
   return `${d > 0 ? '+' : '−'}${Math.abs(d)}`
 }
-const deltaMinutesText = computed(() => {
-  const d = minutesDelta.value
+function deltaMinutesTextOf(summary) {
+  const d = minutesDeltaOf(summary)
   if (d === 0) return 'beze změny'
   return `${d > 0 ? '+' : '−'}${formatDuration(Math.abs(d))}`
-})
+}
 
 // Bar width relative to the busiest object; a small floor keeps a tiny non-zero
 // value visible rather than collapsing to an invisible sliver.
-function barWidth(minutes) {
-  const max = maxObjectMinutes.value
+function barWidth(minutes, summary) {
+  const max = maxObjectMinutesOf(summary)
   if (!max || !minutes || minutes <= 0) return '0%'
   return `${Math.max(4, Math.round((minutes / max) * 100))}%`
 }
@@ -455,7 +584,6 @@ function formatRangeLabel(range) {
   if (fy === ty) return `${fd}. ${fm}. – ${td}. ${tm}. ${ty}`
   return `${fd}. ${fm}. ${fy} – ${td}. ${tm}. ${ty}`
 }
-const overviewRangeLabel = computed(() => formatRangeLabel(overview.value?.range))
 
 function prevMonth() {
   if (viewMonth.value === 0) { viewMonth.value = 11; viewYear.value-- }
@@ -475,10 +603,102 @@ function goToday() {
   refreshToday()
 }
 
-async function showDayPopover(cell, event, mode) {
-  // Open whenever the day has anything to show — cleanings (Detailed mode) or
-  // maintenance requests. Empty days are still inert.
-  if (!cell.requests.total && !cell.cleaningsCount) return
+// --- Day selection & "Záznamy dne" ---
+function selectDay(cell) {
+  if (!cell.hasContent) return
+  selectedDate.value = cell.key
+}
+
+// Prefer today, otherwise the most recent day with records, so opening the page
+// immediately shows something meaningful in Záznamy dne.
+function autoSelectDay() {
+  const dates = new Set(monthDays.value.map(d => d.date))
+  for (const [key, val] of Object.entries(requestsByDay.value)) {
+    if (key.startsWith(monthPrefix.value) && val.total > 0) dates.add(key)
+  }
+  const sorted = [...dates].sort()
+  if (sorted.length === 0) {
+    selectedDate.value = null
+    return
+  }
+  if (dates.has(today.value)) {
+    selectedDate.value = today.value
+    return
+  }
+  const past = sorted.filter(d => d <= today.value)
+  selectedDate.value = past.length ? past[past.length - 1] : sorted[0]
+}
+
+const selectedDayInfo = computed(() =>
+  selectedDate.value ? (dayMap.value[selectedDate.value] || null) : null
+)
+const selectedDayCleanings = computed(() => selectedDayInfo.value?.cleanings || [])
+const selectedDayLabel = computed(() => {
+  if (!selectedDate.value) return ''
+  const [y, m, d] = selectedDate.value.split('-').map(Number)
+  return `${d}. ${m}. ${y}`
+})
+
+const monthHasRecords = computed(() => {
+  if (monthDays.value.length > 0) return true
+  return Object.entries(requestsByDay.value)
+    .some(([key, val]) => key.startsWith(monthPrefix.value) && val.total > 0)
+})
+
+// Requests for the selected day load lazily; the token guards against a slow
+// response landing after the user already picked a different day.
+let dayRequestsToken = 0
+async function loadDayRequests() {
+  const date = selectedDate.value
+  const token = ++dayRequestsToken
+  dayRequests.value = []
+  dayRequestsLoading.value = false
+  if (!date || isPreview.value) return
+  const total = requestsByDay.value[date]?.total || 0
+  if (!total) return
+  dayRequestsLoading.value = true
+  try {
+    const res = await maintenanceRequestService.list({ date })
+    if (res.success && token === dayRequestsToken) {
+      dayRequests.value = res.data
+    }
+  } catch (e) {
+    // silent — the day simply shows no request cards
+  } finally {
+    if (token === dayRequestsToken) dayRequestsLoading.value = false
+  }
+}
+watch([selectedDate, requestsByDay], loadDayRequests)
+
+// Company label for a record card: resolved from any loaded summary's per-object
+// breakdown or from the hourly billing rows. Falls back to a generic label.
+const icoCompanyMap = computed(() => {
+  const m = {}
+  for (const s of Object.values(summaries.value)) {
+    for (const o of (s?.current?.perObject || [])) {
+      if (o.ico && o.companyName) m[o.ico] = o.companyName
+    }
+  }
+  for (const r of hourlySummary.value) {
+    if (r.ico && r.companyName) m[r.ico] = r.companyName
+  }
+  return m
+})
+
+function recordLabel(c) {
+  if (c.ongoing) return 'Právě probíhá'
+  return icoCompanyMap.value[c.ico] || 'Úklid'
+}
+
+function initials(name) {
+  const parts = String(name || '').split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '–'
+  return parts.slice(0, 2).map(p => p[0].toUpperCase()).join('')
+}
+
+// --- Hover peek popover (desktop only) ---
+function peekDayPopover(cell, event) {
+  if (!cell.cleaningsCount) return
   closeHourlyBreakdown()
   if (event && event.currentTarget && event.currentTarget.getBoundingClientRect) {
     popoverAnchorRect.value = event.currentTarget.getBoundingClientRect()
@@ -486,60 +706,18 @@ async function showDayPopover(cell, event, mode) {
     popoverAnchorRect.value = null
   }
   openPopoverDate.value = cell.key
-  popoverMode.value = mode
-  popoverItems.value = []
-  if (!cell.requests.total) {
-    // No requests to fetch — the popover is just the cleanings section.
-    popoverLoading.value = false
-    return
-  }
-  popoverLoading.value = true
-  try {
-    const res = await maintenanceRequestService.list({ date: cell.key })
-    if (res.success) {
-      popoverItems.value = res.data
-    }
-  } finally {
-    popoverLoading.value = false
-  }
-}
-
-function pinDayPopover(cell, event) {
-  if (openPopoverDate.value === cell.key && popoverMode.value === 'pinned') {
-    closeDayPopover()
-    return
-  }
-  showDayPopover(cell, event, 'pinned')
-}
-
-function peekDayPopover(cell, event) {
-  showDayPopover(cell, event, 'hover')
-}
-
-function onCellClick(cell, event) {
-  // Hover-peek upgrade: a hovered popover on the same cell becomes pinned on
-  // click, so moving the mouse away no longer closes it. Cancel any pending
-  // hover-close timer so the upgraded popover sticks.
-  if (popoverMode.value === 'hover' && openPopoverDate.value === cell.key) {
-    clearTimeout(hoverOpenTimer); hoverOpenTimer = null
-    clearTimeout(hoverCloseTimer); hoverCloseTimer = null
-    popoverMode.value = 'pinned'
-    return
-  }
-  pinDayPopover(cell, event)
 }
 
 function onCellMouseEnter(cell, event) {
   if (!supportsHover) return
   // Per-cell signal for "Personál a časy" data: backend only emits non-empty
-  // cleanings[] for IČOs in detailed mode. Other cells keep click-only.
+  // cleanings[] for IČOs in detailed mode.
   if (!cell.cleaningsCount) return
-  if (popoverMode.value === 'pinned') return
   clearTimeout(hoverCloseTimer); hoverCloseTimer = null
   // Capture rect now — `event.currentTarget` is nulled out by the time the
   // timer fires (synthetic events are recycled).
   const rect = event?.currentTarget?.getBoundingClientRect?.() ?? null
-  const switchingFromOtherHover = popoverMode.value === 'hover' && openPopoverDate.value !== cell.key
+  const switchingFromOtherHover = openPopoverDate.value !== null && openPopoverDate.value !== cell.key
   const delay = switchingFromOtherHover ? 0 : HOVER_OPEN_DELAY_MS
   clearTimeout(hoverOpenTimer)
   hoverOpenTimer = setTimeout(() => {
@@ -550,18 +728,15 @@ function onCellMouseEnter(cell, event) {
 function onCellMouseLeave() {
   if (!supportsHover) return
   clearTimeout(hoverOpenTimer); hoverOpenTimer = null
-  if (popoverMode.value !== 'hover') return
   clearTimeout(hoverCloseTimer)
   hoverCloseTimer = setTimeout(closeDayPopover, HOVER_CLOSE_DELAY_MS)
 }
 
 function onPopoverMouseEnter() {
-  if (popoverMode.value !== 'hover') return
   clearTimeout(hoverCloseTimer); hoverCloseTimer = null
 }
 
 function onPopoverMouseLeave() {
-  if (popoverMode.value !== 'hover') return
   clearTimeout(hoverCloseTimer)
   hoverCloseTimer = setTimeout(closeDayPopover, HOVER_CLOSE_DELAY_MS)
 }
@@ -573,13 +748,11 @@ function statusMeta(key) {
 function closeDayPopover() {
   openPopoverDate.value = null
   popoverAnchorRect.value = null
-  popoverMode.value = null
   if (hoverOpenTimer !== null) { clearTimeout(hoverOpenTimer); hoverOpenTimer = null }
   if (hoverCloseTimer !== null) { clearTimeout(hoverCloseTimer); hoverCloseTimer = null }
 }
 
 function goToRequest(id) {
-  closeDayPopover()
   router.push(`/zadosti/${id}`)
 }
 
@@ -648,22 +821,48 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="page-header">
+    <div class="page-header attendance-header">
       <div>
-        <h1 class="page-title">Docházka</h1>
+        <h1 class="page-title">Docházka a záznamy</h1>
         <p class="page-subtitle">Přehled úklidů na vašem místě</p>
       </div>
+      <span
+        v-if="headerStatus"
+        id="attendance-status-badge"
+        class="status-badge"
+        :class="`status-${headerStatus.key}`"
+      >
+        <span class="status-dot" aria-hidden="true" />
+        {{ headerStatus.label }}
+      </span>
     </div>
 
-    <!-- Loading state -->
-    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
-      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
-      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám docházku...</p>
+    <!-- Upstream (FreshQR) transient failure — offline banner, calendar still renders -->
+    <div v-if="upstreamError && !loading" id="attendance-upstream-error" class="offline-banner">
+      <span class="offline-banner-dot" aria-hidden="true" />
+      <span>{{ upstreamError }}</span>
     </div>
 
     <!-- Error state -->
-    <div v-else-if="error" class="alert alert-danger">
+    <div v-if="error" class="alert alert-danger">
       {{ error }}
+    </div>
+
+    <!-- Loading skeleton -->
+    <div v-else-if="loading" id="attendance-skeleton" class="attendance-skeleton" aria-hidden="true">
+      <div class="skeleton sk-tabs" />
+      <div class="sk-cal">
+        <div class="skeleton sk-cal-title" />
+        <div class="sk-cal-grid">
+          <div v-for="n in 35" :key="n" class="skeleton sk-cal-day" />
+        </div>
+      </div>
+      <div class="sk-stat-row">
+        <div class="skeleton sk-stat" />
+        <div class="skeleton sk-stat" />
+      </div>
+      <div class="skeleton sk-line" />
+      <div class="skeleton sk-record" />
     </div>
 
     <!-- Fallback when FreshQR not active — onboarding tone -->
@@ -689,43 +888,318 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Active FreshQR content -->
-    <template v-if="freshqrActive">
+    <template v-else>
 
-    <!-- Upstream (FreshQR) transient failure banner — calendar still renders -->
-    <div v-if="upstreamError" id="attendance-upstream-error" class="alert alert-warning">
-      {{ upstreamError }}
+    <!-- View tabs -->
+    <div id="attendance-tabs" class="seg-tabs" role="tablist" aria-label="Zobrazení docházky">
+      <button
+        v-for="t in TABS"
+        :key="t.key"
+        :id="`attendance-tab-${t.key}`"
+        type="button"
+        role="tab"
+        class="seg-tab"
+        :class="{ 'is-active': activeTab === t.key }"
+        :aria-selected="activeTab === t.key"
+        @click="activeTab = t.key"
+      >{{ t.label }}</button>
     </div>
 
-    <!-- Legend -->
-    <div class="legend card">
-      <div class="legend-item">
-        <span class="legend-dot done" />
-        <span>Úklid proběhl</span>
+    <!-- ═══ MĚSÍC ═══ -->
+    <template v-if="activeTab === 'month'">
+
+      <!-- Calendar card -->
+      <div id="attendance-calendar-card" class="card cal-card">
+        <div class="cal-header">
+          <h2 id="cal-month-label" class="cal-month">{{ monthLabel }}</h2>
+          <div class="cal-controls">
+            <button v-if="!isCurrentMonth" id="cal-today-btn" class="today-btn" @click="goToday">Dnes</button>
+            <button id="cal-prev-btn" class="nav-btn" aria-label="Předchozí měsíc" @click="prevMonth">
+              <ChevronLeft :size="17" />
+            </button>
+            <button id="cal-next-btn" class="nav-btn" aria-label="Další měsíc" @click="nextMonth">
+              <ChevronRight :size="17" />
+            </button>
+          </div>
+        </div>
+
+        <div id="attendance-cal-grid" class="cal-grid">
+          <div class="wd-header" v-for="wd in WEEKDAYS" :key="wd">{{ wd }}</div>
+
+          <template v-for="(cell, idx) in calendarDays" :key="idx">
+            <div v-if="cell === null" class="day-cell empty-cell" />
+            <div
+              v-else
+              :id="`cal-day-${cell.key}`"
+              class="day-cell"
+              :class="{
+                'day-selected':  selectedDate === cell.key,
+                'day-today':     cell.isToday,
+                'day-has-record': cell.hasCleaning,
+                'day-ongoing':   cell.ongoing,
+                'day-past':      cell.isPast && !cell.hasContent,
+                'day-clickable': cell.hasContent,
+              }"
+              :title="cell.requests.total > 0 ? buildRequestTooltip(cell.requests) : (cell.hasCleaning ? 'Úklid proběhl' : '')"
+              @click="selectDay(cell)"
+              @mouseenter="onCellMouseEnter(cell, $event)"
+              @mouseleave="onCellMouseLeave"
+            >
+              <span class="day-num">{{ cell.day }}</span>
+              <span v-if="cell.dotCount > 0" class="day-dots" aria-hidden="true">
+                <span v-for="n in cell.dotCount" :key="n" class="day-dot" />
+              </span>
+              <span
+                v-if="cell.requests.total > 0"
+                class="day-status-badge"
+                :class="`badge-${cell.priorityStatus === 'resi_se' ? 'warning' : cell.priorityStatus === 'prijato' ? 'info' : 'success'}`"
+                :id="'req-badge-' + cell.key"
+              >{{ cell.requests.total }}</span>
+            </div>
+          </template>
+        </div>
+
+        <div id="attendance-cal-legend" class="cal-legend">
+          <span id="cal-legend-record" class="cal-legend-item">
+            <span class="cal-legend-swatch cal-legend-swatch--record" aria-hidden="true">
+              <span class="cal-legend-dot" />
+            </span>
+            Den s úklidem
+          </span>
+          <span id="cal-legend-ongoing" class="cal-legend-item">
+            <span class="cal-legend-swatch cal-legend-swatch--ongoing" aria-hidden="true">
+              <span class="cal-legend-dot" />
+            </span>
+            Právě probíhá
+          </span>
+          <span id="cal-legend-selected" class="cal-legend-item">
+            <span class="cal-legend-swatch cal-legend-swatch--selected" aria-hidden="true">
+              <span class="cal-legend-dot" />
+            </span>
+            Vybraný den
+          </span>
+          <span v-if="!isPreview" id="cal-legend-requests" class="cal-legend-item">
+            <span class="cal-legend-badge" aria-hidden="true">1</span>
+            Požadavky
+          </span>
+        </div>
       </div>
-      <div class="legend-item">
-        <span class="legend-dot ongoing" />
-        <span>Probíhá dnes</span>
+
+      <!-- Stat cards -->
+      <div id="attendance-month-stats" class="stat-cards">
+        <div id="attendance-stat-visits" class="stat-card">
+          <span class="stat-label">Návštěv</span>
+          <span class="stat-value-row">
+            <span class="stat-value">{{ monthVisitCount }}</span>
+            <span
+              v-if="monthVisitDeltaText"
+              class="stat-delta"
+              :class="deltaClass(monthVisitDelta)"
+            >{{ monthVisitDeltaText }}</span>
+          </span>
+        </div>
+        <div id="attendance-stat-time" class="stat-card">
+          <span class="stat-label">Celkový čas</span>
+          <span class="stat-value-row">
+            <span class="stat-value">{{ monthTimeText }}</span>
+            <span
+              v-if="monthTimeDeltaText"
+              class="stat-delta"
+              :class="deltaClass(monthMinutesDelta)"
+            >{{ monthTimeDeltaText }}</span>
+          </span>
+        </div>
       </div>
-      <div class="legend-item">
-        <span class="legend-dot empty" />
-        <span>Bez úklidu</span>
-      </div>
-      <div v-if="hasAnyDetailedCleaning" id="legend-multi-cleanings" class="legend-item">
-        <span class="legend-multi-dots" aria-hidden="true">
-          <span class="dot" /><span class="dot" /><span class="dot" />
+
+      <!-- Empty month -->
+      <div v-if="!monthHasRecords" id="attendance-month-empty" class="month-empty">
+        <span class="month-empty-icon">
+          <FolderOpen :size="22" aria-hidden="true" />
         </span>
-        <span>Víc úklidů v jednom dni</span>
+        <p class="month-empty-text">Žádné záznamy pro tento měsíc</p>
       </div>
-    </div>
 
-    <!-- Overview ("Přehledy") — period-switchable visit / worked-time aggregates. -->
-    <div id="attendance-overview" class="card overview-card">
+      <!-- Záznamy dne -->
+      <template v-else-if="selectedDate">
+        <h2 id="day-records-title" class="section-title">
+          Záznamy dne
+          <span class="section-title-date">{{ selectedDayLabel }}</span>
+        </h2>
+        <div id="day-records-list" class="record-list">
+          <div
+            v-for="(c, i) in selectedDayCleanings"
+            :key="`${c.startTime || 'na'}-${c.employee}-${i}`"
+            :id="`day-record-${selectedDate}-${i}`"
+            class="record-card"
+          >
+            <div class="record-main">
+              <span class="record-label" :class="{ 'record-label--ongoing': c.ongoing }">
+                {{ recordLabel(c) }}
+              </span>
+              <span class="record-time">
+                <Clock :size="14" aria-hidden="true" />
+                <!-- Ongoing visit: backend sets c.ongoing only when the cleaning is
+                     today AND its TimeTo is null/equal-to-TimeFrom. On IČOs with
+                     rounding rules the controller strips startTime so the row stays
+                     a pure "Probíhá" until the rounded display can be committed. -->
+                <template v-if="c.ongoing">
+                  <span class="record-time-main record-time-ongoing">
+                    {{ c.startTime ? `${c.startTime} — nyní` : 'Probíhá' }}
+                  </span>
+                </template>
+                <!-- Rules defined for this IČO: clients see the rounded range
+                     (controller swaps endTime for the shifted value); admins keep
+                     the raw range alongside the explicit "Účtováno" label. -->
+                <template v-else-if="c.roundedMinutes != null">
+                  <span class="record-time-main">
+                    <template v-if="c.startTime && c.endTime">{{ c.startTime }} — {{ c.endTime }}</template>
+                    <template v-else>{{ formatDuration(c.roundedMinutes) }}</template>
+                  </span>
+                  <span v-if="showAdminDetails" class="record-time-billed">
+                    · Účtováno {{ formatDuration(c.roundedMinutes) }}
+                  </span>
+                  <span v-else-if="c.startTime && c.endTime" class="record-time-billed">
+                    · {{ formatDuration(c.roundedMinutes) }}
+                  </span>
+                </template>
+                <!-- No rounding rules configured: legacy raw-time range. -->
+                <template v-else>
+                  <span class="record-time-main">
+                    {{ c.startTime || '—' }}<template v-if="c.endTime"> — {{ c.endTime }}</template>
+                  </span>
+                </template>
+              </span>
+              <span class="record-emp">{{ c.employee }}</span>
+            </div>
+            <span class="record-avatar" aria-hidden="true">{{ initials(c.employee) }}</span>
+          </div>
+
+          <!-- Privacy-mode day: presence known, details hidden -->
+          <div
+            v-if="selectedDayInfo && selectedDayCleanings.length === 0"
+            :id="`day-record-presence-${selectedDate}`"
+            class="record-card"
+          >
+            <div class="record-main">
+              <span class="record-label" :class="{ 'record-label--ongoing': selectedDayInfo.ongoing }">
+                {{ selectedDayInfo.ongoing ? 'Právě probíhá' : 'Úklid proběhl' }}
+              </span>
+              <span class="record-emp">Detaily nejsou zobrazeny z důvodu ochrany soukromí.</span>
+            </div>
+          </div>
+
+          <!-- Maintenance requests of the selected day -->
+          <div v-if="dayRequestsLoading" id="day-requests-loading" class="record-loading">
+            <Loader2 :size="14" class="spin" aria-hidden="true" />
+            Načítám požadavky…
+          </div>
+          <button
+            v-for="item in dayRequests"
+            :key="item.id"
+            :id="`day-record-request-${item.id}`"
+            type="button"
+            class="record-card record-card--request"
+            @click="goToRequest(item.id)"
+          >
+            <div class="record-main">
+              <span class="record-label record-label--request">Požadavek</span>
+              <span class="record-req-title">{{ item.title }}</span>
+              <span class="record-req-meta">
+                <span class="dpi-badge" :class="statusMeta(item.status).badge">
+                  {{ statusMeta(item.status).label }}
+                </span>
+                <span v-if="item.companyName" class="record-req-company">{{ item.companyName }}</span>
+              </span>
+            </div>
+            <ChevronRight :size="16" class="record-chevron" aria-hidden="true" />
+          </button>
+        </div>
+      </template>
+
+      <!-- Hourly billing summary — one row per IČO on Hodinová sazba. Only
+           visible when viewing the current month (see isCurrentMonth comment). -->
+      <div
+        v-if="hourlySummary.length > 0 && isCurrentMonth"
+        id="hourly-summary-card"
+        class="card hourly-summary-card"
+      >
+        <div class="hs-header">
+          <h2 class="hs-title">Hodinové vyúčtování</h2>
+          <span class="hs-month">{{ monthLabel }}</span>
+        </div>
+        <ul class="hs-list">
+          <li
+            v-for="row in hourlySummary"
+            :key="row.ico"
+            :id="`hourly-summary-row-${row.ico}`"
+            class="hs-row"
+          >
+            <div class="hs-row-head">
+              <span class="hs-company">{{ row.companyName }}</span>
+              <span class="hs-ico">IČO {{ row.ico }}</span>
+            </div>
+            <dl class="hs-row-body">
+              <div class="hs-metric">
+                <dt class="hs-metric-label">Zatím odpracováno</dt>
+                <dd class="hs-metric-value">
+                  <button
+                    type="button"
+                    :id="`hourly-breakdown-trigger-${row.ico}`"
+                    class="hs-hours-trigger"
+                    :class="{ 'is-open': openHourlyBreakdownIco === row.ico }"
+                    :aria-haspopup="true"
+                    :aria-expanded="openHourlyBreakdownIco === row.ico"
+                    @click="openHourlyBreakdown(row.ico, $event)"
+                  >
+                    {{ summaryHours(row) }}
+                    <ChevronDown :size="14" aria-hidden="true" />
+                  </button>
+                </dd>
+              </div>
+              <div v-if="row.hourlyRate && row.hourlyRate > 0" class="hs-metric">
+                <dt class="hs-metric-label">Sazba</dt>
+                <dd class="hs-metric-value hs-rate">{{ formatCzk(row.hourlyRate) }}/hod</dd>
+              </div>
+              <div v-if="summaryAmount(row)" class="hs-metric hs-amount">
+                <dt class="hs-metric-label">Předběžně k fakturaci</dt>
+                <dd class="hs-metric-value">{{ summaryAmount(row) }}</dd>
+              </div>
+            </dl>
+          </li>
+        </ul>
+        <p
+          v-if="hourlySummaryHasRate"
+          id="hourly-summary-footnote"
+          class="hs-footnote"
+        >
+          Údaje jsou orientační, podle dat z FreshQR. Konečné vyúčtování obdržíte
+          po skončení měsíce.
+        </p>
+      </div>
+
+      <p v-if="!hasAnyDetailedCleaning" class="privacy-note">
+        Kalendář zobrazuje pouze přítomnost úklidové služby.
+        Detaily pracovníků a časy nejsou zobrazeny z důvodu ochrany soukromí.
+      </p>
+    </template>
+
+    <!-- ═══ ROK / PŘEHLED ═══ -->
+    <div
+      v-else
+      :id="activeTab === 'year' ? 'attendance-year' : 'attendance-overview'"
+      class="card overview-card"
+    >
       <div class="ov-header">
         <div class="ov-title-wrap">
           <BarChart3 :size="18" class="ov-title-icon" aria-hidden="true" />
-          <h2 class="ov-title">Přehledy docházky</h2>
+          <h2 class="ov-title">{{ activeTab === 'year' ? 'Roční přehled' : 'Přehledy docházky' }}</h2>
         </div>
-        <div class="ov-period-switch" role="group" aria-label="Období přehledu">
+        <div
+          v-if="activeTab === 'overview'"
+          class="ov-period-switch"
+          role="group"
+          aria-label="Období přehledu"
+        >
           <button
             v-for="opt in PERIOD_OPTIONS"
             :key="opt.key"
@@ -739,47 +1213,49 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="overviewLoading" id="ov-loading" class="ov-loading">
+      <div v-if="activeSummaryLoading" id="ov-loading" class="ov-loading">
         <Loader2 :size="18" class="spin" aria-hidden="true" />
         <span>Načítám přehled…</span>
       </div>
-      <div v-else-if="overviewError" id="ov-error" class="alert alert-warning ov-alert">
-        {{ overviewError }}
+      <div v-else-if="activeSummaryError" id="ov-error" class="alert alert-warning ov-alert">
+        {{ activeSummaryError }}
       </div>
-      <template v-else-if="overview">
-        <p v-if="overview.error" id="ov-partial" class="ov-partial">{{ overview.error }}</p>
-        <p class="ov-range">{{ overviewRangeLabel }}</p>
+      <template v-else-if="activeSummary">
+        <p v-if="activeSummary.error" id="ov-partial" class="ov-partial">{{ activeSummary.error }}</p>
+        <p class="ov-range">{{ formatRangeLabel(activeSummary.range) }}</p>
 
         <!-- Headline metrics -->
         <div class="ov-stats">
           <div id="ov-stat-visits" class="ov-stat">
             <span class="ov-stat-label">Uskutečněné návštěvy</span>
-            <span class="ov-stat-value">{{ overview.current.visitCount }}</span>
-            <span class="ov-stat-delta" :class="deltaClass(visitDelta)">
-              <component :is="deltaIcon(visitDelta)" :size="13" aria-hidden="true" />
-              {{ deltaCount(visitDelta) }} <span class="ov-delta-ref">vs. {{ prevLabel }}</span>
+            <span class="ov-stat-value">{{ activeSummary.current.visitCount }}</span>
+            <span class="ov-stat-delta" :class="deltaClass(visitDeltaOf(activeSummary))">
+              <component :is="deltaIcon(visitDeltaOf(activeSummary))" :size="13" aria-hidden="true" />
+              {{ deltaCount(visitDeltaOf(activeSummary)) }}
+              <span class="ov-delta-ref">vs. {{ prevLabelOf(activeSummary) }}</span>
             </span>
           </div>
-          <div v-if="hasTimeData" id="ov-stat-time" class="ov-stat">
+          <div v-if="hasTimeDataOf(activeSummary)" id="ov-stat-time" class="ov-stat">
             <span class="ov-stat-label">Odpracovaný čas</span>
-            <span class="ov-stat-value">{{ formatDuration(overview.current.totalMinutes) }}</span>
-            <span class="ov-stat-delta" :class="deltaClass(minutesDelta)">
-              <component :is="deltaIcon(minutesDelta)" :size="13" aria-hidden="true" />
-              {{ deltaMinutesText }} <span class="ov-delta-ref">vs. {{ prevLabel }}</span>
+            <span class="ov-stat-value">{{ formatDuration(activeSummary.current.totalMinutes) }}</span>
+            <span class="ov-stat-delta" :class="deltaClass(minutesDeltaOf(activeSummary))">
+              <component :is="deltaIcon(minutesDeltaOf(activeSummary))" :size="13" aria-hidden="true" />
+              {{ deltaMinutesTextOf(activeSummary) }}
+              <span class="ov-delta-ref">vs. {{ prevLabelOf(activeSummary) }}</span>
             </span>
           </div>
-          <div v-if="overview.current.ongoingCount > 0" id="ov-stat-ongoing" class="ov-stat ov-stat--ongoing">
+          <div v-if="activeSummary.current.ongoingCount > 0" id="ov-stat-ongoing" class="ov-stat ov-stat--ongoing">
             <span class="ov-stat-label">Právě probíhá</span>
-            <span class="ov-stat-value">{{ overview.current.ongoingCount }}</span>
+            <span class="ov-stat-value">{{ activeSummary.current.ongoingCount }}</span>
           </div>
         </div>
 
         <!-- Per-object breakdown (detailed-mode IČOs only) -->
-        <div v-if="overview.current.perObject.length" id="ov-objects" class="ov-objects">
+        <div v-if="activeSummary.current.perObject.length" id="ov-objects" class="ov-objects">
           <h3 class="ov-objects-title">Podle objektu</h3>
           <ul class="ov-object-list">
             <li
-              v-for="obj in overview.current.perObject"
+              v-for="obj in activeSummary.current.perObject"
               :key="obj.ico"
               :id="`ov-object-${obj.ico}`"
               class="ov-object-row"
@@ -788,13 +1264,13 @@ onBeforeUnmount(() => {
                 <span class="ov-object-name">{{ obj.companyName }}</span>
                 <span class="ov-object-figs">
                   <span class="ov-object-visits">{{ formatVisits(obj.visitCount) }}</span>
-                  <span v-if="hasTimeData && obj.totalMinutes > 0" class="ov-object-time">
+                  <span v-if="hasTimeDataOf(activeSummary) && obj.totalMinutes > 0" class="ov-object-time">
                     · {{ formatDuration(obj.totalMinutes) }}
                   </span>
                 </span>
               </div>
-              <div v-if="hasTimeData && obj.totalMinutes > 0" class="ov-bar-track" aria-hidden="true">
-                <div class="ov-bar-fill" :style="{ width: barWidth(obj.totalMinutes) }" />
+              <div v-if="hasTimeDataOf(activeSummary) && obj.totalMinutes > 0" class="ov-bar-track" aria-hidden="true">
+                <div class="ov-bar-fill" :style="{ width: barWidth(obj.totalMinutes, activeSummary) }" />
               </div>
             </li>
           </ul>
@@ -805,165 +1281,10 @@ onBeforeUnmount(() => {
       </template>
     </div>
 
-    <!-- Hourly billing summary — one row per IČO on Hodinová sazba. Only
-         visible when viewing the current month (see isCurrentMonth comment). -->
-    <div
-      v-if="hourlySummary.length > 0 && isCurrentMonth"
-      id="hourly-summary-card"
-      class="card hourly-summary-card"
-    >
-      <div class="hs-header">
-        <h2 class="hs-title">Hodinové vyúčtování</h2>
-        <span class="hs-month">{{ monthLabel }}</span>
-      </div>
-      <ul class="hs-list">
-        <li
-          v-for="row in hourlySummary"
-          :key="row.ico"
-          :id="`hourly-summary-row-${row.ico}`"
-          class="hs-row"
-        >
-          <div class="hs-row-head">
-            <span class="hs-company">{{ row.companyName }}</span>
-            <span class="hs-ico">IČO {{ row.ico }}</span>
-          </div>
-          <dl class="hs-row-body">
-            <div class="hs-metric">
-              <dt class="hs-metric-label">Zatím odpracováno</dt>
-              <dd class="hs-metric-value">
-                <button
-                  type="button"
-                  :id="`hourly-breakdown-trigger-${row.ico}`"
-                  class="hs-hours-trigger"
-                  :class="{ 'is-open': openHourlyBreakdownIco === row.ico }"
-                  :aria-haspopup="true"
-                  :aria-expanded="openHourlyBreakdownIco === row.ico"
-                  @click="openHourlyBreakdown(row.ico, $event)"
-                >
-                  {{ summaryHours(row) }}
-                  <ChevronDown :size="14" aria-hidden="true" />
-                </button>
-              </dd>
-            </div>
-            <div v-if="row.hourlyRate && row.hourlyRate > 0" class="hs-metric">
-              <dt class="hs-metric-label">Sazba</dt>
-              <dd class="hs-metric-value hs-rate">{{ formatCzk(row.hourlyRate) }}/hod</dd>
-            </div>
-            <div v-if="summaryAmount(row)" class="hs-metric hs-amount">
-              <dt class="hs-metric-label">Předběžně k fakturaci</dt>
-              <dd class="hs-metric-value">{{ summaryAmount(row) }}</dd>
-            </div>
-          </dl>
-        </li>
-      </ul>
-      <p
-        v-if="hourlySummaryHasRate"
-        id="hourly-summary-footnote"
-        class="hs-footnote"
-      >
-        Údaje jsou orientační, podle dat z FreshQR. Konečné vyúčtování obdržíte
-        po skončení měsíce.
-      </p>
-    </div>
-
-    <!-- Calendar card -->
-    <div class="card cal-card">
-      <!-- Month navigation -->
-      <div class="cal-header">
-        <button class="nav-btn" @click="prevMonth">
-          <ChevronLeft :size="18" />
-        </button>
-        <div class="cal-title-wrap">
-          <h2 class="cal-month">{{ monthLabel }}</h2>
-          <button class="today-btn" @click="goToday">Dnes</button>
-        </div>
-        <button class="nav-btn" @click="nextMonth">
-          <ChevronRight :size="18" />
-        </button>
-      </div>
-
-      <!-- Month summary -->
-      <div class="month-stats">
-        <template v-if="monthStats.total > 0">
-          <span class="ms-item done-text">
-            <CheckCircle2 :size="14" />
-            {{ monthStats.done }} {{ monthStats.done === 1 ? 'úklid' : (monthStats.done >= 2 && monthStats.done <= 4 ? 'úklidy' : 'úklidů') }} v tomto měsíci
-          </span>
-          <span v-if="monthStats.ongoing > 0" class="ms-item ongoing-text">
-            <Loader2 :size="14" class="spin" />
-            Právě probíhá
-          </span>
-        </template>
-        <span v-else class="ms-item empty-text">V tomto měsíci se zatím neuklízelo</span>
-      </div>
-
-      <!-- Grid -->
-      <div class="cal-grid">
-        <div class="wd-header" v-for="wd in WEEKDAYS" :key="wd">{{ wd }}</div>
-
-        <template v-for="(cell, idx) in calendarDays" :key="idx">
-          <div v-if="cell === null" class="day-cell empty-cell" />
-          <div
-            v-else
-            class="day-cell"
-            :class="[
-              {
-                'day-today':   cell.isToday,
-                'day-done':    cell.hasCleaning && !cell.ongoing,
-                'day-ongoing': cell.ongoing,
-                'day-past':    cell.isPast && !cell.hasCleaning,
-                'day-future':  !cell.isPast && !cell.isToday && !cell.hasCleaning,
-                'day-has-requests': cell.requests.total > 0,
-                'day-popover-open': openPopoverDate === cell.key,
-              },
-              cell.priorityStatus ? `day-priority-${cell.priorityStatus}` : '',
-            ]"
-            :title="cell.requests.total > 0 ? buildRequestTooltip(cell.requests) : (cell.hasCleaning ? 'Úklid proběhl' : '')"
-            @click="onCellClick(cell, $event)"
-            @mouseenter="onCellMouseEnter(cell, $event)"
-            @mouseleave="onCellMouseLeave"
-          >
-            <span class="day-num">{{ cell.day }}</span>
-            <span v-if="cell.hasCleaning && !cell.ongoing" class="day-icon done-icon">
-              <CheckCircle2 :size="12" />
-            </span>
-            <span v-if="cell.ongoing" class="day-icon ongoing-icon">
-              <Loader2 :size="12" class="spin" />
-            </span>
-            <span
-              v-if="cell.cleaningsCount >= 2"
-              class="day-multi-dots"
-              :title="`${cell.cleaningsCount} úklidů v tento den`"
-              :id="'multi-dots-' + cell.key"
-            >
-              <span v-for="n in Math.min(cell.cleaningsCount, 3)" :key="n" class="dot" />
-              <span v-if="cell.cleaningsCount > 3" class="dot-more">+</span>
-            </span>
-            <span
-              v-if="cell.requests.total > 0"
-              class="day-status-badge"
-              :class="`badge-${cell.priorityStatus === 'resi_se' ? 'warning' : cell.priorityStatus === 'prijato' ? 'info' : 'success'}`"
-              :id="'req-badge-' + cell.key"
-            >{{ cell.requests.total }}</span>
-          </div>
-        </template>
-      </div>
-    </div>
-
-    <p v-if="!hasAnyDetailedCleaning" class="privacy-note">
-      Kalendář zobrazuje pouze přítomnost úklidové služby.
-      Detaily pracovníků a časy nejsou zobrazeny z důvodu ochrany soukromí.
-    </p>
-
     </template>
 
     <Teleport to="body">
-      <div
-        v-if="activeCell && popoverMode === 'pinned'"
-        id="day-popover-backdrop"
-        class="day-popover-backdrop"
-        @click="closeDayPopover"
-      />
+      <!-- Hover peek popover — "Detail záznamu" (desktop only) -->
       <div
         v-if="activeCell"
         id="day-popover"
@@ -972,76 +1293,50 @@ onBeforeUnmount(() => {
         @mouseenter="onPopoverMouseEnter"
         @mouseleave="onPopoverMouseLeave"
       >
-        <template v-if="activeCell.cleanings && activeCell.cleanings.length">
-          <div :id="`day-popover-header-cleanings-${activeCell.key}`" class="day-popover-header">Úklidy · {{ activeCell.day }}.{{ viewMonth + 1 }}.</div>
-          <ul :id="`cleaning-list-${activeCell.key}`" class="cleaning-list">
-            <li
-              v-for="(c, i) in activeCell.cleanings"
-              :key="`${c.startTime || 'na'}-${c.employee}-${i}`"
-              :id="`cleaning-row-${activeCell.key}-${i}`"
-              class="cleaning-row"
-            >
-              <div :id="`cleaning-time-${activeCell.key}-${i}`" class="cleaning-time">
-                <!-- Ongoing visit: backend sets c.ongoing only when the cleaning is
-                     today AND its TimeTo is null/equal-to-TimeFrom. A null endTime
-                     alone is NOT a reliable signal — past-day single-scan records
-                     also have null endTime. On IČOs with rounding rules the
-                     controller strips startTime here so the badge stays a pure
-                     "Probíhá" until the cleaning ends and the rounded display
-                     can be committed. -->
-                <template v-if="c.ongoing">
-                  <span v-if="c.startTime" class="cleaning-time-ongoing">
-                    {{ c.startTime }} · Probíhá
-                  </span>
-                  <span v-else class="cleaning-time-ongoing">Probíhá</span>
-                </template>
-                <!-- Rules defined for this IČO: clients see the rounded range
-                     (controller swaps endTime for the shifted value); admins keep
-                     the raw range alongside the explicit "Účtováno" label. -->
-                <template v-else-if="c.roundedMinutes != null">
-                  <span v-if="showAdminDetails" class="cleaning-time-range">
-                    <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }}</template>
-                    <template v-else>—</template>
-                    <span class="cleaning-time-billed">· Účtováno {{ formatDuration(c.roundedMinutes) }}</span>
-                  </span>
-                  <span v-else class="cleaning-time-billed-only">
-                    <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }} · </template>
-                    {{ formatDuration(c.roundedMinutes) }}
-                  </span>
-                </template>
-                <!-- No rounding rules configured: fall back to the legacy raw-time range. -->
-                <template v-else>
-                  <span class="cleaning-time-range">
-                    {{ c.startTime || '—' }}<template v-if="c.endTime"> – {{ c.endTime }}</template>
-                  </span>
-                </template>
-              </div>
-              <div :id="`cleaning-emp-${activeCell.key}-${i}`" class="cleaning-emp">{{ c.employee }}</div>
-            </li>
-          </ul>
-        </template>
-        <template v-if="activeCell.requests && activeCell.requests.total > 0">
-          <div :id="`day-popover-header-requests-${activeCell.key}`" class="day-popover-header">Požadavky · {{ activeCell.day }}.{{ viewMonth + 1 }}.</div>
-          <div v-if="popoverLoading" class="day-popover-empty">Načítám…</div>
-          <div v-else-if="popoverItems.length === 0" class="day-popover-empty">
-            Žádné požadavky.
-          </div>
-          <button
-            v-for="item in popoverItems"
-            :key="item.id"
-            :id="`day-popover-item-${item.id}`"
-            class="day-popover-item"
-            @click="goToRequest(item.id)"
+        <div :id="`day-popover-header-${activeCell.key}`" class="day-popover-header">
+          Detail záznamu · {{ activeCell.day }}. {{ viewMonth + 1 }}.
+        </div>
+        <ul v-if="activeCell.cleanings.length" :id="`cleaning-list-${activeCell.key}`" class="cleaning-list">
+          <li
+            v-for="(c, i) in activeCell.cleanings"
+            :key="`${c.startTime || 'na'}-${c.employee}-${i}`"
+            :id="`cleaning-row-${activeCell.key}-${i}`"
+            class="cleaning-row"
           >
-            <span class="dpi-title">{{ item.title }}</span>
-            <span class="dpi-meta">
-              <span class="dpi-badge" :class="statusMeta(item.status).badge">
-                {{ statusMeta(item.status).label }}
-              </span>
-              <span v-if="item.companyName" class="dpi-company">{{ item.companyName }}</span>
-            </span>
-          </button>
-        </template>
+            <div :id="`cleaning-time-${activeCell.key}-${i}`" class="cleaning-time">
+              <template v-if="c.ongoing">
+                <span v-if="c.startTime" class="cleaning-time-ongoing">
+                  {{ c.startTime }} · Probíhá
+                </span>
+                <span v-else class="cleaning-time-ongoing">Probíhá</span>
+              </template>
+              <template v-else-if="c.roundedMinutes != null">
+                <span v-if="showAdminDetails" class="cleaning-time-range">
+                  <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }}</template>
+                  <template v-else>—</template>
+                  <span class="cleaning-time-billed">· Účtováno {{ formatDuration(c.roundedMinutes) }}</span>
+                </span>
+                <span v-else class="cleaning-time-billed-only">
+                  <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }} · </template>
+                  {{ formatDuration(c.roundedMinutes) }}
+                </span>
+              </template>
+              <template v-else>
+                <span class="cleaning-time-range">
+                  {{ c.startTime || '—' }}<template v-if="c.endTime"> – {{ c.endTime }}</template>
+                </span>
+              </template>
+            </div>
+            <div :id="`cleaning-emp-${activeCell.key}-${i}`" class="cleaning-emp">{{ c.employee }}</div>
+          </li>
+        </ul>
+        <div
+          v-if="activeCell.requests.total > 0"
+          :id="`day-popover-requests-hint-${activeCell.key}`"
+          class="day-popover-note"
+        >
+          {{ pluralRequests(activeCell.requests.total) }} — vyberte den pro detail
+        </div>
       </div>
 
       <!-- Hourly breakdown popover — per-day total for a single IČO. -->
@@ -1126,34 +1421,621 @@ onBeforeUnmount(() => {
   }
 }
 
-/* Legend */
-.legend {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 12px 20px;
-  margin-bottom: 16px;
+/* Header: title left, status badge right — on phones the badge wraps under
+   the title, matching the mockup's compact header. */
+.attendance-header {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
   flex-wrap: wrap;
 }
-.legend-item {
+
+/* Status badge (Úklid probíhá / Offline / Aktualizace…) */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.status-ongoing {
+  background: var(--color-success-light);
+  color: var(--color-success);
+}
+.status-offline {
+  background: var(--color-gray-100);
+  color: var(--color-gray-500);
+}
+.status-updating {
+  background: var(--color-gray-100);
+  color: var(--color-gray-500);
+}
+.status-updating .status-dot {
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+
+/* Offline / upstream failure banner */
+.offline-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--color-warning-light);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--color-warning);
+  font-weight: 500;
+}
+.offline-banner-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-warning);
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+
+/* Segmented view tabs (Měsíc / Rok / Přehled) */
+.seg-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--color-gray-100);
+  border-radius: var(--radius-pill);
+  padding: 4px;
+  margin-bottom: 16px;
+}
+@media (min-width: 640px) {
+  .seg-tabs { max-width: 480px; }
+}
+.seg-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--color-gray-600);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.seg-tab:hover { color: var(--color-primary); }
+.seg-tab.is-active {
+  background: var(--color-white);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Loading skeleton — mirrors the month layout (tabs, calendar, stat cards,
+   section line, record card). */
+.attendance-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sk-tabs {
+  height: 42px;
+  border-radius: var(--radius-pill);
+}
+@media (min-width: 640px) {
+  .sk-tabs { max-width: 480px; }
+}
+.sk-cal {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+}
+.sk-cal-title {
+  height: 22px;
+  width: 140px;
+  margin-bottom: 18px;
+}
+.sk-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  justify-items: center;
+}
+.sk-cal-day {
+  width: 100%;
+  max-width: 40px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+.sk-stat-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.sk-stat {
+  height: 76px;
+  border-radius: var(--radius-lg);
+}
+.sk-line {
+  height: 14px;
+  width: 45%;
+}
+.sk-record {
+  height: 64px;
+  border-radius: var(--radius-lg);
+}
+
+/* Calendar card — white surface with a light border, per the mockup */
+.cal-card {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+  margin-bottom: 16px;
+}
+@media (min-width: 640px) {
+  .cal-card { padding: 24px; }
+}
+
+/* Header: month title left, controls right */
+.cal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.cal-month {
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0;
+}
+.cal-controls {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  color: var(--color-gray-700);
 }
-.legend-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
+.nav-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--color-gray-200);
+  background: var(--color-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-gray-600);
+  transition: var(--transition);
+}
+.nav-btn:hover {
+  border-color: var(--color-blue);
+  color: var(--color-blue);
+  background: var(--color-blue-light);
+}
+.today-btn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-gray-200);
+  background: var(--color-white);
+  color: var(--color-gray-600);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.today-btn:hover { border-color: var(--color-blue); color: var(--color-blue); }
+
+/* Grid — mobile-first: tighter gap and smaller type at xs */
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+@media (min-width: 480px) {
+  .cal-grid { gap: 6px; }
+}
+@media (min-width: 768px) {
+  .cal-grid { gap: 8px; }
+}
+/* Docházka is a headline feature — the calendar is given room to breathe and
+   reads big on larger screens. The width cap keeps cells from ballooning. */
+@media (min-width: 1024px) {
+  .cal-grid { max-width: 900px; margin-left: auto; margin-right: auto; }
+}
+@media (min-width: 1280px) {
+  .cal-grid { max-width: 1000px; }
+}
+.wd-header {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-gray-400);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 0 10px;
+}
+@media (min-width: 768px) {
+  .wd-header { font-size: 12px; padding: 4px 0 12px; }
+}
+
+/* Day cells — minimalist per the mockup: plain numbers, light-blue chips with a
+   dot for days with records, solid blue for the selected day. */
+.day-cell {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  position: relative;
+  color: var(--color-gray-700);
+  transition: background var(--transition), color var(--transition);
+  z-index: 0;
+}
+@media (min-width: 768px) {
+  .day-cell { border-radius: 12px; }
+}
+.empty-cell { background: transparent; }
+.day-num { font-size: 13px; font-weight: 500; line-height: 1; }
+@media (min-width: 480px) {
+  .day-num { font-size: 14px; }
+}
+@media (min-width: 768px) {
+  .day-num { font-size: 16px; }
+}
+@media (min-width: 1024px) {
+  .day-num { font-size: 17px; }
+}
+
+.day-past { color: var(--color-gray-400); }
+.day-past .day-num { font-weight: 400; }
+
+.day-today:not(.day-selected) {
+  box-shadow: inset 0 0 0 1.5px var(--color-blue);
+}
+.day-today .day-num { font-weight: 700; }
+
+.day-has-record {
+  background: var(--color-blue-light);
+  color: var(--color-primary);
+}
+.day-has-record .day-num { font-weight: 600; }
+.day-ongoing:not(.day-selected) {
+  background: var(--color-success-light);
+}
+
+.day-clickable { cursor: pointer; }
+.day-clickable:hover:not(.day-selected) {
+  background: var(--color-blue-border);
+}
+.day-ongoing.day-clickable:hover:not(.day-selected) {
+  background: var(--color-success-light);
+}
+
+.day-selected {
+  background: var(--color-blue);
+  color: var(--color-white);
+}
+.day-selected .day-num { font-weight: 700; }
+
+/* Record dots under the day number */
+.day-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  line-height: 0;
+}
+.day-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-blue);
+}
+@media (min-width: 480px) {
+  .day-dot { width: 5px; height: 5px; }
+}
+.day-ongoing .day-dot { background: var(--color-success); }
+.day-selected .day-dot { background: var(--color-white); }
+
+/* Single per-day request badge, colored by highest-priority status */
+.day-status-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 8px;
+  min-width: 14px;
+  text-align: center;
+}
+@media (min-width: 480px) {
+  .day-status-badge { font-size: 10px; padding: 2px 6px; min-width: 16px; }
+}
+
+/* Lift hovered cells above siblings so the badge isn't clipped. */
+.day-cell:hover { z-index: 30; }
+
+/* Calendar legend — miniature day-cell swatches so the legend reads exactly
+   like the grid above it. */
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-gray-100);
+}
+@media (min-width: 1024px) {
+  .cal-legend {
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+@media (min-width: 1280px) {
+  .cal-legend { max-width: 1000px; }
+}
+.cal-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-gray-500);
+}
+.cal-legend-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   flex-shrink: 0;
 }
-.legend-dot.done    { background: #d1e7dd; border: 1.5px solid #198754; }
-.legend-dot.ongoing { background: #fff0d6; border: 1.5px solid #e67e00; }
-.legend-dot.empty   { background: var(--color-gray-100); border: 1.5px solid var(--color-gray-300); }
+.cal-legend-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+}
+.cal-legend-swatch--record { background: var(--color-blue-light); }
+.cal-legend-swatch--record .cal-legend-dot { background: var(--color-blue); }
+.cal-legend-swatch--ongoing { background: var(--color-success-light); }
+.cal-legend-swatch--ongoing .cal-legend-dot { background: var(--color-success); }
+.cal-legend-swatch--selected { background: var(--color-blue); }
+.cal-legend-swatch--selected .cal-legend-dot { background: var(--color-white); }
+.cal-legend-badge {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 8px;
+  min-width: 14px;
+  text-align: center;
+  background: var(--color-light);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
 
-/* Overview ("Přehledy") — mobile-first period switcher + KPI cards + per-object
-   bars. All colours come from design tokens. */
+/* Stat cards (Návštěv / Celkový čas) */
+.stat-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-xl);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stat-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.stat-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.stat-value {
+  font-size: clamp(22px, 4vw + 10px, 28px);
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.stat-delta {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.delta-up   { color: var(--color-success); }
+.delta-down { color: var(--color-danger); }
+.delta-flat { color: var(--color-gray-500); }
+
+/* Section title above Záznamy dne */
+.section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 20px 0 10px;
+}
+.section-title-date {
+  font-weight: 600;
+  color: var(--color-gray-500);
+  text-transform: none;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Záznamy dne record cards */
+.record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.record-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-xl);
+  padding: 12px 16px;
+  text-align: left;
+}
+.record-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.record-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-blue);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.record-label--ongoing { color: var(--color-success); }
+.record-label--request { color: var(--color-gray-500); }
+.record-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-gray-500);
+  flex-wrap: wrap;
+}
+.record-time-main {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+.record-time-ongoing { color: var(--color-success); }
+.record-time-billed {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-gray-500);
+}
+.record-emp {
+  font-size: 12px;
+  color: var(--color-gray-500);
+}
+.record-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-blue-light);
+  color: var(--color-blue);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.record-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-gray-500);
+  padding: 4px 2px;
+}
+.record-card--request {
+  font: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.record-card--request:hover {
+  border-color: var(--color-blue-border);
+  background: var(--color-blue-light);
+}
+.record-req-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.record-req-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.record-req-company {
+  font-size: 11px;
+  color: var(--color-gray-500);
+}
+.record-chevron {
+  color: var(--color-gray-400);
+  flex-shrink: 0;
+}
+
+/* Empty month */
+.month-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 36px 20px;
+}
+.month-empty-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--color-gray-100);
+  color: var(--color-gray-400);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.month-empty-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-gray-400);
+  margin: 0;
+}
+
+/* Overview ("Přehledy" / "Rok") — period switcher + KPI cards + per-object bars. */
 .overview-card {
   padding: var(--space-lg);
   margin-bottom: 16px;
@@ -1265,9 +2147,6 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 .ov-delta-ref { color: var(--color-gray-500); font-weight: 500; }
-.delta-up   { color: var(--color-success); }
-.delta-down { color: var(--color-danger); }
-.delta-flat { color: var(--color-gray-500); }
 
 .ov-objects { margin-top: 16px; }
 .ov-objects-title {
@@ -1523,222 +2402,8 @@ onBeforeUnmount(() => {
   line-height: 1.4;
 }
 
-/* Calendar wrapper */
-.cal-card { padding: var(--space-lg); }
-@media (min-width: 640px) {
-  .cal-card { padding: 24px; }
-}
-
-/* Header */
-.cal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.cal-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.cal-month {
-  font-size: var(--fs-xl);
-  font-weight: 700;
-  color: var(--color-primary);
-  text-align: center;
-  flex: 1;
-}
-@media (min-width: 640px) {
-  .cal-month {
-    min-width: 180px;
-    flex: 0 0 auto;
-  }
-}
-.nav-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  border: 1.5px solid var(--color-gray-300);
-  background: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--color-gray-700);
-  transition: var(--transition);
-}
-.nav-btn:hover {
-  border-color: var(--color-mid);
-  color: var(--color-primary);
-  background: var(--color-light);
-}
-.today-btn {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 12px;
-  border-radius: 20px;
-  border: 1.5px solid var(--color-gray-300);
-  background: white;
-  color: var(--color-gray-600);
-  cursor: pointer;
-  transition: var(--transition);
-}
-.today-btn:hover { border-color: var(--color-primary); color: var(--color-primary); }
-
-/* Month stats strip */
-.month-stats {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 20px;
-  padding: 8px 0;
-  border-top: 1px solid var(--color-gray-100);
-  border-bottom: 1px solid var(--color-gray-100);
-  min-height: 36px;
-}
-.ms-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 500;
-}
-.done-text    { color: var(--color-success); }
-.ongoing-text { color: var(--color-warning); }
-.empty-text   { color: var(--color-gray-500); font-weight: 400; }
-
-/* Grid — mobile-first: tighter gap and smaller type at xs */
-.cal-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-}
-@media (min-width: 480px) {
-  .cal-grid { gap: 6px; }
-}
-@media (min-width: 768px) {
-  .cal-grid { gap: 8px; }
-}
-/* Docházka is a headline feature — the calendar is given room to breathe and
-   reads big on larger screens. The width cap still keeps cells from ballooning
-   (aspect-ratio: 1 would otherwise make each cell ~230px on a 1920px screen);
-   it just sits higher than before so the grid feels prominent, not cramped. */
-@media (min-width: 1024px) {
-  .cal-grid { max-width: 900px; margin-left: auto; margin-right: auto; }
-}
-@media (min-width: 1280px) {
-  .cal-grid { max-width: 1000px; }
-}
-.wd-header {
-  text-align: center;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-gray-500);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 4px 0 10px;
-}
-@media (min-width: 768px) {
-  .wd-header { font-size: 13px; padding: 4px 0 12px; }
-}
-
-/* Day cells */
-.day-cell {
-  aspect-ratio: 1;
-  border-radius: 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  position: relative;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-@media (min-width: 768px) {
-  .day-cell { border-radius: 12px; gap: 4px; }
-}
-.empty-cell { background: transparent; }
-.day-num { font-size: 12px; font-weight: 500; line-height: 1; }
-@media (min-width: 480px) {
-  .day-num { font-size: 14px; }
-}
-@media (min-width: 768px) {
-  .day-num { font-size: 16px; }
-}
-@media (min-width: 1024px) {
-  .day-num { font-size: 18px; }
-}
-/* Status icons scale up with the larger cells so they stay legible. */
-@media (min-width: 768px) {
-  .day-icon svg { width: 16px; height: 16px; }
-}
-
-.day-past    { background: var(--color-gray-100); color: var(--color-gray-400); }
-.day-past .day-num { font-weight: 400; }
-.day-future  { background: white; border: 1.5px solid var(--color-gray-200); color: var(--color-gray-700); }
-.day-today   { border: 2px solid var(--color-primary); background: var(--color-light); color: var(--color-primary); }
-.day-today .day-num { font-weight: 700; }
-
-.day-done {
-  background: #d1e7dd;
-  border: 1.5px solid #a3cfbb;
-  color: #0a3622;
-}
-.day-done:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 3px 10px rgba(25,135,84,0.2);
-}
-.day-ongoing {
-  background: #fff0d6;
-  border: 2px solid #e67e00;
-  color: #7a4200;
-}
-.day-ongoing:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 3px 10px rgba(230,126,0,0.25);
-}
-
-.day-icon {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-@media (min-width: 480px) {
-  .day-icon { display: flex; }
-}
-.done-icon    { color: var(--color-success); }
-.ongoing-icon { color: var(--color-warning); }
-
-/* Single per-day request badge, colored by highest-priority status */
-.day-cell { cursor: pointer; }
-.day-status-badge {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-  padding: 2px 5px;
-  border-radius: 8px;
-  min-width: 14px;
-  text-align: center;
-}
-@media (min-width: 480px) {
-  .day-status-badge { font-size: 10px; padding: 2px 6px; min-width: 16px; }
-}
-.day-has-requests { box-shadow: inset 0 0 0 1.5px var(--color-gray-300); }
-.day-has-requests.day-priority-prijato  { box-shadow: inset 0 0 0 1.5px var(--color-primary); }
-.day-has-requests.day-priority-resi_se  { box-shadow: inset 0 0 0 1.5px var(--color-warning); }
-.day-has-requests.day-priority-vyreseno { box-shadow: inset 0 0 0 1.5px var(--color-success); }
-
-/* Lift hovered/active cells above siblings so their shadow/badge isn't clipped. */
-.day-cell { z-index: 0; }
-.day-cell:hover,
-.day-cell.day-popover-open { z-index: 30; }
-
-/* Backdrop — full-viewport tap-outside dismiss. Visible dim on mobile only;
-   on desktop it remains interactive but transparent so the calendar stays in view. */
+/* Backdrop — full-viewport tap-outside dismiss for the hourly breakdown.
+   Visible dim on mobile only; transparent on desktop. */
 .day-popover-backdrop {
   position: fixed;
   inset: 0;
@@ -1749,10 +2414,9 @@ onBeforeUnmount(() => {
   .day-popover-backdrop { background: transparent; }
 }
 
-/* Popover: on mobile a bottom-sheet; on desktop anchored to the tapped day-cell.
+/* Popover: on mobile a bottom-sheet; on desktop anchored to the hovered cell.
    Teleported to <body>, so positioning is always relative to the viewport and
-   never affected by transforms on ancestor day-cells (which would otherwise turn
-   the day-cell into the containing block for `position: fixed`). */
+   never affected by transforms on ancestor day-cells. */
 .day-popover {
   position: fixed;
   top: auto;
@@ -1790,26 +2454,11 @@ onBeforeUnmount(() => {
   background: var(--color-gray-50);
   border-bottom: 1px solid var(--color-gray-200);
 }
-.day-popover-item {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
+.day-popover-note {
   padding: 10px 12px;
-  background: var(--color-white);
-  border: none;
-  border-bottom: 1px solid var(--color-gray-100);
-  cursor: pointer;
-  text-align: left;
-}
-.day-popover-item:last-child { border-bottom: none; }
-.day-popover-item:hover { background: var(--color-gray-50); }
-.dpi-title { font-size: 13px; color: var(--color-primary); font-weight: 500; }
-.dpi-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--color-gray-500);
+  border-top: 1px solid var(--color-gray-100);
 }
 .dpi-badge {
   font-size: 10px;
@@ -1817,56 +2466,6 @@ onBeforeUnmount(() => {
   padding: 2px 8px;
   border-radius: 10px;
   line-height: 1.4;
-}
-.dpi-company {
-  font-size: 11px;
-  color: var(--color-gray-500);
-}
-.day-popover-empty {
-  padding: 14px 12px;
-  font-size: 12px;
-  color: var(--color-gray-500);
-  text-align: center;
-}
-
-/* Multi-cleaning indicator — small horizontal dot stack at the bottom of the
-   day cell. Up to 3 dots; "+" suffix when there are more. Visible only on days
-   with 2+ cleanings (Detailed-mode IČOs only). */
-.day-multi-dots {
-  position: absolute;
-  bottom: 4px;
-  left: 5px;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-.day-multi-dots .dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--color-success);
-}
-.day-multi-dots .dot-more {
-  font-size: 9px;
-  line-height: 1;
-  color: var(--color-gray-600);
-  margin-left: 1px;
-}
-@media (min-width: 480px) {
-  .day-multi-dots .dot { width: 5px; height: 5px; }
-}
-
-/* Same dot stack used inline in the legend */
-.legend-multi-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-.legend-multi-dots .dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--color-success);
 }
 
 /* Cleanings list inside the popover — chronological per-cleaning rows. */
@@ -1888,10 +2487,6 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: var(--color-gray-500);
   letter-spacing: 0.02em;
-}
-.cleaning-time-open {
-  margin-left: 4px;
-  color: var(--color-mid);
 }
 .cleaning-time-ongoing {
   color: var(--color-warning, var(--color-mid));
@@ -1925,6 +2520,4 @@ onBeforeUnmount(() => {
   color: var(--color-gray-500);
   text-align: center;
 }
-
-/* .day-num + .day-icon handled mobile-first in their base declarations above. */
 </style>

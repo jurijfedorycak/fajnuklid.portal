@@ -1751,10 +1751,25 @@ class FreshQRServiceTest extends TestCase
         ];
     }
 
+    /**
+     * All months succeeded, no records — 'YYYY-MM' => [] for every pair.
+     *
+     * @param list<array{0:int,1:int}> $months
+     * @return array<string,array>
+     */
+    private static function emptyMonthResults(array $months): array
+    {
+        $out = [];
+        foreach ($months as [$y, $m]) {
+            $out[sprintf('%04d-%02d', $y, $m)] = [];
+        }
+        return $out;
+    }
+
     public function testRangeInactiveWhenNoNonOffIco(): void
     {
         $this->clientMock->method('isConfigured')->willReturn(true);
-        $this->clientMock->expects($this->never())->method('getProjectReports');
+        $this->clientMock->expects($this->never())->method('getProjectReportsForMonths');
 
         $result = $this->service->getCleaningDaysForCompaniesRange(
             [['registration_number' => '12345678', 'freshqr_mode' => 'off']],
@@ -1766,16 +1781,18 @@ class FreshQRServiceTest extends TestCase
         $this->assertSame([], $result['cleaningDays']);
     }
 
-    public function testRangeFetchesEachSpannedYearOnceWithNullMonth(): void
+    public function testRangeFetchesEverySpannedMonthInOneBatch(): void
     {
         $this->clientMock->method('isConfigured')->willReturn(true);
-        $seenYears = [];
-        $this->clientMock->expects($this->exactly(2))
-            ->method('getProjectReports')
-            ->willReturnCallback(function (int $year, ?int $month) use (&$seenYears) {
-                $this->assertNull($month, 'Range fetch must omit month to pull the whole year');
-                $seenYears[] = $year;
-                return [self::basicRecord($year . '-06-15')];
+        $seenMonths = [];
+        $this->clientMock->expects($this->once())
+            ->method('getProjectReportsForMonths')
+            ->willReturnCallback(function (array $months) use (&$seenMonths) {
+                $seenMonths = $months;
+                $out = self::emptyMonthResults($months);
+                $out['2024-06'] = [self::basicRecord('2024-06-15')];
+                $out['2025-06'] = [self::basicRecord('2025-06-15')];
+                return $out;
             });
         // A past window → no ongoing merge.
         $this->clientMock->expects($this->never())->method('getOngoingProjectReports');
@@ -1787,20 +1804,59 @@ class FreshQRServiceTest extends TestCase
             new \DateTimeImmutable('2025-08-31')
         );
 
-        $this->assertSame([2024, 2025], $seenYears);
+        $this->assertCount(16, $seenMonths, '2024-05 through 2025-08 inclusive');
+        $this->assertSame([2024, 5], $seenMonths[0]);
+        $this->assertSame([2025, 8], $seenMonths[15]);
         $this->assertTrue($result['active']);
         $this->assertNull($result['error']);
         $this->assertCount(2, $result['cleaningDays']);
     }
 
+    public function testRangeSkipsFutureMonths(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $seenMonths = [];
+        $this->clientMock->expects($this->once())
+            ->method('getProjectReportsForMonths')
+            ->willReturnCallback(function (array $months) use (&$seenMonths) {
+                $seenMonths = $months;
+                return self::emptyMonthResults($months);
+            });
+        $this->clientMock->method('getOngoingProjectReports')->willReturn([]);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+
+        $today = new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague'));
+        $from = $today->modify('first day of this month');
+
+        $result = $this->service->getCleaningDaysForCompaniesRange(
+            [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
+            $from,
+            $from->modify('+6 months')->modify('last day of this month')
+        );
+
+        $this->assertSame(
+            [[(int) $today->format('Y'), (int) $today->format('n')]],
+            $seenMonths,
+            'Only the current month may be fetched; future months carry no data'
+        );
+        $this->assertTrue($result['active']);
+        $this->assertNull($result['error']);
+    }
+
     public function testRangeFiltersRecordsOutsideTheWindow(): void
     {
         $this->clientMock->method('isConfigured')->willReturn(true);
-        $this->clientMock->method('getProjectReports')->willReturn([
-            self::basicRecord('2024-01-10'),  // before window
-            self::basicRecord('2024-06-15'),  // inside
-            self::basicRecord('2024-11-20'),  // after window
-        ]);
+        $this->clientMock->method('getProjectReportsForMonths')->willReturnCallback(
+            function (array $months) {
+                $out = self::emptyMonthResults($months);
+                $out[array_key_first($out)] = [
+                    self::basicRecord('2024-01-10'),  // before window
+                    self::basicRecord('2024-06-15'),  // inside
+                    self::basicRecord('2024-11-20'),  // after window
+                ];
+                return $out;
+            }
+        );
         $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
 
         $result = $this->service->getCleaningDaysForCompaniesRange(
@@ -1813,18 +1869,23 @@ class FreshQRServiceTest extends TestCase
         $this->assertSame('2024-06-15', $result['cleaningDays'][0]['date']);
     }
 
-    public function testRangePartialYearFailureFlagsErrorButReturnsData(): void
+    public function testRangePartialMonthFailureFlagsErrorButReturnsData(): void
     {
         $this->clientMock->method('isConfigured')->willReturn(true);
-        $this->clientMock->method('getProjectReports')->willReturnCallback(
-            fn (int $year, ?int $month) => $year === 2024 ? [self::basicRecord('2024-06-15')] : null
+        $this->clientMock->method('getProjectReportsForMonths')->willReturnCallback(
+            function (array $months) {
+                $out = self::emptyMonthResults($months);
+                $out['2024-06'] = [self::basicRecord('2024-06-15')];
+                $out['2024-07'] = null;
+                return $out;
+            }
         );
         $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
 
         $result = $this->service->getCleaningDaysForCompaniesRange(
             [['registration_number' => '12345678', 'freshqr_mode' => 'basic']],
             new \DateTimeImmutable('2024-05-01'),
-            new \DateTimeImmutable('2025-08-31')
+            new \DateTimeImmutable('2024-08-31')
         );
 
         $this->assertTrue($result['active']);
@@ -1835,7 +1896,12 @@ class FreshQRServiceTest extends TestCase
     public function testRangeTotalFailureStaysActiveWithError(): void
     {
         $this->clientMock->method('isConfigured')->willReturn(true);
-        $this->clientMock->method('getProjectReports')->willReturn(null);
+        $this->clientMock->method('getProjectReportsForMonths')->willReturnCallback(
+            fn (array $months) => array_fill_keys(
+                array_map(static fn ($ym) => sprintf('%04d-%02d', $ym[0], $ym[1]), $months),
+                null
+            )
+        );
         $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
 
         $result = $this->service->getCleaningDaysForCompaniesRange(
@@ -1852,7 +1918,15 @@ class FreshQRServiceTest extends TestCase
     public function testRangeSwapsReversedBounds(): void
     {
         $this->clientMock->method('isConfigured')->willReturn(true);
-        $this->clientMock->method('getProjectReports')->willReturn([self::basicRecord('2024-06-15')]);
+        $seenMonths = [];
+        $this->clientMock->method('getProjectReportsForMonths')->willReturnCallback(
+            function (array $months) use (&$seenMonths) {
+                $seenMonths = $months;
+                $out = self::emptyMonthResults($months);
+                $out['2024-06'] = [self::basicRecord('2024-06-15')];
+                return $out;
+            }
+        );
         $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
 
         $result = $this->service->getCleaningDaysForCompaniesRange(
@@ -1861,6 +1935,7 @@ class FreshQRServiceTest extends TestCase
             new \DateTimeImmutable('2024-05-01')
         );
 
+        $this->assertSame([[2024, 5], [2024, 6], [2024, 7]], $seenMonths);
         $this->assertCount(1, $result['cleaningDays']);
         $this->assertSame('2024-06-15', $result['cleaningDays'][0]['date']);
     }

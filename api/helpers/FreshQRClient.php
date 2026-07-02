@@ -164,26 +164,151 @@ class FreshQRClient
      * project has been superseded; nothing else crosses the wire to the
      * client.
      *
-     * Month is optional: pass null to fetch the whole year in a single call
-     * (used by the period-overview ranges that span more than one month —
-     * fewer round-trips than fetching each month separately). Month-scoped
-     * calls keep the per-view payload small for the calendar.
+     * Month is required — FreshQR rejects year-only queries with HTTP 400
+     * ("Missing required parameter: month"). Multi-month windows go through
+     * getProjectReportsForMonths().
      */
-    public function getProjectReports(int $year, ?int $month = null): ?array
+    public function getProjectReports(int $year, int $month): ?array
     {
-        $params = ['year' => $year];
-        if ($month !== null) {
-            $params['month'] = $month;
-        }
-        $response = $this->request('GET', '/v1/reports/projects', $params);
+        $response = $this->request('GET', '/v1/reports/projects', ['year' => $year, 'month' => $month]);
 
         if ($response === null) {
             return null;
         }
 
-        // FreshQR omits `data` on quiet months; treat that the same as an empty
-        // array. A non-array `data` is malformed though — surface it as an
-        // error rather than handing the service a value it can't iterate.
+        return $this->extractReportData($response, $this->apiUrl . '/v1/reports/projects');
+    }
+
+    /**
+     * Parallel multi-month variant of getProjectReports() used by the overview
+     * ranges (week/quarter/year spans). FreshQR only serves month-scoped report
+     * queries, so a range means one request per month; curl_multi runs them
+     * concurrently, keeping a two-year window at roughly one round-trip of
+     * wall-clock latency instead of twenty-four sequential ones.
+     *
+     * Mirrors request()'s per-call behaviour: bearer auth, 30s timeout, one
+     * retry on transient failure (cURL error or 5xx), errors recorded via
+     * recordError(). A failed month comes back as null so callers can
+     * distinguish "quiet month" ([]) from "fetch failed" and degrade to a
+     * partial result instead of dropping the whole window.
+     *
+     * @param  list<array{0:int,1:int}> $months  [year, month] pairs
+     * @return array<string,?array>              'YYYY-MM' => records | null (failed)
+     */
+    public function getProjectReportsForMonths(array $months): array
+    {
+        $pending = [];
+        foreach ($months as [$year, $month]) {
+            $pending[sprintf('%04d-%02d', $year, $month)] = ['year' => $year, 'month' => $month];
+        }
+        if ($pending === []) {
+            return [];
+        }
+
+        if (!$this->isConfigured()) {
+            $this->lastError = [
+                'context' => 'configuration',
+                'method' => 'GET',
+                'url' => $this->apiUrl . '/v1/reports/projects',
+                'http_code' => 0,
+                'curl_error' => '',
+                'response_body' => 'FRESHQR_API_KEY není v .env nastaven.',
+                'timestamp' => date('c'),
+            ];
+            return array_fill_keys(array_keys($pending), null);
+        }
+
+        $results = [];
+        for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS && $pending !== []; $attempt++) {
+            $isLastAttempt = $attempt === self::MAX_ATTEMPTS;
+            $multi = curl_multi_init();
+            $handles = [];
+
+            foreach ($pending as $key => $params) {
+                $url = $this->apiUrl . '/v1/reports/projects?' . http_build_query($params);
+                $ch = curl_init();
+                curl_setopt_array($ch, [
+                    CURLOPT_URL => $url,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => [
+                        'Authorization: Bearer ' . $this->apiKey,
+                        'Accept: application/json',
+                    ],
+                    CURLOPT_TIMEOUT => 30,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                curl_multi_add_handle($multi, $ch);
+                $handles[$key] = ['ch' => $ch, 'url' => $url];
+            }
+
+            do {
+                $status = curl_multi_exec($multi, $running);
+                if ($running > 0 && curl_multi_select($multi, 1.0) === -1) {
+                    usleep(1000);
+                }
+            } while ($running > 0 && $status === CURLM_OK);
+
+            // A multi-driven transfer's result code isn't copied into the easy
+            // handle until the completion messages are drained — without this,
+            // curl_error() below reads '' for timeouts/refused connections and
+            // those failures would never qualify for the retry pass.
+            while (curl_multi_info_read($multi) !== false) {
+            }
+
+            $retry = [];
+            foreach ($handles as $key => $handle) {
+                $body = curl_multi_getcontent($handle['ch']);
+                $body = is_string($body) ? $body : '';
+                $httpCode = (int) curl_getinfo($handle['ch'], CURLINFO_HTTP_CODE);
+                $curlError = curl_error($handle['ch']);
+                curl_multi_remove_handle($multi, $handle['ch']);
+                curl_close($handle['ch']);
+
+                $transient = $curlError !== '' || $httpCode >= 500;
+                if ($transient && !$isLastAttempt) {
+                    $retry[$key] = $pending[$key];
+                    continue;
+                }
+
+                $results[$key] = $this->parseReportsBody($body, $handle['url'], $httpCode, $curlError);
+            }
+
+            curl_multi_close($multi);
+            $pending = $retry;
+        }
+
+        return $results;
+    }
+
+    /**
+     * Shared tail of a /v1/reports/projects response for the curl_multi path —
+     * the same status/JSON handling request() applies to single calls.
+     */
+    private function parseReportsBody(string $body, string $url, int $httpCode, string $curlError): ?array
+    {
+        if ($curlError !== '') {
+            $this->recordError('API call', 'GET', $url, $httpCode, $curlError, $body);
+            return null;
+        }
+        if ($httpCode < 200 || $httpCode >= 300) {
+            $this->recordError('API call', 'GET', $url, $httpCode, '', $body);
+            return null;
+        }
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            $this->recordError('JSON parsing', 'GET', $url, $httpCode, '', $body);
+            return null;
+        }
+        return $this->extractReportData($decoded, $url);
+    }
+
+    /**
+     * FreshQR omits `data` on quiet months; treat that the same as an empty
+     * array. A non-array `data` is malformed though — surface it as an error
+     * rather than handing the service a value it can't iterate.
+     */
+    private function extractReportData(array $response, string $url): ?array
+    {
         if (!array_key_exists('data', $response)) {
             return [];
         }
@@ -191,7 +316,7 @@ class FreshQRClient
             $this->lastError = [
                 'context' => 'response shape',
                 'method' => 'GET',
-                'url' => $this->apiUrl . '/v1/reports/projects',
+                'url' => $url,
                 'http_code' => 200,
                 'curl_error' => '',
                 'response_body' => 'Pole "data" v odpovědi FreshQR není seznam.',
