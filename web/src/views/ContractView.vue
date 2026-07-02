@@ -121,7 +121,7 @@ async function downloadDocument(doc) {
 </script>
 
 <template>
-  <div>
+  <div id="contract-page" class="page-shell page-shell--md">
     <div class="page-header">
       <div>
         <h1 class="page-title">Smlouvy a dokumenty</h1>

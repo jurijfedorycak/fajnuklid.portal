@@ -80,7 +80,7 @@ function openDetail(id) {
 </script>
 
 <template>
-  <div id="requests-page">
+  <div id="requests-page" class="page-shell page-shell--md">
     <div v-if="loading" id="requests-loading" class="requests-loading">
       <Loader2 :size="32" class="spin" style="color:var(--color-blue);" />
       <p>Načítám požadavky...</p>
@@ -343,7 +343,6 @@ function openDetail(id) {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-width: 720px;
 }
 
 .request-card {
@@ -416,7 +415,6 @@ function openDetail(id) {
 .requests-status-timeline {
   display: flex;
   align-items: flex-start;
-  max-width: 720px;
   padding: 2px 4px;
   margin-bottom: 18px;
 }

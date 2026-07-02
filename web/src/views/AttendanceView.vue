@@ -804,7 +804,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div>
+  <div id="attendance-page" class="page-shell page-shell--lg">
     <!-- Admin preview banner: only rendered when an admin opened /dochazka with
          a previewClientId query param. Bold strip so the admin can never confuse
          the preview with their own attendance data. The preview always opens in

@@ -192,7 +192,7 @@ async function downloadPdf(inv) {
 </script>
 
 <template>
-  <div id="invoices-page" class="invoices-shell">
+  <div id="invoices-page" class="page-shell page-shell--md">
     <!-- Loading state -->
     <div v-if="loading" id="invoices-loading" class="card" style="padding:40px; text-align:center;">
       <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
@@ -451,10 +451,6 @@ async function downloadPdf(inv) {
 </template>
 
 <style scoped>
-.invoices-shell {
-  max-width: 720px;
-}
-
 /* ═══ Header ═══ */
 .invoices-header {
   display: flex;

@@ -54,7 +54,7 @@ const hasAnyContent = computed(() => Boolean(
 </script>
 
 <template>
-  <div>
+  <div id="contact-page" class="page-shell page-shell--md">
     <div class="page-header">
       <div>
         <h1 class="page-title">Kontakt</h1>
@@ -349,13 +349,5 @@ const hasAnyContent = computed(() => Boolean(
   font-style: italic;
   color: var(--color-gray-400);
   margin-top: 4px;
-}
-
-@media (min-width: 1024px) {
-  .companies-section {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    align-items: start;
-  }
 }
 </style>

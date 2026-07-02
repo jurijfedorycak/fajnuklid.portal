@@ -163,7 +163,7 @@ async function submit() {
 </script>
 
 <template>
-  <div id="new-request-page" class="nr-page">
+  <div id="new-request-page" class="page-shell page-shell--sm">
     <div id="new-request-header" class="nr-head">
       <button id="new-request-back" class="nr-back" aria-label="Zpět na požadavky" @click="router.push('/zadosti')">
         <ChevronLeft :size="20" />
@@ -312,10 +312,6 @@ async function submit() {
 </template>
 
 <style scoped>
-.nr-page {
-  max-width: 640px;
-}
-
 .nr-head {
   display: flex;
   align-items: center;

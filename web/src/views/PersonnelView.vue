@@ -70,7 +70,7 @@ function pluralWorkers(n) {
 </script>
 
 <template>
-  <div id="personnel-page">
+  <div id="personnel-page" class="page-shell page-shell--lg">
     <h1 id="personnel-title" class="personnel-title">Personál</h1>
 
     <!-- Loading skeleton -->
@@ -435,5 +435,6 @@ function pluralWorkers(n) {
   text-align: center;
   line-height: 1.55;
   max-width: 720px;
+  margin-inline: auto;
 }
 </style>

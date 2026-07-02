@@ -620,7 +620,7 @@ function selectCompany(ico) {
 </script>
 
 <template>
-  <div id="dashboard-page">
+  <div id="dashboard-page" class="page-shell page-shell--lg">
     <!-- Loading state -->
     <div
       v-if="loading"
@@ -1352,14 +1352,6 @@ function selectCompany(ico) {
 
 <style scoped>
 /* ── Page shell & shared card ───────────────────────────────────────────── */
-/* Wide desktops: cap the airy layout so cards don't stretch into ribbons. */
-@media (min-width: 1280px) {
-  #dashboard-page {
-    max-width: 1200px;
-    margin-inline: auto;
-  }
-}
-
 /* White card on the tinted page canvas — deliberately NOT the global .card
    (gray-50 on white), the dashboard inverts that relationship. */
 .dash-card {

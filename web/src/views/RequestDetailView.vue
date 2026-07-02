@@ -106,7 +106,7 @@ async function cancelRequest() {
 </script>
 
 <template>
-  <div>
+  <div id="request-detail-page" class="page-shell page-shell--md">
     <div v-if="loading" class="card" style="padding:40px; text-align:center;">
       <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
     </div>
@@ -120,7 +120,7 @@ async function cancelRequest() {
       </button>
 
       <div id="request-detail-header" class="page-header" style="align-items:flex-start;">
-        <h1 id="request-detail-title" class="page-title" style="max-width:780px;">{{ request.title }}</h1>
+        <h1 id="request-detail-title" class="page-title">{{ request.title }}</h1>
         <span class="badge" :class="statusMeta.badge" id="request-detail-status">{{ statusMeta.label }}</span>
       </div>
 

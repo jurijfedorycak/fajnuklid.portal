@@ -87,7 +87,7 @@ async function changePassword() {
 </script>
 
 <template>
-  <div>
+  <div id="settings-page" class="page-shell page-shell--sm">
     <div class="page-header">
       <div>
         <h1 class="page-title">Nastavení účtu</h1>
@@ -253,7 +253,6 @@ async function changePassword() {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 640px;
 }
 
 .settings-section {

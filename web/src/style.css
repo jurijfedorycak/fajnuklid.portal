@@ -105,6 +105,11 @@
   --sidebar-width: 240px;
   --transition: 0.2s ease;
 
+  /* Page content column widths — used by .page-shell tiers */
+  --page-w-sm: 640px;
+  --page-w-md: 720px;
+  --page-w-lg: 1200px;
+
   /* Breakpoint reference (CSS vars can't be used inside @media — documented for consistency)
      xs: 480px  — tiny-phone adjustments (auth cards, calendar cells)
      sm: 640px  — small tablet / phone-landscape transition
@@ -498,6 +503,16 @@ input, select, textarea {
   margin-top: 4px;
   line-height: 1.5;
 }
+
+/* Page shell — every client page is a centered content column. Tiers:
+   sm = focused forms, md = lists & reading, lg = data-rich pages (dashboard). */
+.page-shell {
+  width: 100%;
+  margin-inline: auto;
+}
+.page-shell--sm { max-width: var(--page-w-sm); }
+.page-shell--md { max-width: var(--page-w-md); }
+.page-shell--lg { max-width: var(--page-w-lg); }
 
 /* Empty state */
 .empty-state {
