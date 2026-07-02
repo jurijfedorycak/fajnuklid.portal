@@ -1,27 +1,19 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { Users, Clock, Star, BookOpen, MapPin, Loader2, Sparkles } from 'lucide-vue-next'
+import { Clock, Star, BookOpen } from 'lucide-vue-next'
 import { personnelService } from '../api'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
+import EmptyRequestsIllustration from '../components/EmptyRequestsIllustration.vue'
 
-// State
 const loading = ref(true)
 const error = ref(null)
 const personnelByLocation = ref([])
 
-// Active IČO tab
-const activeIco = ref(null)
-
-// Fetch data
 onMounted(async () => {
   try {
     const response = await personnelService.getPersonnel()
     if (response.success) {
       personnelByLocation.value = response.data || []
-      // Set default active IČO
-      if (personnelByLocation.value.length > 0) {
-        activeIco.value = personnelByLocation.value[0].ico
-      }
     } else {
       error.value = response.message || 'Nepodařilo se načíst data'
     }
@@ -32,18 +24,26 @@ onMounted(async () => {
   }
 })
 
-const activeGroup = computed(() => {
-  if (!personnelByLocation.value.length) return { objects: [] }
-  return personnelByLocation.value.find(g => g.ico === activeIco.value) || personnelByLocation.value[0]
+const companies = computed(() =>
+  personnelByLocation.value.filter(g => g.icoName)
+)
+
+// Unpinned employees are returned once per location of a company — dedupe by id
+const allStaff = computed(() => {
+  const seen = new Set()
+  const staff = []
+  for (const group of personnelByLocation.value) {
+    for (const obj of group.objects || []) {
+      for (const person of obj.staff || []) {
+        if (seen.has(person.id)) continue
+        seen.add(person.id)
+        staff.push(person)
+      }
+    }
+  }
+  return staff
 })
 
-const totalStaff = computed(() => {
-  if (!activeGroup.value.objects) return 0
-  return activeGroup.value.objects.reduce((sum, obj) => sum + (obj.staff?.length || 0), 0)
-})
-
-const colors = ['#667ea1', '#198754', '#0d6efd', '#e67e00', '#6f42c1', '#d63384']
-// File preview
 const previewModal = ref({ show: false, url: '', filename: '' })
 function openPreview(url, filename) {
   previewModal.value = { show: true, url, filename: filename || '' }
@@ -52,8 +52,8 @@ function closePreview() {
   previewModal.value.show = false
 }
 
-function avatarColor(id) {
-  return colors[((id || 1) - 1) % colors.length]
+function avatarColorClass(id) {
+  return 'person-avatar-c' + (((id || 1) - 1) % 4)
 }
 
 function initials(name) {
@@ -61,168 +61,117 @@ function initials(name) {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 }
 
-// Czech pluralization for "pracovník": 1 pracovník, 2-4 pracovníci, 0/5+ pracovníků
+// Czech pluralization: 1 pracovník, 2-4 pracovníci, 0/5+ pracovníků
 function pluralWorkers(n) {
   if (n === 1) return 'pracovník'
   if (n >= 2 && n <= 4) return 'pracovníci'
   return 'pracovníků'
 }
-
-function pluralPlaces(n) {
-  if (n === 1) return 'provozovna'
-  if (n >= 2 && n <= 4) return 'provozovny'
-  return 'provozoven'
-}
 </script>
 
 <template>
-  <div>
-    <!-- Loading state -->
-    <div v-if="loading" class="card" style="padding:40px; text-align:center;">
-      <Loader2 :size="32" class="spin" style="color:var(--color-mid);" />
-      <p style="margin-top:12px; color:var(--color-gray-600);">Načítám personál...</p>
+  <div id="personnel-page">
+    <h1 id="personnel-title" class="personnel-title">Personál</h1>
+
+    <!-- Loading skeleton -->
+    <div v-if="loading" id="personnel-skeleton">
+      <h2 class="personnel-section-label">Přiřazený tým</h2>
+      <div class="personnel-chips">
+        <span class="skeleton skeleton-chip skeleton-chip-wide"></span>
+        <span class="skeleton skeleton-chip"></span>
+      </div>
+      <div class="personnel-list">
+        <div v-for="i in 2" :key="i" class="person-card skeleton-card">
+          <span class="skeleton skeleton-avatar"></span>
+          <div class="skeleton-lines">
+            <span class="skeleton skeleton-line skeleton-line-name"></span>
+            <span class="skeleton skeleton-line skeleton-line-role"></span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Error state -->
-    <div v-else-if="error" class="alert alert-danger">
+    <div v-else-if="error" id="personnel-error" class="alert alert-danger">
       {{ error }}
     </div>
 
-    <!-- Empty state — onboarding hero -->
-    <div v-else-if="personnelByLocation.length === 0" id="personnel-onboarding" class="onboarding-hero">
-      <div class="onboarding-hero-icon">
-        <Users :size="28" aria-hidden="true" />
-      </div>
-      <h2 class="onboarding-hero-title">Brzy se seznámíte se svým týmem</h2>
-      <p class="onboarding-hero-desc">
-        Jakmile vám přiřadíme úklidové pracovníky, uvidíte tu jejich profily –
-        fotku, zkušenosti a jméno. Budete přesně vědět, kdo u vás uklízí.
+    <!-- Empty state -->
+    <div v-else-if="allStaff.length === 0" id="personnel-empty" class="personnel-empty">
+      <EmptyRequestsIllustration id="personnel-empty-art" class="personnel-empty-art" role="presentation" aria-hidden="true" />
+      <h2 id="personnel-empty-title" class="personnel-empty-title">Tým se připravuje</h2>
+      <p id="personnel-empty-text" class="personnel-empty-text">
+        Váš stálý tým pro tuto budovu právě sestavujeme.
+        Jakmile bude potvrzen, uvidíte zde jejich profily.
       </p>
-      <div class="personnel-onboarding-perks">
-        <div class="personnel-perk">
-          <Sparkles :size="14" aria-hidden="true" />
-          <span>Foto a představení pracovníka</span>
-        </div>
-        <div class="personnel-perk">
-          <Sparkles :size="14" aria-hidden="true" />
-          <span>Zkušenosti a délka spolupráce</span>
-        </div>
-      </div>
     </div>
 
-    <!-- Content -->
+    <!-- Loaded content -->
     <template v-else>
-    <!-- Page header -->
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">Personál</h1>
-        <p class="page-subtitle">Pracovníci přiřazení na vaše provozovny</p>
-      </div>
-      <div class="badge badge-info personnel-total-badge">
-        {{ totalStaff }} {{ pluralWorkers(totalStaff) }}
-      </div>
-    </div>
+      <h2 id="personnel-section-label" class="personnel-section-label">Přiřazený tým</h2>
 
-    <!-- IČO tabs -->
-    <div class="ico-tabs" v-if="personnelByLocation.length > 1">
-      <button
-        v-for="group in personnelByLocation"
-        :key="group.ico"
-        class="ico-tab"
-        :class="{ active: activeIco === group.ico }"
-        @click="activeIco = group.ico"
-      >
-        <span class="ico-tab-name">{{ group.icoName }}</span>
-        <span class="ico-tab-ico">IČO {{ group.ico }}</span>
-        <span class="ico-tab-badge">
-          {{ group.objects.reduce((s, o) => s + o.staff.length, 0) }} {{ pluralWorkers(group.objects.reduce((s, o) => s + o.staff.length, 0)) }} ·
-          {{ group.objects.length }} {{ pluralPlaces(group.objects.length) }}
+      <div id="personnel-chips" class="personnel-chips">
+        <span
+          v-for="group in companies"
+          :key="group.ico"
+          :id="'personnel-chip-' + group.ico"
+          class="personnel-chip personnel-chip-company"
+        >
+          {{ group.icoName }}
         </span>
-      </button>
-    </div>
+        <span id="personnel-chip-count" class="personnel-chip personnel-chip-count">
+          {{ allStaff.length }} {{ pluralWorkers(allStaff.length) }}
+        </span>
+      </div>
 
-    <!-- Objects within the selected IČO -->
-    <div class="objects-list">
-      <section
-        v-for="obj in activeGroup.objects"
-        :key="obj.id"
-        class="object-section"
-      >
-        <!-- Object header -->
-        <div class="object-header">
-          <div class="object-title-wrap">
-            <h2 class="object-name">{{ obj.name || 'Vaše provozovna' }}</h2>
-            <div v-if="obj.address" class="object-address">
-              <MapPin :size="13" />
-              {{ obj.address }}
+      <div id="personnel-list" class="personnel-list">
+        <article
+          v-for="person in allStaff"
+          :key="person.id"
+          :id="'person-card-' + person.id"
+          class="person-card"
+        >
+          <div class="person-header">
+            <div
+              class="person-avatar"
+              :class="[{ clickable: person.photoUrl }, person.photoUrl ? '' : avatarColorClass(person.id)]"
+              :role="person.photoUrl ? 'button' : undefined"
+              :tabindex="person.photoUrl ? 0 : undefined"
+              :aria-label="person.photoUrl ? 'Zobrazit fotografii – ' + person.name : undefined"
+              @click="person.photoUrl && openPreview(person.photoUrl, person.name)"
+              @keydown.enter="person.photoUrl && openPreview(person.photoUrl, person.name)"
+              @keydown.space.prevent="person.photoUrl && openPreview(person.photoUrl, person.name)"
+            >
+              <img v-if="person.photoUrl" :src="person.photoUrl" :alt="person.name" class="person-avatar-img" />
+              <span v-else>{{ initials(person.name) }}</span>
+            </div>
+            <div class="person-meta">
+              <h3 class="person-name">{{ person.name }}</h3>
+              <span v-if="person.showRole && person.role" class="person-role-pill">{{ person.role }}</span>
             </div>
           </div>
-          <span class="badge badge-gray">{{ obj.staff.length }} {{ pluralWorkers(obj.staff.length) }}</span>
-        </div>
 
-        <!-- Empty object -->
-        <div v-if="obj.staff.length === 0" class="inline-empty object-inline-empty">
-          <span class="inline-empty-icon">
-            <Users :size="22" aria-hidden="true" />
-          </span>
-          <span class="inline-empty-title">Tým ještě nebyl přiřazen</span>
-          <span class="inline-empty-desc">
-            Jakmile sem nasadíme úklidového pracovníka, uvidíte tu jeho profil.
-          </span>
-        </div>
+          <div v-if="person.showTenure && person.tenure" class="person-tenure">
+            <Clock :size="14" aria-hidden="true" />
+            <span>{{ person.tenure }}</span>
+          </div>
 
-        <!-- Staff grid -->
-        <div v-else class="personnel-grid">
-          <div
-            v-for="person in obj.staff"
-            :key="person.id"
-            class="card person-card"
-          >
-            <div class="person-header">
-              <div
-                class="avatar avatar-lg person-avatar"
-                :class="{ 'clickable': person.photoUrl }"
-                :style="person.photoUrl ? {} : { background: avatarColor(person.id) }"
-                @click="person.photoUrl && openPreview(person.photoUrl, person.name)"
-              >
-                <img v-if="person.photoUrl" :src="person.photoUrl" :alt="person.name" class="avatar-img" />
-                <span v-else>{{ initials(person.name) }}</span>
-              </div>
-              <div class="person-meta">
-                <h3 class="person-name">{{ person.name }}</h3>
-                <div v-if="person.showRole" class="badge badge-info person-role">
-                  {{ person.role }}
-                </div>
-              </div>
-            </div>
-
-            <div class="person-details">
-              <div v-if="person.showTenure" class="detail-row">
-                <Clock :size="14" class="detail-icon" />
-                <span>{{ person.tenure }}</span>
-              </div>
-              <!-- MVP: phone is never shown to clients -->
-            </div>
-
-            <hr v-if="person.showBio || person.showHobbies" class="divider" />
-
-            <div v-if="person.showBio && person.bio" class="person-bio">
-              <BookOpen :size="13" style="color:var(--color-mid); flex-shrink:0; margin-top:2px;" />
+          <div v-if="(person.showBio && person.bio) || (person.showHobbies && person.hobbies)" class="person-details">
+            <div v-if="person.showBio && person.bio" class="person-detail-row">
+              <BookOpen :size="14" aria-hidden="true" />
               <p>{{ person.bio }}</p>
             </div>
-
-            <div v-if="person.showHobbies && person.hobbies" class="person-hobbies">
-              <Star :size="13" style="color:var(--color-mid); flex-shrink:0; margin-top:2px;" />
+            <div v-if="person.showHobbies && person.hobbies" class="person-detail-row">
+              <Star :size="14" aria-hidden="true" />
               <p>{{ person.hobbies }}</p>
             </div>
           </div>
-        </div>
-      </section>
-    </div>
+        </article>
+      </div>
 
-    <p class="gdpr-note">
-      Zobrazené informace jsou sdíleny se souhlasem pracovníků v souladu se zásadami ochrany osobních údajů.
-    </p>
+      <p id="personnel-gdpr-note" class="personnel-gdpr-note">
+        Zobrazené informace jsou sdíleny se souhlasem pracovníků v souladu se zásadami ochrany osobních údajů.
+      </p>
     </template>
 
     <FilePreviewModal
@@ -235,122 +184,73 @@ function pluralPlaces(n) {
 </template>
 
 <style scoped>
-/* IČO tabs */
-.ico-tabs {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 28px;
-}
-
-.ico-tab {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 12px 18px;
-  border-radius: var(--radius-lg);
-  border: 2px solid var(--color-gray-200);
-  background: white;
-  cursor: pointer;
-  transition: var(--transition);
-  text-align: left;
-  gap: 2px;
-  width: 100%;
-}
-@media (min-width: 640px) {
-  .ico-tab {
-    width: auto;
-    min-width: 200px;
-  }
-}
-
-.ico-tab:hover {
-  border-color: var(--color-mid);
-}
-
-.ico-tab.active {
-  border-color: var(--color-primary);
-  background: var(--color-light);
-}
-
-.ico-tab-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-primary);
-}
-
-.ico-tab-ico {
-  font-size: 12px;
-  color: var(--color-gray-500);
-  font-weight: 400;
-}
-
-.ico-tab-badge {
-  margin-top: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--color-mid);
-}
-
-/* Objects list */
-.objects-list {
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-}
-
-/* Object section */
-.object-section {}
-
-.object-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 14px 18px;
-  background: var(--color-gray-50);
-  border-radius: var(--radius-lg);
-  border-left: 4px solid var(--color-primary);
-}
-
-.object-title-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.object-name {
-  font-size: 17px;
+.personnel-title {
+  font-size: var(--fs-2xl);
   font-weight: 700;
   color: var(--color-primary);
+  line-height: 1.2;
+  margin-bottom: 18px;
 }
 
-.object-address {
+.personnel-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-gray-400);
+  margin-bottom: 10px;
+}
+
+/* ═══ Chips ═══ */
+.personnel-chips {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.personnel-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.personnel-chip-company {
+  background: var(--color-primary);
+  color: var(--color-white);
+}
+
+.personnel-chip-count {
+  background: var(--color-gray-100);
   color: var(--color-gray-600);
 }
 
-/* Staff grid — mobile-first: 1 col → 2 at sm → 3 at lg */
-.personnel-grid {
+/* ═══ Staff cards ═══ */
+.personnel-list {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 16px;
+  gap: 14px;
+  max-width: 720px;
 }
-@media (min-width: 640px) {
-  .personnel-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (min-width: 1280px) {
-  .personnel-grid { grid-template-columns: repeat(3, 1fr); }
+@media (min-width: 1024px) {
+  .personnel-list {
+    grid-template-columns: repeat(2, 1fr);
+    max-width: none;
+  }
 }
 
 .person-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-xl);
+  padding: 16px 18px 18px;
+  box-shadow: var(--shadow-sm);
 }
 
 .person-header {
@@ -360,104 +260,180 @@ function pluralPlaces(n) {
 }
 
 .person-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  overflow: hidden;
   flex-shrink: 0;
+  color: var(--color-white);
+  font-size: 18px;
+  font-weight: 600;
+}
+.person-avatar.clickable {
+  cursor: pointer;
+}
+
+.person-avatar-c0 { background: var(--color-primary); }
+.person-avatar-c1 { background: var(--color-accent); }
+.person-avatar-c2 { background: var(--color-blue); }
+.person-avatar-c3 { background: var(--color-success); }
+
+.person-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .person-meta {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
+  min-width: 0;
 }
 
 .person-name {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--color-primary);
+  line-height: 1.3;
 }
 
-.person-role {
-  font-size: 12px;
-  align-self: flex-start;
+.person-role-pill {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-blue-light);
+  color: var(--color-blue);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-.person-details {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.detail-row {
+.person-tenure {
   display: flex;
   align-items: center;
   gap: 7px;
+  margin-top: 12px;
   font-size: 13px;
-  color: var(--color-gray-700);
+  color: var(--color-gray-500);
+}
+.person-tenure svg {
+  color: var(--color-gray-400);
+  flex-shrink: 0;
 }
 
-.detail-icon { color: var(--color-mid); flex-shrink: 0; }
-.detail-link { color: var(--color-mid); }
-.detail-link:hover { color: var(--color-primary); }
+.person-details {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-gray-100);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
-.person-bio,
-.person-hobbies {
+.person-detail-row {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   font-size: 13px;
-  color: var(--color-gray-600);
   line-height: 1.5;
+  color: var(--color-gray-600);
+}
+.person-detail-row svg {
+  color: var(--color-gray-400);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.person-detail-row p {
+  margin: 0;
 }
 
-.person-bio p,
-.person-hobbies p { margin: 0; }
+/* ═══ Loading skeleton ═══ */
+.skeleton-chip {
+  width: 88px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+}
+.skeleton-chip-wide {
+  width: 148px;
+}
 
-.gdpr-note {
-  margin-top: 32px;
+.skeleton-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-height: 132px;
+}
+
+.skeleton-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: var(--radius-sm);
+}
+.skeleton-line-name {
+  width: 70%;
+}
+.skeleton-line-role {
+  width: 45%;
+}
+
+/* ═══ Empty state ═══ */
+.personnel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 40px 8px 24px;
+}
+@media (min-width: 640px) {
+  .personnel-empty {
+    padding: 64px 24px 40px;
+  }
+}
+
+.personnel-empty-art {
+  width: 218px;
+  height: auto;
+  margin-bottom: 28px;
+}
+
+.personnel-empty-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-bottom: 10px;
+}
+
+.personnel-empty-text {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--color-gray-500);
+  max-width: 34ch;
+}
+
+.personnel-gdpr-note {
+  margin-top: 28px;
   font-size: 12px;
   color: var(--color-gray-500);
   text-align: center;
   line-height: 1.55;
+  max-width: 720px;
 }
-
-.personnel-total-badge {
-  font-size: 13px;
-  padding: 6px 14px;
-  align-self: flex-start;
-}
-@media (min-width: 640px) {
-  .personnel-total-badge { align-self: auto; }
-}
-
-.personnel-onboarding-perks {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 14px;
-  width: 100%;
-  max-width: 380px;
-}
-
-.personnel-perk {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--color-gray-700);
-  padding: 8px 12px;
-  background: var(--color-gray-50);
-  border-radius: var(--radius-md);
-}
-.personnel-perk svg {
-  color: var(--color-accent);
-  flex-shrink: 0;
-}
-
-.object-inline-empty {
-  background: var(--color-gray-50);
-  border: 1px dashed var(--color-gray-300);
-  border-radius: var(--radius-lg);
-  padding: 26px 20px;
-}
-
-/* .personnel-grid + .ico-tab handled mobile-first above */
 </style>
