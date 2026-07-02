@@ -79,6 +79,13 @@ export function isPdfUrl(urlOrMime) {
   return PDF_EXTENSIONS.includes(ext)
 }
 
+export function formatFileSize(bytes) {
+  if (!bytes || bytes <= 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} kB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 /**
  * Trigger a file download in the browser.
  */

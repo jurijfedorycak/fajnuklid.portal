@@ -121,6 +121,28 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->service->listForClient(5, null, null, '05.05.2026');
     }
 
+    public function testListForClientMapsUnreadCountToNewMessages(): void
+    {
+        $this->repoMock->method('findByClientId')->willReturn([
+            $this->makeRow(['id' => 1, 'unread_count' => '2']),
+            $this->makeRow(['id' => 2, 'unread_count' => '0']),
+        ]);
+
+        $result = $this->service->listForClient(5);
+
+        $this->assertSame(2, $result[0]['newMessages']);
+        $this->assertSame(0, $result[1]['newMessages']);
+    }
+
+    public function testFormatRowWithoutUnreadCountOmitsNewMessages(): void
+    {
+        $this->repoMock->method('findByClientId')->willReturn([$this->makeRow()]);
+
+        $result = $this->service->listForClient(5);
+
+        $this->assertArrayNotHasKey('newMessages', $result[0]);
+    }
+
     // getForClient
 
     public function testGetForClientReturnsRequestWithActivity(): void
@@ -136,6 +158,35 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->assertSame(1, $result['id']);
         $this->assertCount(1, $result['activity']);
         $this->assertSame('system', $result['activity'][0]['authorType']);
+    }
+
+    public function testGetForClientWithMarkReadMarksAdminMessagesRead(): void
+    {
+        $this->stubAttachmentsAndActivity();
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow());
+        $this->repoMock->expects($this->once())
+            ->method('markMessagesRead')
+            ->with(1, 'admin');
+
+        $this->service->getForClient(1, 5, true);
+    }
+
+    public function testGetForClientByDefaultDoesNotMarkMessagesRead(): void
+    {
+        $this->stubAttachmentsAndActivity();
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow());
+        $this->repoMock->expects($this->never())->method('markMessagesRead');
+
+        $this->service->getForClient(1, 5);
+    }
+
+    public function testGetForClientNotFoundDoesNotMarkMessagesRead(): void
+    {
+        $this->repoMock->method('findByIdForClient')->willReturn(null);
+        $this->repoMock->expects($this->never())->method('markMessagesRead');
+
+        $this->expectException(NotFoundException::class);
+        $this->service->getForClient(999, 5, true);
     }
 
     public function testGetForClientThrowsWhenNotFound(): void

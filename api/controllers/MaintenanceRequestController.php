@@ -92,7 +92,7 @@ class MaintenanceRequestController extends Controller
         $clientId = $this->resolveClientId($request);
         $id = (int) $request->param('id');
 
-        $data = $this->service->getForClient($id, $clientId);
+        $data = $this->service->getForClient($id, $clientId, true);
         Response::success($data);
     }
 

@@ -6,6 +6,7 @@ import {
 } from 'lucide-vue-next'
 import { contractService } from '../api'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
+import { formatFileSize as formatSize } from '../utils/fileUtils'
 
 const loading = ref(true)
 const error = ref(null)
@@ -73,13 +74,6 @@ function formatDate(d) {
   const [y, m, day] = datePart.split('-')
   if (!y || !m || !day) return ''
   return `${day}.${m}.${y}`
-}
-
-function formatSize(bytes) {
-  if (!bytes || bytes <= 0) return ''
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} kB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 async function resolveUrl(doc) {

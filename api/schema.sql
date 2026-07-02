@@ -404,6 +404,7 @@ CREATE TABLE `maintenance_request_activity` (
     `message` TEXT NULL,
     `status_change` VARCHAR(40) NULL,
     `is_internal` TINYINT(1) NOT NULL DEFAULT 0,
+    `read_at` DATETIME NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_request_id` (`request_id`),

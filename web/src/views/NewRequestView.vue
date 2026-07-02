@@ -1,13 +1,20 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Plus, AlertTriangle, Wrench, HelpCircle, Loader2, Paperclip, X, FileText, ClipboardList } from 'lucide-vue-next'
-import { maintenanceRequestService, REQUEST_CATEGORIES, REQUEST_STATUSES, ATTACHMENT_LIMITS } from '../api'
+import { ChevronLeft, AlertCircle, Sparkles, HelpCircle, Loader2, UploadCloud, X, FileText } from 'lucide-vue-next'
+import { maintenanceRequestService, REQUEST_CATEGORIES, ATTACHMENT_LIMITS } from '../api'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
+import { formatFileSize as formatSize } from '../utils/fileUtils'
 
 const router = useRouter()
 const route = useRoute()
-const iconMap = { AlertTriangle, Wrench, HelpCircle }
+
+// Design uses compact uppercase category chips with their own icon set
+const CATEGORY_CARDS = {
+  reklamace: { label: 'Reklamace', icon: AlertCircle },
+  mimoradna_prace: { label: 'Mimořádná', icon: Sparkles },
+  jine: { label: 'Jiné', icon: HelpCircle },
+}
 
 const title = ref('')
 const description = ref('')
@@ -21,28 +28,6 @@ const companies = ref([])
 const files = ref([])
 const fileError = ref('')
 
-const recentRequests = ref([])
-const recentLoading = ref(true)
-
-function statusMeta(key) {
-  return REQUEST_STATUSES.find(s => s.key === key) || { label: key, badge: 'badge-gray' }
-}
-
-function formatRecentDate(d) {
-  if (!d) return ''
-  return new Date(d).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' })
-}
-
-async function loadRecent() {
-  recentLoading.value = true
-  try {
-    const res = await maintenanceRequestService.list({ limit: 5 })
-    if (res.success) recentRequests.value = res.data || []
-  } finally {
-    recentLoading.value = false
-  }
-}
-
 onMounted(async () => {
   // Preselect a category when arrived via a deep link (e.g. the dashboard review
   // block routes a low rating here with ?category=reklamace).
@@ -51,7 +36,6 @@ onMounted(async () => {
     category.value = queryCategory
   }
 
-  loadRecent()
   try {
     const res = await maintenanceRequestService.getFormOptions()
     if (res.success) {
@@ -132,12 +116,6 @@ onBeforeUnmount(() => {
   objectUrls.clear()
 })
 
-function formatSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} kB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
 const isValid = computed(() =>
   title.value.trim() &&
   description.value.trim() &&
@@ -185,23 +163,20 @@ async function submit() {
 </script>
 
 <template>
-  <div>
-    <div id="new-request-header" class="page-header">
-      <div>
-        <h1 id="new-request-title" class="page-title">
-          <Plus :size="22" style="vertical-align:-4px; margin-right:6px; color:var(--color-mid);" />
-          Nový požadavek
-        </h1>
-        <p id="new-request-subtitle" class="page-subtitle">Řekněte nám, co se stalo — co nejdříve se vám ozveme.</p>
-      </div>
+  <div id="new-request-page" class="nr-page">
+    <div id="new-request-header" class="nr-head">
+      <button id="new-request-back" class="nr-back" aria-label="Zpět na požadavky" @click="router.push('/zadosti')">
+        <ChevronLeft :size="20" />
+      </button>
+      <h1 id="new-request-title" class="nr-title">Nový požadavek</h1>
     </div>
+    <p id="new-request-subtitle" class="nr-subtitle">Řekněte nám, co se stalo – co nejdříve se vám ozveme.</p>
 
-    <div id="new-request-layout" class="new-request-layout">
-    <div id="new-request-form" class="card">
+    <div id="new-request-form" class="nr-form">
       <!-- Protistrana picker -->
-      <div v-if="showCompanyPicker" class="form-group">
-        <label class="form-label">Protistrana (IČO)</label>
-        <div v-if="loadingOptions" class="loc-loading">
+      <div v-if="showCompanyPicker" class="nr-group">
+        <label class="nr-label">Protistrana (IČO) <span class="nr-required">*</span></label>
+        <div v-if="loadingOptions" class="nr-options-loading">
           <Loader2 :size="16" class="spin" />
           <span>Načítám…</span>
         </div>
@@ -222,12 +197,12 @@ async function submit() {
       </div>
 
       <!-- Title -->
-      <div class="form-group">
-        <label class="form-label" for="new-request-title-input">Název <span style="color:var(--color-danger)">*</span></label>
+      <div class="nr-group">
+        <label class="nr-label" for="new-request-title-input">Název <span class="nr-required">*</span></label>
         <input
           id="new-request-title-input"
           v-model="title"
-          class="form-input"
+          class="nr-input"
           type="text"
           placeholder="Např. Reklamace úklidu v kanceláři"
         />
@@ -235,45 +210,49 @@ async function submit() {
       </div>
 
       <!-- Description -->
-      <div class="form-group">
-        <label class="form-label" for="new-request-description">Podrobný popis <span style="color:var(--color-danger)">*</span></label>
+      <div class="nr-group">
+        <label class="nr-label" for="new-request-description">Podrobný popis <span class="nr-required">*</span></label>
         <textarea
           id="new-request-description"
           v-model="description"
-          class="form-input"
-          rows="6"
+          class="nr-input nr-textarea"
+          rows="5"
           placeholder="Popište problém co nejpodrobněji..."
         ></textarea>
         <div v-if="errors.description" class="field-error">{{ errors.description }}</div>
       </div>
 
       <!-- Category (optional) -->
-      <div class="form-group">
-        <label class="form-label">Kategorie <span style="color:var(--color-gray-500); font-weight:400;">(volitelné)</span></label>
-        <div id="new-request-categories" class="category-grid">
+      <div class="nr-group">
+        <label class="nr-label">Kategorie <span class="nr-label-hint">(volitelné)</span></label>
+        <div id="new-request-categories" class="nr-category-grid">
           <button
             v-for="c in REQUEST_CATEGORIES"
             :key="c.key"
             :id="'cat-' + c.key"
             type="button"
-            class="category-card"
+            class="nr-category-card"
             :class="{ active: category === c.key }"
+            :aria-pressed="category === c.key"
             @click="selectCategory(c.key)"
           >
-            <component :is="iconMap[c.icon]" :size="22" />
-            <span>{{ c.label }}</span>
+            <span class="nr-category-icon">
+              <component :is="CATEGORY_CARDS[c.key]?.icon || HelpCircle" :size="16" />
+            </span>
+            <span class="nr-category-label">{{ CATEGORY_CARDS[c.key]?.label || c.label }}</span>
           </button>
         </div>
       </div>
 
       <!-- Attachments -->
-      <div class="form-group">
-        <label class="form-label">
-          Přílohy <span style="color:var(--color-gray-500); font-weight:400;">(volitelné, max 5 souborů, 10 MB/soubor, fotky a PDF)</span>
-        </label>
-        <label id="new-request-attach-trigger" class="attach-btn" for="new-request-attach-input">
-          <Paperclip :size="16" />
-          <span>Přidat soubor</span>
+      <div class="nr-group">
+        <label class="nr-label">Přílohy</label>
+        <label id="new-request-attach-trigger" class="nr-dropzone" for="new-request-attach-input">
+          <span class="nr-dropzone-icon">
+            <UploadCloud :size="18" />
+          </span>
+          <span class="nr-dropzone-title">Přidat soubor</span>
+          <span class="nr-dropzone-hint">Max {{ ATTACHMENT_LIMITS.maxFiles }} souborů, 10 MB/soubor</span>
         </label>
         <input
           id="new-request-attach-input"
@@ -284,22 +263,22 @@ async function submit() {
           @change="onFilesChosen"
         />
         <div v-if="fileError" class="field-error">{{ fileError }}</div>
-        <ul v-if="files.length" id="new-request-attach-list" class="attach-list">
-          <li v-for="(f, i) in files" :key="f.name + f.size + f.lastModified" class="attach-item" :id="'attach-item-' + i">
+        <ul v-if="files.length" id="new-request-attach-list" class="nr-attach-list">
+          <li v-for="(f, i) in files" :key="f.name + f.size + f.lastModified" class="nr-attach-item" :id="'attach-item-' + i">
             <img
               v-if="f.type.startsWith('image/')"
               :id="'attach-thumb-' + i"
               :src="getObjectUrl(f)"
               :alt="f.name"
-              class="attach-thumb clickable"
+              class="nr-attach-thumb clickable"
               @click="openFilePreview(f)"
             />
             <template v-else>
               <FileText :size="16" />
             </template>
-            <span class="attach-name file-link" @click="openFilePreview(f)">{{ f.name }}</span>
-            <span class="attach-size">{{ formatSize(f.size) }}</span>
-            <button type="button" class="attach-remove" @click="removeFile(i)" :id="'attach-remove-' + i">
+            <span class="nr-attach-name file-link" @click="openFilePreview(f)">{{ f.name }}</span>
+            <span class="nr-attach-size">{{ formatSize(f.size) }}</span>
+            <button type="button" class="nr-attach-remove" @click="removeFile(i)" :id="'attach-remove-' + i" :aria-label="'Odebrat ' + f.name">
               <X :size="14" />
             </button>
           </li>
@@ -308,44 +287,18 @@ async function submit() {
 
       <div v-if="errors._" class="alert alert-danger" style="margin-bottom:16px;">{{ errors._ }}</div>
 
-      <div id="new-request-actions" style="display:flex; gap:12px; justify-content:flex-end;">
+      <div id="new-request-actions" class="nr-actions">
         <button id="new-request-cancel" class="btn btn-outline" @click="router.push('/zadosti')">Zrušit</button>
         <button
           id="new-request-submit"
-          class="btn btn-primary"
+          class="nr-submit"
           :disabled="!isValid || submitting"
           @click="submit"
         >
           <Loader2 v-if="submitting" :size="16" class="spin" />
-          <Plus v-else :size="16" />
           <span>{{ submitting ? 'Odesílám...' : 'Odeslat požadavek' }}</span>
         </button>
       </div>
-    </div>
-
-    <aside id="new-request-recent" class="card recent-panel">
-      <div class="recent-header">
-        <ClipboardList :size="16" style="color:var(--color-mid);" />
-        <h3 class="recent-title">Vaše poslední požadavky</h3>
-      </div>
-      <div v-if="recentLoading" class="recent-loading">
-        <Loader2 :size="16" class="spin" />
-      </div>
-      <div v-else-if="recentRequests.length === 0" class="recent-empty">
-        Zatím jste nevytvořili žádný požadavek. Tento bude první.
-      </div>
-      <ul v-else class="recent-list">
-        <li v-for="r in recentRequests" :key="r.id">
-          <router-link :to="`/zadosti/${r.id}`" :id="'recent-' + r.id" class="recent-item">
-            <div class="recent-item-main">
-              <div class="recent-item-title">{{ r.title }}</div>
-              <div class="recent-item-date">{{ formatRecentDate(r.createdAt) }}</div>
-            </div>
-            <span class="badge" :class="statusMeta(r.status).badge">{{ statusMeta(r.status).label }}</span>
-          </router-link>
-        </li>
-      </ul>
-    </aside>
     </div>
 
     <FilePreviewModal
@@ -359,172 +312,212 @@ async function submit() {
 </template>
 
 <style scoped>
-/* Mobile-first: single column. Split to 2 cols at lg. */
-.new-request-layout {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 24px;
-  align-items: start;
+.nr-page {
+  max-width: 640px;
 }
 
-.recent-panel {
-  padding: 20px;
-  position: static;
-}
-
-@media (min-width: 1024px) {
-  .new-request-layout {
-    grid-template-columns: minmax(0, 780px) minmax(280px, 360px);
-  }
-  .recent-panel {
-    position: sticky;
-    top: 24px;
-    align-self: start;
-    max-height: calc(100vh - 48px);
-    overflow-y: auto;
-  }
-}
-.recent-header {
+.nr-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--color-gray-100);
+  gap: 12px;
 }
-.recent-title {
+
+.nr-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  flex-shrink: 0;
+  margin-left: -7px;
+  transition: var(--transition);
+}
+.nr-back:hover {
+  background: var(--color-gray-100);
+}
+
+.nr-title {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1.2;
+}
+
+.nr-subtitle {
+  font-size: 14px;
+  color: var(--color-gray-500);
+  line-height: 1.5;
+  margin: 4px 0 24px;
+}
+
+.nr-group {
+  margin-bottom: 22px;
+}
+
+.nr-label {
+  display: block;
   font-size: 14px;
   font-weight: 600;
   color: var(--color-primary);
-  margin: 0;
-}
-.recent-loading {
-  display: flex;
-  justify-content: center;
-  padding: 16px;
-  color: var(--color-gray-500);
-}
-.recent-empty {
-  font-size: 13px;
-  color: var(--color-gray-500);
-  padding: 8px 0;
-  line-height: 1.5;
-}
-.recent-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.recent-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  background: var(--color-gray-50);
-  border: 1px solid var(--color-gray-200);
-  text-decoration: none;
-  transition: var(--transition);
-}
-.recent-item:hover {
-  border-color: var(--color-mid);
-  background: var(--color-white);
-}
-.recent-item-main {
-  flex: 1;
-  min-width: 0;
-}
-.recent-item-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.recent-item-date {
-  font-size: 11px;
-  color: var(--color-gray-500);
-  margin-top: 2px;
+  margin-bottom: 8px;
 }
 
-/* new-request-layout handled mobile-first above */
+.nr-required {
+  color: var(--color-danger);
+}
 
-/* Mobile-first: 2 cols → 3 at sm */
-.category-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+.nr-label-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-gray-400);
 }
-@media (min-width: 640px) {
-  .category-grid { grid-template-columns: repeat(3, 1fr); }
-}
-.category-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 22px 12px;
-  background: var(--color-white);
+
+.nr-input {
+  width: 100%;
+  padding: 13px 14px;
   border: 1.5px solid var(--color-gray-200);
   border-radius: var(--radius-lg);
-  color: var(--color-gray-700);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
+  background: var(--color-white);
+  color: var(--color-gray-800);
+  /* 16px prevents iOS Safari from auto-zooming the page on field focus */
+  font-size: 16px;
   transition: var(--transition);
+  outline: none;
 }
-.category-card:hover {
-  border-color: var(--color-mid);
-  color: var(--color-primary);
+@media (min-width: 768px) {
+  .nr-input { font-size: 14px; }
 }
-.category-card.active {
-  border-color: var(--color-primary);
-  background: var(--color-light);
-  color: var(--color-primary);
+.nr-input::placeholder {
+  color: var(--color-gray-400);
+  opacity: 1;
+}
+.nr-input:focus {
+  border-color: var(--color-blue);
+  box-shadow: 0 0 0 3px var(--color-blue-light);
 }
 
-.loc-loading {
+.nr-textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.nr-options-loading {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 13px;
   color: var(--color-gray-500);
-  margin-bottom: 14px;
 }
 
-.field-error {
-  font-size: 12px;
-  color: var(--color-danger);
-  margin-top: 4px;
+/* ═══ Category cards ═══ */
+.nr-category-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
 }
 
-.attach-btn {
-  display: inline-flex;
+.nr-category-card {
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 10px 14px;
-  border: 1.5px dashed var(--color-gray-300);
-  border-radius: var(--radius-md);
-  background: var(--color-gray-50);
-  color: var(--color-gray-700);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
+  min-height: 82px;
+  padding: 14px 8px;
+  background: var(--color-white);
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-xl);
   transition: var(--transition);
 }
-.attach-btn:hover {
-  border-color: var(--color-mid);
-  color: var(--color-primary);
-  background: var(--color-light);
+.nr-category-card:hover {
+  border-color: var(--color-blue-border);
 }
 
-.attach-list {
+.nr-category-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-gray-100);
+  color: var(--color-gray-500);
+  transition: var(--transition);
+}
+
+.nr-category-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-gray-500);
+  transition: var(--transition);
+}
+
+.nr-category-card.active {
+  background: var(--color-blue-light);
+  border-color: var(--color-blue);
+}
+.nr-category-card.active .nr-category-icon {
+  background: var(--color-blue);
+  color: var(--color-white);
+}
+.nr-category-card.active .nr-category-label {
+  color: var(--color-blue);
+}
+
+/* ═══ Attachments dropzone ═══ */
+.nr-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 26px 16px;
+  border: 1.5px dashed var(--color-gray-300);
+  border-radius: var(--radius-xl);
+  background: var(--color-white);
+  cursor: pointer;
+  text-align: center;
+  transition: var(--transition);
+}
+.nr-dropzone:hover {
+  border-color: var(--color-blue);
+  background: var(--color-blue-light);
+}
+
+.nr-dropzone-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--color-blue-light);
+  color: var(--color-blue);
+  margin-bottom: 2px;
+}
+
+.nr-dropzone-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-blue);
+}
+
+.nr-dropzone-hint {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-gray-400);
+}
+
+.nr-attach-list {
   list-style: none;
   padding: 0;
   margin: 12px 0 0;
@@ -532,37 +525,37 @@ async function submit() {
   flex-direction: column;
   gap: 8px;
 }
-.attach-item {
+.nr-attach-item {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  background: var(--color-gray-50);
+  background: var(--color-white);
   border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   font-size: 13px;
   color: var(--color-gray-700);
 }
-.attach-thumb {
+.nr-attach-thumb {
   width: 32px;
   height: 32px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: 6px;
   border: 1px solid var(--color-gray-200);
   flex-shrink: 0;
 }
-.attach-name {
+.nr-attach-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.attach-size {
+.nr-attach-size {
   font-size: 11px;
   color: var(--color-gray-500);
 }
-.attach-remove {
+.nr-attach-remove {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -574,13 +567,54 @@ async function submit() {
   color: var(--color-gray-500);
   cursor: pointer;
 }
-.attach-remove:hover {
+.nr-attach-remove:hover {
   background: var(--color-danger-light);
   color: var(--color-danger);
 }
 
-.spin { animation: spin 1.5s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+/* ═══ Actions — mobile-first: stacked full-width, row at sm ═══ */
+.nr-actions {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+  margin-top: 4px;
+}
+.nr-actions .btn-outline {
+  justify-content: center;
+}
 
-/* category-grid handled mobile-first above */
+.nr-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 24px;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-blue);
+  color: var(--color-white);
+  font-size: 15px;
+  font-weight: 600;
+  transition: var(--transition);
+}
+.nr-submit:hover {
+  background: var(--color-blue-hover);
+}
+.nr-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (min-width: 640px) {
+  .nr-actions {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+}
+
+.field-error {
+  font-size: 12px;
+  color: var(--color-danger);
+  margin-top: 6px;
+}
 </style>

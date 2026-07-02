@@ -36,13 +36,23 @@ class MaintenanceRequestRepository
         co.registration_number AS company_ico
     ';
 
+    // Unread admin replies per request — drives "N nové zprávy" in the client list.
+    private const UNREAD_COUNT_SELECT = ',
+            (SELECT COUNT(*)
+             FROM maintenance_request_activity a
+             WHERE a.request_id = r.id
+               AND a.author_type = \'admin\'
+               AND a.is_internal = 0
+               AND a.read_at IS NULL
+            ) AS unread_count';
+
     /**
      * @param int[]|null $statuses
      */
     public function findByClientId(int $clientId, ?array $statuses = null, ?int $limit = null, ?string $date = null): array
     {
         $sql = '
-            SELECT ' . self::SELECT_FIELDS . '
+            SELECT ' . self::SELECT_FIELDS . self::UNREAD_COUNT_SELECT . '
             FROM maintenance_requests r
             LEFT JOIN login_accounts la ON r.created_by_user_id = la.id
             LEFT JOIN companies co ON r.company_id = co.id
@@ -305,6 +315,23 @@ class MaintenanceRequestRepository
         ]);
 
         return (int) $this->db->lastInsertId();
+    }
+
+    /**
+     * Marks messages authored by $authorType as read — called when the counterparty
+     * opens the request detail (client viewing marks admin replies read).
+     */
+    public function markMessagesRead(int $requestId, string $authorType): void
+    {
+        $stmt = $this->db->prepare('
+            UPDATE maintenance_request_activity
+            SET read_at = NOW()
+            WHERE request_id = :request_id
+              AND author_type = :author_type
+              AND is_internal = 0
+              AND read_at IS NULL
+        ');
+        $stmt->execute(['request_id' => $requestId, 'author_type' => $authorType]);
     }
 
     // ─────────── Attachments ───────────

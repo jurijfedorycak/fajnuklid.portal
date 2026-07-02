@@ -759,7 +759,7 @@
                     <mxGeometry y="322" width="320" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="maintenance_request_activity" value="maintenance_request_activity" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;shadow=1;" parent="1" vertex="1">
-                    <mxGeometry x="1240" y="540" width="320" height="234" as="geometry"/>
+                    <mxGeometry x="1240" y="540" width="320" height="256" as="geometry"/>
                 </mxCell>
                 <mxCell id="mra-pk" value="PK id INT UNSIGNED AUTO_INCREMENT" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontStyle=1" parent="maintenance_request_activity" vertex="1">
                     <mxGeometry y="30" width="320" height="20" as="geometry"/>
@@ -785,8 +785,11 @@
                 <mxCell id="mra-f6" value="is_internal TINYINT(1) DEFAULT 0, created_at DATETIME" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="maintenance_request_activity" vertex="1">
                     <mxGeometry y="168" width="320" height="22" as="geometry"/>
                 </mxCell>
-                <mxCell id="mra-idx" value="IDX: idx_request_id (request_id)" style="text;strokeColor=none;fillColor=#f5f5f5;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#666666;fontStyle=2" parent="maintenance_request_activity" vertex="1">
+                <mxCell id="mra-f7" value="read_at DATETIME NULL (counterparty read the message)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#888888;" parent="maintenance_request_activity" vertex="1">
                     <mxGeometry y="190" width="320" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="mra-idx" value="IDX: idx_request_id (request_id)" style="text;strokeColor=none;fillColor=#f5f5f5;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#666666;fontStyle=2" parent="maintenance_request_activity" vertex="1">
+                    <mxGeometry y="212" width="320" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="maintenance_request_attachments" value="maintenance_request_attachments" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;shadow=1;" parent="1" vertex="1">
                     <mxGeometry x="1240" y="820" width="320" height="212" as="geometry"/>

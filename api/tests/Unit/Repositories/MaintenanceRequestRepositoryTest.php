@@ -75,6 +75,42 @@ class MaintenanceRequestRepositoryTest extends DatabaseTestCase
         $this->assertEquals([], $result);
     }
 
+    public function testFindByClientIdSelectsUnreadAdminMessageCount(): void
+    {
+        $this->stmtMock->method('fetchAll')->willReturn([]);
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->pdoMock->expects($this->once())
+            ->method('prepare')
+            ->with($this->callback(fn (string $sql) =>
+                str_contains($sql, 'AS unread_count')
+                && str_contains($sql, "a.author_type = 'admin'")
+                && str_contains($sql, 'a.is_internal = 0')
+                && str_contains($sql, 'a.read_at IS NULL')))
+            ->willReturn($this->stmtMock);
+
+        $this->repository->findByClientId(5);
+    }
+
+    // markMessagesRead
+
+    public function testMarkMessagesReadUpdatesOnlyUnreadNonInternalOfAuthorType(): void
+    {
+        $this->stmtMock->expects($this->once())
+            ->method('execute')
+            ->with(['request_id' => 3, 'author_type' => 'admin'])
+            ->willReturn(true);
+        $this->pdoMock->expects($this->once())
+            ->method('prepare')
+            ->with($this->callback(fn (string $sql) =>
+                str_contains($sql, 'UPDATE maintenance_request_activity')
+                && str_contains($sql, 'SET read_at = NOW()')
+                && str_contains($sql, 'is_internal = 0')
+                && str_contains($sql, 'read_at IS NULL')))
+            ->willReturn($this->stmtMock);
+
+        $this->repository->markMessagesRead(3, 'admin');
+    }
+
     // findByIdForClient
 
     public function testFindByIdForClientReturnsRequestWhenFound(): void

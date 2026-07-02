@@ -104,11 +104,18 @@ class MaintenanceRequestService
         return array_map([$this, 'formatRow'], $rows);
     }
 
-    public function getForClient(int $id, int $clientId): array
+    /**
+     * $markRead: true only when the client actually opens the detail — internal callers
+     * (create/confirm/reject) just need the payload and skip the read-tracking UPDATE.
+     */
+    public function getForClient(int $id, int $clientId, bool $markRead = false): array
     {
         $row = $this->repo->findByIdForClient($id, $clientId);
         if ($row === null) {
             throw new NotFoundException('Žádost nebyla nalezena');
+        }
+        if ($markRead) {
+            $this->repo->markMessagesRead($id, 'admin');
         }
         return $this->buildRequestPayload($row, false);
     }
@@ -650,7 +657,7 @@ class MaintenanceRequestService
 
     private function formatRow(array $row): array
     {
-        return [
+        $formatted = [
             'id' => (int) $row['id'],
             'clientId' => (int) $row['client_id'],
             'companyId' => isset($row['company_id']) ? (int) $row['company_id'] : null,
@@ -669,6 +676,12 @@ class MaintenanceRequestService
             'createdBy' => $row['created_by_email'] ?? null,
             'clientDisplayName' => $row['client_display_name'] ?? null,
         ];
+
+        if (array_key_exists('unread_count', $row)) {
+            $formatted['newMessages'] = (int) $row['unread_count'];
+        }
+
+        return $formatted;
     }
 
     private function formatActivity(array $rows): array

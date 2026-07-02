@@ -49,6 +49,17 @@
   --color-whatsapp: #128C7E;
   --color-whatsapp-dark: #075E54;
 
+  /* Vivid action blue — client requests (požadavky) design language */
+  --color-blue: #2b6cec;
+  --color-blue-hover: #2158cd;
+  --color-blue-light: #eaf1fd;
+  --color-blue-border: #c7dafa;
+
+  /* Light periwinkle line-art illustration palette */
+  --illustration-stroke: #9db9e8;
+  --illustration-fill: #e9f0fb;
+  --illustration-shade: #d2e0f6;
+
   /* Sidebar light theme */
   --sidebar-bg: var(--color-white);
   --sidebar-text: var(--color-gray-800);
