@@ -3,7 +3,8 @@ import { computed, ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   LayoutDashboard, FileText, Users, FileSignature,
-  Clock, Phone, Settings, LogOut, UserCog, Palette, ArrowRight, ClipboardList,
+  Clock, Phone, Settings, LogOut, UserCog, Palette, ClipboardList,
+  ChevronLeft,
 } from 'lucide-vue-next'
 import { useAuth } from '../../stores/auth'
 import { adminService } from '../../api/services/adminService'
@@ -109,7 +110,12 @@ function initials(name) {
 
 <template>
   <aside class="sidebar" :class="{ open }">
-    <!-- Logo -->
+    <!-- Mobile close button -->
+    <button id="sidebar-close-btn" class="sidebar-close" @click="emit('close')" aria-label="Zavřít menu">
+      <ChevronLeft :size="20" />
+    </button>
+
+    <!-- Logo (desktop only) -->
     <div id="sidebar-logo" class="sidebar-logo">
       <img :src="logoDarkSrc" alt="Fajn Úklid" class="sidebar-logo-img" />
     </div>
@@ -122,9 +128,10 @@ function initials(name) {
         :id="`sidebar-nav-${slugify(item.name)}`"
         class="nav-item"
         :class="{ active: isActive(item.route) }"
+        :title="item.name"
         @click="navigate(item.route)"
       >
-        <component :is="item.icon" class="nav-icon" :size="18" />
+        <component :is="item.icon" class="nav-icon" :size="20" />
         <span class="nav-label">{{ item.name }}</span>
         <span
           v-if="item.badgeCount"
@@ -144,16 +151,19 @@ function initials(name) {
           :id="`sidebar-nav-${slugify(item.name)}`"
           class="nav-item"
           :class="{ active: isActive(item.route) }"
+          :title="item.name"
           @click="navigate(item.route)"
         >
-          <component :is="item.icon" class="nav-icon" :size="18" />
+          <component :is="item.icon" class="nav-icon" :size="20" />
           <span class="nav-label">{{ item.name }}</span>
         </button>
       </nav>
 
+      <div id="sidebar-client-sep" class="sidebar-client-sep" />
+
       <!-- Client info -->
       <div id="sidebar-client" class="sidebar-client">
-        <div id="sidebar-client-avatar" class="avatar avatar-sm client-avatar">{{ initials(displayName) }}</div>
+        <div id="sidebar-client-avatar" class="avatar client-avatar">{{ initials(displayName) }}</div>
         <div class="client-info">
           <div id="sidebar-client-name" class="client-name">{{ displayName }}</div>
           <div id="sidebar-client-ico" class="client-ico" v-if="activeIco && !isAdmin">IČO: {{ activeIco }}</div>
@@ -162,54 +172,104 @@ function initials(name) {
 
       <!-- Logout -->
       <button id="sidebar-logout-btn" class="logout-btn" @click="handleLogout">
+        <LogOut class="logout-icon" :size="18" />
         <span class="logout-label">Odhlásit se</span>
-        <ArrowRight class="logout-icon" :size="16" />
       </button>
     </div>
   </aside>
 </template>
 
 <style scoped>
-/* Mobile-first: sidebar hidden off-canvas, slides in when .open */
+/* Mobile-first: full-screen menu hidden off-canvas, slides in when .open */
 .sidebar {
   position: fixed;
   top: 0;
   left: 0;
-  width: var(--sidebar-width);
-  max-width: 85vw;
-  height: 100vh;
+  bottom: 0;
+  width: 100%;
+  max-width: 100%;
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
   z-index: 100;
+  padding:
+    calc(14px + env(safe-area-inset-top, 0px))
+    calc(12px + env(safe-area-inset-right, 0px))
+    calc(14px + env(safe-area-inset-bottom, 0px))
+    calc(12px + env(safe-area-inset-left, 0px));
   transform: translateX(-100%);
-  box-shadow: var(--shadow-lg);
-  transition: transform var(--transition);
+  /* Delayed visibility keeps the closed drawer out of tab order without cutting the slide-out animation */
+  visibility: hidden;
+  transition: transform var(--transition), visibility 0s var(--transition);
 }
 
 .sidebar.open {
   transform: translateX(0);
+  visibility: visible;
+  transition: transform var(--transition);
 }
 
-/* Desktop: persistent sidebar, no shadow */
+/* Desktop: persistent narrow sidebar */
 @media (min-width: 768px) {
   .sidebar {
-    transform: none;
-    box-shadow: none;
+    width: var(--sidebar-width);
     max-width: var(--sidebar-width);
+    padding: 0;
+    transform: none;
+    visibility: visible;
   }
 }
 
-/* Logo — vertical footprint matches .page-header in main content
-   (main-content padding-top 32px + page-header content ~45px + margin-bottom 24px) */
-.sidebar-logo {
+/* Mobile close button */
+.sidebar-close {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px 16px 46px;
-  box-sizing: border-box;
+  background: var(--color-gray-100);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-gray-700);
+  margin: 4px 8px 30px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+/* Extends the tap target to 44x44 while keeping the 38px visual box */
+.sidebar-close::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+}
+
+.sidebar-close:hover {
+  background: var(--color-gray-200);
+}
+
+@media (min-width: 768px) {
+  .sidebar-close {
+    display: none;
+  }
+}
+
+/* Logo — desktop only; vertical footprint matches .page-header in main content
+   (main-content padding-top 32px + page-header content ~45px + margin-bottom 24px) */
+.sidebar-logo {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .sidebar-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px 46px;
+  }
 }
 
 .sidebar-logo-img {
@@ -222,6 +282,7 @@ function initials(name) {
 .sidebar-nav {
   display: flex;
   flex-direction: column;
+  gap: 6px;
   padding: 0 8px;
 }
 
@@ -232,15 +293,15 @@ function initials(name) {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
+  gap: 14px;
+  padding: 13px 12px;
+  border-radius: var(--radius-lg);
   color: var(--sidebar-text);
   background: transparent;
   border: none;
   cursor: pointer;
   text-align: left;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 400;
   transition: var(--transition);
   position: relative;
@@ -252,10 +313,11 @@ function initials(name) {
   color: var(--sidebar-text);
 }
 
+/* Weight stays 400 in the active state — bolder text widens the longest labels
+   past the 240px desktop sidebar and causes a wrap/ellipsis flicker */
 .nav-item.active {
   background: var(--sidebar-active-bg);
   color: var(--sidebar-active-text);
-  font-weight: 500;
 }
 
 .nav-icon {
@@ -273,6 +335,9 @@ function initials(name) {
 
 .nav-label {
   flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nav-badge {
@@ -291,20 +356,36 @@ function initials(name) {
 /* Bottom section */
 .sidebar-bottom-section {
   margin-top: auto;
-  padding-bottom: 12px;
+  padding-bottom: 0;
+}
+
+@media (min-width: 768px) {
+  .sidebar-bottom-section {
+    padding-bottom: 12px;
+  }
+}
+
+/* Divider above client info */
+.sidebar-client-sep {
+  height: 1px;
+  background: var(--color-gray-200);
+  margin: 14px 8px;
 }
 
 /* Client info */
 .sidebar-client {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 12px;
+  padding: 6px 16px 10px;
 }
 
 .client-avatar {
-  background: var(--color-mid);
-  color: var(--color-white);
+  width: 40px;
+  height: 40px;
+  font-size: 15px;
+  background: var(--color-light);
+  color: var(--color-accent);
   flex-shrink: 0;
 }
 
@@ -313,8 +394,8 @@ function initials(name) {
 }
 
 .client-name {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -322,32 +403,31 @@ function initials(name) {
 }
 
 .client-ico {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--sidebar-text-muted);
   margin-top: 1px;
 }
 
-/* Logout button */
+/* Logout button — borderless red text with leading icon */
 .logout-btn {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   width: calc(100% - 16px);
-  margin: 4px 8px 8px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
+  margin: 2px 8px 6px;
+  padding: 12px;
+  border-radius: var(--radius-lg);
   background: transparent;
-  border: 1px solid var(--sidebar-border);
-  color: var(--sidebar-text-muted);
-  font-size: 13px;
-  font-weight: 400;
+  border: none;
+  color: var(--color-danger);
+  font-size: 15px;
+  font-weight: 500;
   cursor: pointer;
   transition: var(--transition);
 }
 
 .logout-btn:hover {
   background: var(--color-danger-light);
-  border-color: var(--color-danger-light);
   color: var(--color-danger);
 }
 
@@ -358,6 +438,7 @@ function initials(name) {
 
 .logout-icon {
   flex-shrink: 0;
+  transform: scaleX(-1);
 }
 
 /* Accessibility: Focus styles */
@@ -367,6 +448,11 @@ function initials(name) {
 }
 
 .logout-btn:focus-visible {
+  outline: 2px solid var(--color-mid);
+  outline-offset: 2px;
+}
+
+.sidebar-close:focus-visible {
   outline: 2px solid var(--color-mid);
   outline-offset: 2px;
 }

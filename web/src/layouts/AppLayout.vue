@@ -1,20 +1,20 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import Sidebar from '../components/layout/Sidebar.vue'
-import logoSrc from '../assets/logo.svg'
+import logoDarkSrc from '../assets/logo-dark.svg'
 
 const sidebarOpen = ref(false)
+
+function onKeydown(e) {
+  if (e.key === 'Escape') sidebarOpen.value = false
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
   <div class="app-layout">
-    <!-- Mobile overlay -->
-    <div
-      v-if="sidebarOpen"
-      class="sidebar-overlay"
-      @click="sidebarOpen = false"
-    />
-
     <Sidebar :open="sidebarOpen" @close="sidebarOpen = false" />
 
     <div class="main-wrapper">
@@ -23,7 +23,7 @@ const sidebarOpen = ref(false)
         <button id="mobile-hamburger-btn" class="hamburger" @click="sidebarOpen = true" aria-label="Otevřít menu">
           <span /><span /><span />
         </button>
-        <img id="mobile-logo" :src="logoSrc" alt="Fajn Úklid" class="mobile-logo" />
+        <img id="mobile-logo" :src="logoDarkSrc" alt="Fajn Úklid" class="mobile-logo" />
       </header>
 
       <main class="main-content">
@@ -42,20 +42,6 @@ const sidebarOpen = ref(false)
   position: fixed;
   inset: 0;
   display: flex;
-}
-
-.sidebar-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.4);
-  z-index: 99;
-}
-
-/* Hide overlay on desktop — sidebar is persistent, no drawer behavior needed */
-@media (min-width: 768px) {
-  .sidebar-overlay {
-    display: none;
-  }
 }
 
 .main-wrapper {
@@ -86,9 +72,9 @@ const sidebarOpen = ref(false)
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: calc(12px + env(safe-area-inset-top, 0)) calc(16px + env(safe-area-inset-right, 0)) 12px calc(16px + env(safe-area-inset-left, 0));
-  background: var(--color-primary);
-  color: white;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 12px calc(16px + env(safe-area-inset-left, 0px));
+  background: var(--page-bg);
+  color: var(--color-primary);
   position: sticky;
   top: 0;
   z-index: 50;
@@ -114,14 +100,14 @@ const sidebarOpen = ref(false)
   border-radius: var(--radius-sm);
 }
 .hamburger:focus-visible {
-  outline: 2px solid var(--color-light);
+  outline: 2px solid var(--color-mid);
   outline-offset: 2px;
 }
 .hamburger span {
   display: block;
   width: 22px;
   height: 2px;
-  background: white;
+  background: var(--color-primary);
   border-radius: 2px;
 }
 
