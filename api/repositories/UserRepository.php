@@ -22,6 +22,7 @@ class UserRepository
             SELECT
                 id,
                 email,
+                greeting,
                 password_hash,
                 portal_enabled,
                 is_admin,
@@ -42,6 +43,7 @@ class UserRepository
             SELECT
                 id,
                 email,
+                greeting,
                 password_hash,
                 portal_enabled,
                 is_admin,
@@ -153,12 +155,13 @@ class UserRepository
     public function create(array $data): int
     {
         $stmt = $this->db->prepare('
-            INSERT INTO login_accounts (email, password_hash, portal_enabled, created_at, updated_at)
-            VALUES (:email, :password_hash, :portal_enabled, NOW(), NOW())
+            INSERT INTO login_accounts (email, greeting, password_hash, portal_enabled, created_at, updated_at)
+            VALUES (:email, :greeting, :password_hash, :portal_enabled, NOW(), NOW())
         ');
 
         $stmt->execute([
             'email' => $data['email'],
+            'greeting' => $this->normalizeGreeting($data['greeting'] ?? null),
             'password_hash' => $data['password_hash'],
             'portal_enabled' => $data['portal_enabled'] ?? true,
         ]);
@@ -174,6 +177,11 @@ class UserRepository
         if (isset($data['email'])) {
             $fields[] = 'email = :email';
             $params['email'] = $data['email'];
+        }
+
+        if (array_key_exists('greeting', $data)) {
+            $fields[] = 'greeting = :greeting';
+            $params['greeting'] = $this->normalizeGreeting($data['greeting']);
         }
 
         if (isset($data['password_hash'])) {
@@ -237,5 +245,14 @@ class UserRepository
         $stmt->execute($params);
 
         return (int) $stmt->fetchColumn() > 0;
+    }
+
+    private function normalizeGreeting(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        $trimmed = trim($value);
+        return $trimmed === '' ? null : $trimmed;
     }
 }

@@ -135,6 +135,7 @@ class AdminController extends Controller
      *   display_name                 — top-level
      *   client_id                    — top-level (create only)
      *   logins.<i>.email
+     *   logins.<i>.greeting
      *   icos.<i>.ico
      *   icos.<i>.official_name
      *   icos.<i>.objects.<j>.name
@@ -172,18 +173,6 @@ class AdminController extends Controller
         }
         if ($displayName !== '' && mb_strlen($displayName) > 255) {
             $errors['display_name'][] = 'Název může mít nejvýše 255 znaků';
-        }
-
-        if (array_key_exists('greeting', $payload)) {
-            $rawGreeting = $payload['greeting'];
-            if ($rawGreeting !== null && !is_scalar($rawGreeting)) {
-                $errors['greeting'][] = 'Pozdrav musí být text';
-            } else {
-                $greeting = trim((string) ($rawGreeting ?? ''));
-                if ($greeting !== '' && mb_strlen($greeting) > 100) {
-                    $errors['greeting'][] = 'Pozdrav může mít nejvýše 100 znaků';
-                }
-            }
         }
 
         if (array_key_exists('whatsapp_group_url', $payload)) {
@@ -431,6 +420,18 @@ class AdminController extends Controller
             if ($restriction === 'icos' && empty($allowedIcos)) {
                 $errors["{$path}.allowed_icos"][] = 'Vyberte alespoň jedno IČO, ke kterému bude účet mít přístup';
             }
+
+            // Only meaningful for rows that will actually be saved — an email-less row
+            // is dropped at save time, so validating its greeting would block the form
+            // on data that never gets stored.
+            if ($email !== '' && array_key_exists('greeting', $loginData)) {
+                $rawGreeting = $loginData['greeting'];
+                if ($rawGreeting !== null && !is_scalar($rawGreeting)) {
+                    $errors["{$path}.greeting"][] = 'Pozdrav musí být text';
+                } elseif (mb_strlen(trim((string) ($rawGreeting ?? ''))) > 100) {
+                    $errors["{$path}.greeting"][] = 'Pozdrav může mít nejvýše 100 znaků';
+                }
+            }
         }
 
         $contacts = is_array($payload['contacts'] ?? null) ? $payload['contacts'] : [];
@@ -557,6 +558,7 @@ class AdminController extends Controller
                     $loginsByUserId[$userId] = [
                         'userId' => $userId,
                         'email' => (string) $user['email'],
+                        'greeting' => (string) ($user['greeting'] ?? ''),
                         'portalEnabled' => (bool) $user['portal_enabled'],
                         'companyIds' => [],
                     ];
@@ -578,6 +580,7 @@ class AdminController extends Controller
             $logins[] = [
                 'userId' => $info['userId'],
                 'email' => $info['email'],
+                'greeting' => $info['greeting'],
                 'portalEnabled' => $info['portalEnabled'],
                 'restriction' => $isAllIcos ? 'all' : 'icos',
                 'allowedIcos' => $allowedIcos,
@@ -688,7 +691,6 @@ class AdminController extends Controller
             'id' => (int) $client['id'],
             'clientId' => $client['client_id'],
             'displayName' => $client['display_name'],
-            'greeting' => $client['greeting'] ?? '',
             'whatsappGroupUrl' => $client['whatsapp_group_url'] ?? '',
             'notes' => '',
             'active' => $hasActiveLogin,
@@ -717,7 +719,6 @@ class AdminController extends Controller
         $data = [
             'client_id' => trim((string) ($payload['client_id'] ?? '')),
             'display_name' => trim((string) ($payload['display_name'] ?? '')),
-            'greeting' => is_scalar($payload['greeting'] ?? null) ? trim((string) $payload['greeting']) : '',
             'whatsapp_group_url' => is_scalar($payload['whatsapp_group_url'] ?? null) ? trim((string) $payload['whatsapp_group_url']) : '',
             'is_demo' => (bool) ($payload['is_demo'] ?? false),
         ];
@@ -802,11 +803,13 @@ class AdminController extends Controller
                     continue;
                 }
 
+                $greeting = is_scalar($loginData['greeting'] ?? null) ? trim((string) $loginData['greeting']) : '';
                 $passwordHash = PasswordHelper::hash($tempPass !== '' ? $tempPass : bin2hex(random_bytes(16)));
 
                 try {
                     $userId = $this->userRepo->create([
                         'email' => $email,
+                        'greeting' => $greeting,
                         'password_hash' => $passwordHash,
                         'portal_enabled' => (bool) $active,
                     ]);
@@ -942,9 +945,6 @@ class AdminController extends Controller
         }
         if (array_key_exists('review_prompt_enabled', $payload)) {
             $data['review_prompt_enabled'] = (bool) $payload['review_prompt_enabled'];
-        }
-        if (array_key_exists('greeting', $payload)) {
-            $data['greeting'] = is_scalar($payload['greeting']) ? trim((string) $payload['greeting']) : '';
         }
         if (array_key_exists('whatsapp_group_url', $payload)) {
             $data['whatsapp_group_url'] = is_scalar($payload['whatsapp_group_url']) ? trim((string) $payload['whatsapp_group_url']) : '';
@@ -1216,6 +1216,10 @@ class AdminController extends Controller
             $tempPass = (string) ($loginData['temp_pass'] ?? '');
             $restriction = $loginData['restriction'] ?? 'all';
             $allowedIcos = is_array($loginData['allowed_icos'] ?? null) ? $loginData['allowed_icos'] : [];
+            $hasGreeting = array_key_exists('greeting', $loginData);
+            $greeting = $hasGreeting && is_scalar($loginData['greeting'])
+                ? trim((string) $loginData['greeting'])
+                : '';
 
             $targetCompanyIds = [];
             if ($restriction === 'all') {
@@ -1239,6 +1243,9 @@ class AdminController extends Controller
 
             if ($userId !== null) {
                 $userUpdate = ['email' => $email];
+                if ($hasGreeting) {
+                    $userUpdate['greeting'] = $greeting;
+                }
                 if ($tempPass !== '') {
                     $userUpdate['password_hash'] = PasswordHelper::hash($tempPass);
                 }
@@ -1259,6 +1266,7 @@ class AdminController extends Controller
                 try {
                     $userId = $this->userRepo->create([
                         'email' => $email,
+                        'greeting' => $greeting,
                         'password_hash' => $passwordHash,
                         'portal_enabled' => $portalEnabled ?? true,
                     ]);

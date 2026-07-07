@@ -230,7 +230,9 @@ const personnelOverview = computed(() => overview.value.personnel || {});
 const contract = computed(() => overview.value.contract || { hasPdf: false });
 const recentInvoices = computed(() => dashboardData.value.recentInvoices || []);
 const cleaningDays = computed(() => dashboardData.value.cleaningDays || []);
-const ongoingCleaning = computed(() => dashboardData.value.ongoingCleaning || null);
+const ongoingCleaning = computed(
+  () => dashboardData.value.ongoingCleaning || null,
+);
 
 // Greeting text + matching time-of-day icon (sunrise → sun → sunset → moon).
 // Reads the hour from the reactive `today` snapshot so a dashboard reopened on
@@ -241,7 +243,11 @@ const timeOfDay = computed(() => {
   if (h >= 5 && h < 12)
     return { text: "Dobré ráno", icon: Sunrise, color: "var(--color-warning)" };
   if (h >= 12 && h < 18)
-    return { text: "Dobré odpoledne", icon: Sun, color: "var(--color-warning)" };
+    return {
+      text: "Dobré odpoledne",
+      icon: Sun,
+      color: "var(--color-warning)",
+    };
   if (h >= 18 && h < 22)
     return { text: "Dobrý večer", icon: Sunset, color: "var(--color-warning)" };
   return { text: "Dobrý večer", icon: Moon, color: "var(--color-mid)" };
@@ -405,9 +411,7 @@ const dateRangeLabel = computed(
 // Gated on attendanceEnabled so the chip follows the same "hide all FreshQR UI
 // when off" rule as the calendars and the live pill.
 const lastCleaningDate = computed(() =>
-  attendanceEnabled.value
-    ? dashboardData.value.lastCleaningDate || null
-    : null,
+  attendanceEnabled.value ? dashboardData.value.lastCleaningDate || null : null,
 );
 
 // ── Cleaning summary (per-month counts, computed from each calendar's cells) ─
@@ -471,8 +475,8 @@ const dueStatus = computed(() => {
       d === 0
         ? "dnes"
         : d === 1
-          ? "zítra"
-          : `za ${d} ${d >= 2 && d <= 4 ? "dny" : "dní"}`;
+        ? "zítra"
+        : `za ${d} ${d >= 2 && d <= 4 ? "dny" : "dní"}`;
     return {
       kind: "next",
       label,
@@ -637,11 +641,7 @@ function selectCompany(ico) {
       <!-- Hero: warm time-of-day icon + two-line greeting + meta chips -->
       <header id="dashboard-hero" class="dashboard-hero">
         <div id="dashboard-hero-top" class="hero-top">
-          <span
-            id="dashboard-hero-icon"
-            class="hero-icon"
-            aria-hidden="true"
-          >
+          <span id="dashboard-hero-icon" class="hero-icon" aria-hidden="true">
             <component
               :is="timeOfDay.icon"
               :size="24"
@@ -718,19 +718,19 @@ function selectCompany(ico) {
         role="status"
         aria-live="polite"
       >
-      <RouterLink
-        id="dashboard-live-cleaning-link"
-        to="/dochazka"
-        class="live-pill"
-      >
-        <span class="live-pill-row">
-          <span class="live-pill-indicator" aria-hidden="true">
-            <span class="live-pill-dot" />
+        <RouterLink
+          id="dashboard-live-cleaning-link"
+          to="/dochazka"
+          class="live-pill"
+        >
+          <span class="live-pill-row">
+            <span class="live-pill-indicator" aria-hidden="true">
+              <span class="live-pill-dot" />
+            </span>
+            <span class="live-pill-title">Úklid právě probíhá</span>
+            <ArrowRight :size="14" class="live-pill-arrow" aria-hidden="true" />
           </span>
-          <span class="live-pill-title">Úklid právě probíhá</span>
-          <ArrowRight :size="14" class="live-pill-arrow" aria-hidden="true" />
-        </span>
-      </RouterLink>
+        </RouterLink>
       </div>
 
       <!-- Brand-new-client onboarding hero -->
@@ -1060,7 +1060,9 @@ function selectCompany(ico) {
                 <div
                   v-for="cell in prevMonthCells"
                   :key="cell.key"
-                  :id="cell.date ? `dashboard-cleaning-prev-${cell.date}` : null"
+                  :id="
+                    cell.date ? `dashboard-cleaning-prev-${cell.date}` : null
+                  "
                   class="mc-cell"
                   :class="{
                     'mc-blank': cell.blank,
@@ -1130,7 +1132,6 @@ function selectCompany(ico) {
                 >
               </span>
             </div>
-
           </div>
         </article>
 
@@ -1238,7 +1239,10 @@ function selectCompany(ico) {
           </div>
         </article>
 
-        <article id="dashboard-recent-invoices-card" class="dash-card recent-card">
+        <article
+          id="dashboard-recent-invoices-card"
+          class="dash-card recent-card"
+        >
           <div class="card-header-row">
             <h3 id="dashboard-recent-title" class="card-title">
               Poslední faktury
@@ -1445,13 +1449,12 @@ function selectCompany(ico) {
 .dashboard-hero {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-bottom: 20px;
-  padding: 4px 0 0 0;
+  gap: 64px;
+  padding: 64px 0 20px 0;
 }
 @media (min-width: 768px) {
   .dashboard-hero {
-    padding: 0;
+    padding: 64px 0 0 0;
   }
 }
 
@@ -1477,7 +1480,7 @@ function selectCompany(ico) {
 .dashboard-greeting {
   display: flex;
   flex-direction: column;
-  font-size: var(--fs-3xl);
+  font-size: var(--fs-4xl);
   font-weight: 700;
   color: var(--color-primary);
   line-height: 1.15;
@@ -2253,5 +2256,4 @@ a.stat-card:hover {
     transform: rotate(360deg);
   }
 }
-
 </style>

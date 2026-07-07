@@ -23,7 +23,6 @@ class ClientRepository
                 id,
                 client_id,
                 display_name,
-                greeting,
                 whatsapp_group_url,
                 review_prompt_enabled,
                 review_prompt_snoozed_until,
@@ -49,7 +48,6 @@ class ClientRepository
                 id,
                 client_id,
                 display_name,
-                greeting,
                 whatsapp_group_url,
                 review_prompt_enabled,
                 review_prompt_snoozed_until,
@@ -78,7 +76,6 @@ class ClientRepository
                 cl.id,
                 cl.client_id,
                 cl.display_name,
-                cl.greeting,
                 cl.whatsapp_group_url,
                 cl.review_prompt_enabled,
                 cl.review_prompt_snoozed_until,
@@ -108,7 +105,6 @@ class ClientRepository
                 id,
                 client_id,
                 display_name,
-                greeting,
                 whatsapp_group_url,
                 is_demo,
                 created_at,
@@ -128,7 +124,6 @@ class ClientRepository
                 id,
                 client_id,
                 display_name,
-                greeting,
                 whatsapp_group_url,
                 is_demo,
                 created_at,
@@ -178,14 +173,13 @@ class ClientRepository
     public function create(array $data): int
     {
         $stmt = $this->db->prepare('
-            INSERT INTO clients (client_id, display_name, greeting, whatsapp_group_url, is_demo, created_at, updated_at)
-            VALUES (:client_id, :display_name, :greeting, :whatsapp_group_url, :is_demo, NOW(), NOW())
+            INSERT INTO clients (client_id, display_name, whatsapp_group_url, is_demo, created_at, updated_at)
+            VALUES (:client_id, :display_name, :whatsapp_group_url, :is_demo, NOW(), NOW())
         ');
 
         $stmt->execute([
             'client_id' => $data['client_id'],
             'display_name' => $data['display_name'],
-            'greeting' => $this->normalizeGreeting($data['greeting'] ?? null),
             'whatsapp_group_url' => $this->normalizeNullableString($data['whatsapp_group_url'] ?? null),
             'is_demo' => (int) (bool) ($data['is_demo'] ?? false),
         ]);
@@ -211,11 +205,6 @@ class ClientRepository
         if (array_key_exists('is_demo', $data)) {
             $fields[] = 'is_demo = :is_demo';
             $params['is_demo'] = (int) (bool) $data['is_demo'];
-        }
-
-        if (array_key_exists('greeting', $data)) {
-            $fields[] = 'greeting = :greeting';
-            $params['greeting'] = $this->normalizeGreeting($data['greeting']);
         }
 
         if (array_key_exists('whatsapp_group_url', $data)) {
@@ -281,11 +270,6 @@ class ClientRepository
         $stmt->execute(['id' => $id]);
 
         return $stmt->rowCount() > 0;
-    }
-
-    private function normalizeGreeting(mixed $value): ?string
-    {
-        return $this->normalizeNullableString($value);
     }
 
     private function normalizeNullableString(mixed $value): ?string

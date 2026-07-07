@@ -292,6 +292,124 @@ class UserRepositoryTest extends DatabaseTestCase
         $this->assertTrue($result);
     }
 
+    // greeting binding tests
+
+    public function testCreatePersistsTrimmedGreeting(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'email' => 'new@example.com',
+            'password_hash' => 'hash123',
+            'greeting' => '  pane Nováku  ',
+        ]);
+
+        $this->assertSame('pane Nováku', $captured['greeting']);
+    }
+
+    public function testCreateNormalizesEmptyGreetingToNull(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'email' => 'new@example.com',
+            'password_hash' => 'hash123',
+            'greeting' => '   ',
+        ]);
+
+        $this->assertNull($captured['greeting']);
+    }
+
+    public function testCreateDefaultsGreetingToNullWhenOmitted(): void
+    {
+        $captured = null;
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->create([
+            'email' => 'new@example.com',
+            'password_hash' => 'hash123',
+        ]);
+
+        $this->assertNull($captured['greeting']);
+    }
+
+    public function testUpdatePersistsGreetingWhenProvided(): void
+    {
+        $captured = null;
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        $result = $this->repository->update(1, ['greeting' => 'paní Svobodová']);
+
+        $this->assertTrue($result);
+        $this->assertStringContainsString('greeting = :greeting', $sqlSeen);
+        $this->assertSame('paní Svobodová', $captured['greeting']);
+    }
+
+    public function testUpdateNormalizesEmptyGreetingToNull(): void
+    {
+        $captured = null;
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function ($params) use (&$captured) {
+                $captured = $params;
+                return true;
+            });
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        // Admin clears the greeting field — empty string must reach the DB as NULL,
+        // otherwise the FE fallback (use company name) would never trigger again.
+        $this->repository->update(1, ['greeting' => '']);
+
+        $this->assertNull($captured['greeting']);
+    }
+
+    public function testUpdateOmitsGreetingFromSqlWhenNotProvided(): void
+    {
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('rowCount')->willReturn(1);
+
+        $this->repository->update(1, ['email' => 'renamed@example.com']);
+
+        $this->assertStringNotContainsString('greeting', $sqlSeen);
+    }
+
     // delete tests
 
     public function testDeleteReturnsTrueWhenUserDeleted(): void

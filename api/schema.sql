@@ -17,7 +17,6 @@ CREATE TABLE `clients` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `client_id` VARCHAR(50) NOT NULL COMMENT 'External client identifier',
     `display_name` VARCHAR(255) NOT NULL,
-    `greeting` VARCHAR(100) NULL DEFAULT NULL COMMENT 'Optional personalized greeting target, e.g. "pane Nováku"',
     `whatsapp_group_url` VARCHAR(500) NULL DEFAULT NULL COMMENT 'WhatsApp group invite link (https://chat.whatsapp.com/...) shown to the client in the portal',
     `review_prompt_enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Admin switch: show the Google review prompt to this client. Turned off once a review is confirmed.',
     `review_prompt_snoozed_until` DATE NULL DEFAULT NULL COMMENT 'Client clicked "later": hide the prompt until this date (re-appears after ~14 days).',
@@ -118,6 +117,7 @@ DROP TABLE IF EXISTS `login_accounts`;
 CREATE TABLE `login_accounts` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `email` VARCHAR(255) NOT NULL,
+    `greeting` VARCHAR(100) NULL DEFAULT NULL COMMENT 'Optional personalized greeting target, e.g. "pane Nováku"',
     `password_hash` VARCHAR(255) NOT NULL,
     `portal_enabled` TINYINT(1) NOT NULL DEFAULT 1,
     `is_admin` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'When true, user has full admin permissions',

@@ -44,7 +44,7 @@
                     <mxGeometry y="234" width="220" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="login_accounts" value="login_accounts" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;shadow=1;" parent="1" vertex="1">
-                    <mxGeometry x="340" y="90" width="240" height="168" as="geometry"/>
+                    <mxGeometry x="340" y="90" width="240" height="190" as="geometry"/>
                 </mxCell>
                 <mxCell id="login_accounts-pk" value="PK id INT UNSIGNED AUTO_INCREMENT" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontStyle=1" parent="login_accounts" vertex="1">
                     <mxGeometry y="30" width="240" height="20" as="geometry"/>
@@ -55,17 +55,20 @@
                 <mxCell id="login_accounts-f1" value="email VARCHAR(255) UK" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="login_accounts" vertex="1">
                     <mxGeometry y="58" width="240" height="22" as="geometry"/>
                 </mxCell>
-                <mxCell id="login_accounts-f2" value="password_hash VARCHAR(255)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="login_accounts" vertex="1">
+                <mxCell id="login_accounts-greeting" value="greeting VARCHAR(100)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="login_accounts" vertex="1">
                     <mxGeometry y="80" width="240" height="22" as="geometry"/>
                 </mxCell>
-                <mxCell id="login_accounts-f3" value="portal_enabled TINYINT(1) DEFAULT 1" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="login_accounts" vertex="1">
+                <mxCell id="login_accounts-f2" value="password_hash VARCHAR(255)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="login_accounts" vertex="1">
                     <mxGeometry y="102" width="240" height="22" as="geometry"/>
                 </mxCell>
-                <mxCell id="login_accounts-f4" value="created_at, updated_at DATETIME" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#888888;" parent="login_accounts" vertex="1">
+                <mxCell id="login_accounts-f3" value="portal_enabled TINYINT(1) DEFAULT 1" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;" parent="login_accounts" vertex="1">
                     <mxGeometry y="124" width="240" height="22" as="geometry"/>
                 </mxCell>
-                <mxCell id="login_accounts-idx" value="IDX: idx_portal_enabled" style="text;strokeColor=none;fillColor=#f5f5f5;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#666666;fontStyle=2" parent="login_accounts" vertex="1">
+                <mxCell id="login_accounts-f4" value="created_at, updated_at DATETIME" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#888888;" parent="login_accounts" vertex="1">
                     <mxGeometry y="146" width="240" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="login_accounts-idx" value="IDX: idx_portal_enabled" style="text;strokeColor=none;fillColor=#f5f5f5;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;fontColor=#666666;fontStyle=2" parent="login_accounts" vertex="1">
+                    <mxGeometry y="168" width="240" height="22" as="geometry"/>
                 </mxCell>
                 <mxCell id="companies" value="companies" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;shadow=1;" parent="1" vertex="1">
                     <mxGeometry x="60" y="380" width="260" height="366" as="geometry"/>

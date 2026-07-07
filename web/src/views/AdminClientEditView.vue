@@ -204,11 +204,6 @@ function validateForm() {
     validationErrors['display_name'] = 'Název může mít nejvýše 255 znaků'
   }
 
-  const greeting = form.greeting?.trim() || ''
-  if (greeting.length > 100) {
-    validationErrors['greeting'] = 'Pozdrav může mít nejvýše 100 znaků'
-  }
-
   const waGroupUrl = form.whatsappGroupUrl?.trim() || ''
   if (waGroupUrl) {
     if (waGroupUrl.length > 500) {
@@ -252,6 +247,9 @@ function validateForm() {
     }
     if (login.restriction === 'icos' && (!login.allowedIcos || login.allowedIcos.length === 0)) {
       validationErrors[`logins.${i}.allowed_icos`] = 'Vyberte alespoň jedno IČO, ke kterému bude účet mít přístup'
+    }
+    if ((login.greeting?.trim() || '').length > 100) {
+      validationErrors[`logins.${i}.greeting`] = 'Pozdrav může mít nejvýše 100 znaků'
     }
   })
 
@@ -348,7 +346,7 @@ function validateForm() {
 // Paths the template has a display site for. Anything not matching ends up in the
 // generic "other errors" list in the summary banner — so BE-side additions (e.g., a
 // new `logins.<i>.temp_pass` rule) surface to the admin instead of vanishing silently.
-const KNOWN_ERROR_PATH_RE = /^(display_name|client_id|logins\.\d+\.(email|allowed_icos)|icos\.\d+\.(ico|official_name|objects\.\d+\.name|rounding_rules\.\d+\.(threshold_minutes|interval_minutes|direction))|contacts\.\d+\.(name|email|ico_id))$/
+const KNOWN_ERROR_PATH_RE = /^(display_name|client_id|logins\.\d+\.(email|greeting|allowed_icos)|icos\.\d+\.(ico|official_name|objects\.\d+\.name|rounding_rules\.\d+\.(threshold_minutes|interval_minutes|direction))|contacts\.\d+\.(name|email|ico_id))$/
 
 const unmatchedServerErrors = ref([])
 
@@ -414,7 +412,6 @@ const form = reactive({
   dbId:        null,
   clientId:    '',
   displayName: '',
-  greeting:    '',
   whatsappGroupUrl: '',
   notes:       '',
   active:      true,
@@ -473,13 +470,12 @@ onMounted(async () => {
         form.dbId = typeof data.id === 'number' ? data.id : null
         form.clientId = data.clientId || ''
         form.displayName = data.displayName || ''
-        form.greeting = data.greeting || ''
         form.whatsappGroupUrl = data.whatsappGroupUrl || ''
         form.notes = data.notes || ''
         form.active = data.active ?? true
         form.isDemo = data.isDemo ?? false
         form.reviewPromptEnabled = data.reviewPromptEnabled ?? true
-        form.logins = (data.logins || []).map(l => ({ ...l, id: uid(), showPass: false, tempPass: '', expanded: false }))
+        form.logins = (data.logins || []).map(l => ({ ...l, greeting: l.greeting || '', id: uid(), showPass: false, tempPass: '', expanded: false }))
         form.icos = (data.icos || []).map(i => ({
           ...i,
           companyId: i.id || null,
@@ -535,7 +531,7 @@ const progressPercent = computed(() => Math.round((requiredCount.value / 3) * 10
 
 // ── Add / Remove helpers ──────────────────────────────────────────────────────
 function addLogin() {
-  form.logins.push({ id: uid(), email: '', restriction: 'all', allowedIcos: [], showPass: false, tempPass: '', expanded: true })
+  form.logins.push({ id: uid(), email: '', greeting: '', restriction: 'all', allowedIcos: [], showPass: false, tempPass: '', expanded: true })
 }
 function removeLogin(id) { form.logins = form.logins.filter(l => l.id !== id) }
 
@@ -922,7 +918,6 @@ async function save() {
     const payload = {
       client_id: form.clientId,
       display_name: form.displayName,
-      greeting: form.greeting,
       whatsapp_group_url: form.whatsappGroupUrl,
       notes: form.notes,
       active: form.active,
@@ -931,6 +926,7 @@ async function save() {
       logins: form.logins.map(l => ({
         user_id: l.userId ?? null,
         email: l.email,
+        greeting: l.greeting,
         restriction: l.restriction,
         allowed_icos: l.allowedIcos,
         temp_pass: l.tempPass,
@@ -1035,6 +1031,7 @@ function serializeForm() {
     reviewPromptEnabled: form.reviewPromptEnabled,
     logins: form.logins.map(l => ({
       email: l.email,
+      greeting: l.greeting,
       restriction: l.restriction,
       allowedIcos: [...(l.allowedIcos || [])],
       hasTempPass: !!l.tempPass,
@@ -1253,26 +1250,6 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="form-group">
-            <label id="label-greeting" for="input-greeting" class="form-label">Osobní pozdrav</label>
-            <input
-              id="input-greeting"
-              v-model="form.greeting"
-              type="text"
-              class="form-input"
-              :class="{ 'input-error': validationErrors['greeting'] }"
-              placeholder="pane Nováku"
-              maxlength="100"
-              :aria-invalid="!!validationErrors['greeting']"
-              :aria-describedby="validationErrors['greeting'] ? 'error-greeting' : 'hint-greeting'"
-              @input="clearFieldError('greeting')"
-            />
-            <p v-if="validationErrors['greeting']" id="error-greeting" class="field-error" role="alert">
-              <AlertTriangle :size="12" /> {{ validationErrors['greeting'] }}
-            </p>
-            <p v-else id="hint-greeting" class="field-hint">Použije se v osobním pozdravu na úvodní stránce klienta, např. „Dobré ráno, pane Nováku“. Nepovinné — pokud zůstane prázdné, použije se název firmy.</p>
-          </div>
-
-          <div class="form-group">
             <label id="label-whatsappGroupUrl" for="input-whatsappGroupUrl" class="form-label">Odkaz na WhatsApp skupinu</label>
             <input
               id="input-whatsappGroupUrl"
@@ -1391,7 +1368,7 @@ onBeforeUnmount(() => {
               v-for="(login, index) in form.logins"
               :key="login.id"
               class="card login-card"
-              :class="{ 'card-has-error': validationErrors[`logins.${index}.email`] || validationErrors[`logins.${index}.allowed_icos`] }"
+              :class="{ 'card-has-error': validationErrors[`logins.${index}.email`] || validationErrors[`logins.${index}.allowed_icos`] || validationErrors[`logins.${index}.greeting`] }"
             >
 
               <!-- Login header (collapsible) -->
@@ -1400,10 +1377,10 @@ onBeforeUnmount(() => {
                   <Lock :size="16" class="text-mid" />
                   <span class="login-card-email">{{ login.email || '(Nový účet)' }}</span>
                   <AlertTriangle
-                    v-if="validationErrors[`logins.${index}.email`] || validationErrors[`logins.${index}.allowed_icos`]"
+                    v-if="validationErrors[`logins.${index}.email`] || validationErrors[`logins.${index}.allowed_icos`] || validationErrors[`logins.${index}.greeting`]"
                     :size="14"
                     class="text-danger"
-                    :title="validationErrors[`logins.${index}.email`] || validationErrors[`logins.${index}.allowed_icos`]"
+                    :title="validationErrors[`logins.${index}.email`] || validationErrors[`logins.${index}.allowed_icos`] || validationErrors[`logins.${index}.greeting`]"
                   />
                 </div>
                 <div class="login-header-right">
@@ -1444,6 +1421,32 @@ onBeforeUnmount(() => {
                   >
                     <AlertTriangle :size="12" /> {{ validationErrors[`logins.${index}.email`] }}
                   </p>
+                </div>
+
+                <!-- Personal greeting (per user account) -->
+                <div class="form-group" style="margin-top:12px;">
+                  <label class="form-label" :for="`login-greeting-${index}`">Osobní pozdrav</label>
+                  <input
+                    :id="`login-greeting-${index}`"
+                    v-model="login.greeting"
+                    type="text"
+                    class="form-input"
+                    :class="{ 'input-error': validationErrors[`logins.${index}.greeting`] }"
+                    placeholder="pane Nováku"
+                    maxlength="100"
+                    :aria-invalid="!!validationErrors[`logins.${index}.greeting`]"
+                    :aria-describedby="validationErrors[`logins.${index}.greeting`] ? `login-greeting-${index}-error` : `login-greeting-${index}-hint`"
+                    @input="clearFieldError(`logins.${index}.greeting`)"
+                  />
+                  <p
+                    v-if="validationErrors[`logins.${index}.greeting`]"
+                    :id="`login-greeting-${index}-error`"
+                    class="field-error"
+                    role="alert"
+                  >
+                    <AlertTriangle :size="12" /> {{ validationErrors[`logins.${index}.greeting`] }}
+                  </p>
+                  <p v-else :id="`login-greeting-${index}-hint`" class="field-hint">Použije se v osobním pozdravu na úvodní stránce tohoto účtu, např. „Dobré ráno, pane Nováku“. Nepovinné — pokud zůstane prázdné, použije se název firmy.</p>
                 </div>
 
                 <!-- Initial password (new client, or login row added during edit) -->

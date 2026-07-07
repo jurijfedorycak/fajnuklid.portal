@@ -126,6 +126,7 @@
   --fs-xl:   clamp(16px, 1vw + 13px, 18px);
   --fs-2xl:  clamp(18px, 1.5vw + 13px, 22px);
   --fs-3xl:  clamp(20px, 2vw + 14px, 26px);
+  --fs-4xl:  clamp(28px, 3vw + 18px, 38px);
 
   /* Fluid spacing */
   --space-xs:  4px;

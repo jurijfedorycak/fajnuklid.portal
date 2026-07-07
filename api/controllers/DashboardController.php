@@ -247,20 +247,16 @@ class DashboardController extends Controller
             $icoToName
         );
 
-        $clientGreeting = null;
-        if ($activeClientId !== null) {
-            $clientRow = $this->clientRepo->findById($activeClientId);
-            if ($clientRow !== null) {
-                $greeting = isset($clientRow['greeting']) ? trim((string) $clientRow['greeting']) : '';
-                $clientGreeting = $greeting !== '' ? $greeting : null;
-            }
-        }
+        // The greeting is now per login account, so it comes straight off the
+        // authenticated user loaded by the auth middleware — no client lookup needed.
+        $userGreeting = isset($user['greeting']) ? trim((string) $user['greeting']) : '';
+        $userGreeting = $userGreeting !== '' ? $userGreeting : null;
 
         $currentUser = [
             'id' => (int) $user['id'],
             'email' => $user['email'],
             'displayName' => $activeCompany['name'] ?? $user['email'],
-            'greeting' => $clientGreeting,
+            'greeting' => $userGreeting,
             'activeIco' => $activeIco,
             'clientId' => $activeClientId,
         ];
