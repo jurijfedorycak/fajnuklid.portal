@@ -1447,8 +1447,7 @@ function selectCompany(ico) {
   flex-direction: column;
   gap: 14px;
   margin-bottom: 20px;
-  /* Right inset clears the floating hamburger; gone once the topbar hides. */
-  padding: 4px 56px 0 0;
+  padding: 4px 0 0 0;
 }
 @media (min-width: 768px) {
   .dashboard-hero {
