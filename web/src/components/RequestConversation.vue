@@ -136,7 +136,12 @@ function isOwn(item) {
 
 const previewModal = ref({ show: false, url: '', filename: '', mimeType: '' })
 function openPreview(att) {
-  previewModal.value = { show: true, url: att.url, filename: att.filename, mimeType: att.mimeType || '' }
+  previewModal.value = {
+    show: true,
+    url: att.url,
+    filename: isImage(att) ? 'Fotografie' : att.filename,
+    mimeType: att.mimeType || '',
+  }
 }
 function closePreview() {
   previewModal.value.show = false
@@ -218,11 +223,6 @@ function closePreview() {
                     role="button" tabindex="0"
                     @click="openPreview(att)" @keydown.enter="openPreview(att)"
                   />
-                  <span
-                    class="attach-tile-name"
-                    role="button" tabindex="0"
-                    @click="openPreview(att)" @keydown.enter="openPreview(att)"
-                  >{{ att.filename }}</span>
                 </template>
                 <div
                   v-else class="attach-tile-pdf"
@@ -454,8 +454,8 @@ function closePreview() {
 .chat-attach {
   margin-top: 10px;
 }
-/* Larger, evenly rounded photo tiles with a muted caption keep the gallery
-   tidy instead of a row of teal filenames fighting for attention. */
+/* Larger, evenly rounded photo tiles keep the gallery tidy — the photo speaks
+   for itself, so no filename caption is shown under it. */
 .chat-attach.attach-gallery--compact {
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 10px;
@@ -464,16 +464,9 @@ function closePreview() {
   border-radius: var(--radius-md);
   background: var(--color-white);
 }
-.chat-attach .attach-tile-name {
-  color: var(--color-gray-600);
-  font-weight: 500;
-}
 .chat-bubble--own .chat-attach .attach-tile {
   border-color: rgba(255, 255, 255, 0.25);
   background: rgba(255, 255, 255, 0.08);
-}
-.chat-bubble--own .chat-attach .attach-tile-name {
-  color: var(--color-white);
 }
 .chat-bubble--own .chat-attach .attach-tile-pdf {
   color: var(--color-white);

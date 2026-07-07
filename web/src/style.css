@@ -800,19 +800,6 @@ input, select, textarea {
 .attach-tile-clickable:hover {
   opacity: 0.85;
 }
-.attach-tile-name {
-  display: block;
-  padding: 6px 8px;
-  font-size: 11px;
-  color: var(--color-accent);
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.attach-tile-name:hover {
-  text-decoration: underline;
-}
 .attach-tile-pdf {
   width: 100%;
   aspect-ratio: 1;
