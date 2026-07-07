@@ -7,8 +7,8 @@ import logoDarkSrc from '../assets/logo-dark.svg'
 
 const sidebarOpen = ref(false)
 const route = useRoute()
-// Pages with `chrome: 'floating'` trade the solid logo topbar for a lone
-// hamburger floating over a tinted canvas (dashboard hero design).
+// Pages with `chrome: 'floating'` drop the mobile topbar for a tinted hero
+// canvas (dashboard design); navigation stays in the bottom bar.
 const floatingChrome = computed(() => route.meta.chrome === 'floating')
 
 function onKeydown(e) {
@@ -58,7 +58,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   height: 100%;
   overflow: hidden;
   min-width: 0;
-  /* Anchor for the floating topbar variant */
   position: relative;
 }
 

@@ -29,7 +29,7 @@ const routes = [
         path: '/prehled',
         name: 'Dashboard',
         component: () => import('../views/DashboardView.vue'),
-        // Floating hamburger over a tinted canvas instead of the solid topbar
+        // No mobile topbar; tinted hero canvas instead of the solid logo bar
         meta: { chrome: 'floating' },
       },
       {

@@ -58,7 +58,6 @@ class ContactController extends Controller
 
         // Visiting office (static for now)
         $office = [
-            'name' => 'BFine.Offices',
             'addressLine1' => 'Karlovo náměstí 313/8',
             'addressLine2' => '120 00 Praha 2, 4. patro',
             'note' => 'Schůzky a návštěvy po předchozí domluvě.',

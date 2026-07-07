@@ -146,7 +146,7 @@ const hasAnyContent = computed(() => Boolean(
           <span class="info-icon"><MapPin :size="20" /></span>
           <div class="info-body">
             <h2 class="info-label">Kancelář</h2>
-            <p class="info-value">{{ office.name }}</p>
+            <p v-if="office.name" class="info-value">{{ office.name }}</p>
             <p class="info-address">{{ office.addressLine1 }}<br />{{ office.addressLine2 }}</p>
             <p v-if="office.note" id="contact-office-note" class="info-note info-note-italic">
               <Info :size="13" />
