@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { Eye, EyeOff, Loader2 } from 'lucide-vue-next'
 import { useAuth } from '../stores/auth'
 import { handleExternalClick } from '../utils/openExternal'
+import logoDarkSrc from '../assets/logo-dark.svg'
 
 const router = useRouter()
 const { login, isAdmin } = useAuth()
@@ -52,6 +53,12 @@ async function handleLogin() {
     </a>
 
     <main id="login-card" class="login-card">
+      <img
+        id="login-logo"
+        :src="logoDarkSrc"
+        alt="Fajn Úklid logo"
+        class="login-logo"
+      />
       <h1 id="login-title" class="login-title">Přihlásit se</h1>
 
       <form
@@ -167,9 +174,16 @@ async function handleLogin() {
   width: 100%;
   display: flex;
   flex-direction: column;
-  /* Heading sits about a fifth down the screen on phones */
-  padding: 20vh 24px 28px;
-  padding-top: 20dvh;
+  /* Logo sits high on the screen on phones */
+  padding: 10vh 24px 28px;
+  padding-top: 10dvh;
+}
+
+.login-logo {
+  align-self: flex-start;
+  height: 34px;
+  width: auto;
+  margin-bottom: 88px;
 }
 
 .login-title {
