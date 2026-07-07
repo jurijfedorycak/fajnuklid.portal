@@ -24,7 +24,6 @@ import {
   BarChart3,
   Users,
   FileSignature,
-  Clock,
   MapPin,
   Sunrise,
   Sun,
@@ -232,23 +231,6 @@ const contract = computed(() => overview.value.contract || { hasPdf: false });
 const recentInvoices = computed(() => dashboardData.value.recentInvoices || []);
 const cleaningDays = computed(() => dashboardData.value.cleaningDays || []);
 const ongoingCleaning = computed(() => dashboardData.value.ongoingCleaning || null);
-
-// True when the backend disclosed any specifics (object, start, worker) for the
-// in-progress cleaning. Basic-mode IČOs return the ongoing tuple with all of
-// these empty, so the banner falls back to a generic message instead.
-const ongoingHasDetails = computed(() => {
-  const o = ongoingCleaning.value;
-  if (!o) return false;
-  return !!(o.objectName || o.since || (o.employees && o.employees.length));
-});
-
-const ongoingEmployeesLabel = computed(() => {
-  const names = ongoingCleaning.value?.employees || [];
-  if (names.length === 0) return "";
-  if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]} a ${names[1]}`;
-  return `${names.slice(0, -1).join(", ")} a ${names[names.length - 1]}`;
-});
 
 // Greeting text + matching time-of-day icon (sunrise → sun → sunset → moon).
 // Reads the hour from the reactive `today` snapshot so a dashboard reopened on
@@ -747,36 +729,6 @@ function selectCompany(ico) {
           </span>
           <span class="live-pill-title">Úklid právě probíhá</span>
           <ArrowRight :size="14" class="live-pill-arrow" aria-hidden="true" />
-        </span>
-        <span
-          v-if="ongoingHasDetails"
-          id="dashboard-live-cleaning-meta"
-          class="live-pill-meta"
-        >
-          <span
-            v-if="ongoingCleaning.objectName"
-            id="dashboard-live-cleaning-object"
-            class="live-pill-meta-item"
-          >
-            <MapPin :size="13" aria-hidden="true" />
-            {{ ongoingCleaning.objectName }}
-          </span>
-          <span
-            v-if="ongoingCleaning.since"
-            id="dashboard-live-cleaning-since"
-            class="live-pill-meta-item"
-          >
-            <Clock :size="13" aria-hidden="true" />
-            od {{ ongoingCleaning.since }}
-          </span>
-          <span
-            v-if="ongoingEmployeesLabel"
-            id="dashboard-live-cleaning-staff"
-            class="live-pill-meta-item"
-          >
-            <Users :size="13" aria-hidden="true" />
-            {{ ongoingEmployeesLabel }}
-          </span>
         </span>
       </RouterLink>
       </div>
@@ -1391,8 +1343,7 @@ function selectCompany(ico) {
 
 .live-pill {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
   width: fit-content;
   max-width: 100%;
   padding: 10px 16px;
@@ -1458,28 +1409,6 @@ function selectCompany(ico) {
 }
 
 .live-pill-arrow {
-  color: var(--color-success);
-  flex-shrink: 0;
-}
-
-.live-pill-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--color-gray-600);
-  padding-left: 24px;
-}
-
-.live-pill-meta-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-.live-pill-meta-item svg {
   color: var(--color-success);
   flex-shrink: 0;
 }
