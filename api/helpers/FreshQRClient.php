@@ -261,8 +261,10 @@ class FreshQRClient
                 $body = is_string($body) ? $body : '';
                 $httpCode = (int) curl_getinfo($handle['ch'], CURLINFO_HTTP_CODE);
                 $curlError = curl_error($handle['ch']);
+                // No curl_close(): deprecated since PHP 8.5 and a no-op since 8.0
+                // (handles are objects freed by GC once out of scope). Removing
+                // it from the multi handle is the only cleanup still required.
                 curl_multi_remove_handle($multi, $handle['ch']);
-                curl_close($handle['ch']);
 
                 $transient = $curlError !== '' || $httpCode >= 500;
                 if ($transient && !$isLastAttempt) {
@@ -273,7 +275,9 @@ class FreshQRClient
                 $results[$key] = $this->parseReportsBody($body, $handle['url'], $httpCode, $curlError);
             }
 
-            curl_multi_close($multi);
+            // No curl_multi_close(): same story as curl_close() above — deprecated
+            // in 8.5, no-op since 8.0. $multi is freed by GC when it's reassigned
+            // by the next attempt's curl_multi_init() or falls out of scope.
             $pending = $retry;
         }
 

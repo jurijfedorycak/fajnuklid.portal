@@ -50,6 +50,32 @@ function sendCorsHeaders(): void
     header('Access-Control-Allow-Credentials: true');
 }
 
+// Short, collision-unlikely reference stamped on every error response and its
+// matching error.log entry, so a "500 with errorId X" seen in the browser can be
+// traced to the full stack trace in the log without exposing internals publicly.
+function errorReferenceId(): string
+{
+    try {
+        return bin2hex(random_bytes(5));
+    } catch (\Throwable $e) {
+        return substr(md5(uniqid('', true)), 0, 10);
+    }
+}
+
+// Whether error responses may carry the real exception detail (message/file/
+// line/trace). Always on in development; on in any environment when APP_DEBUG is
+// explicitly enabled, so production errors can be diagnosed on demand by flipping
+// APP_DEBUG=true in .env — then off again. Kept off by default because the public
+// /storage/file endpoint reaches this handler and internals must not leak.
+function shouldExposeErrorDetail(): bool
+{
+    try {
+        return Config::get('APP_ENV') === 'development' || Config::getBool('APP_DEBUG');
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
 // Fatal errors (max_execution_time, OOM, parse/compile errors) bypass
 // set_exception_handler entirely — the script dies without the JSON response
 // body or CORS headers the FE needs, so the browser reports a generic CORS
@@ -67,6 +93,14 @@ register_shutdown_function(function () {
         return;
     }
 
+    $errorId = errorReferenceId();
+
+    // Fatals bypass set_exception_handler, so log here too — same format so both
+    // paths are greppable by errorId in error.log.
+    $logMessage = date('Y-m-d H:i:s') . " [{$errorId}] FatalError: " . $error['message']
+        . ' in ' . $error['file'] . ':' . $error['line'] . "\n\n";
+    @file_put_contents(__DIR__ . '/error.log', $logMessage, FILE_APPEND);
+
     sendCorsHeaders();
     http_response_code(500);
     header('Content-Type: application/json; charset=utf-8');
@@ -75,9 +109,10 @@ register_shutdown_function(function () {
         'success' => false,
         'message' => 'Internal Server Error',
         'errors' => null,
+        'errorId' => $errorId,
     ];
 
-    if (Config::get('APP_ENV') === 'development') {
+    if (shouldExposeErrorDetail()) {
         $payload['debug'] = [
             'exception' => 'FatalError',
             'message' => $error['message'],
@@ -89,8 +124,26 @@ register_shutdown_function(function () {
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 });
 
-// Set error handling
+// Promote PHP errors to exceptions so they surface through the handler below,
+// with two guards:
+//   - Respect error_reporting()/@-suppression: a level the runtime is told to
+//     ignore must not be escalated to a fatal exception.
+//   - Deprecations are informational about a FUTURE PHP removal, not a bug in
+//     the current run, so they're logged and swallowed instead of throwing.
+//     Without this, one deprecated call (e.g. a PHP 8.5 stdlib deprecation)
+//     turns an otherwise-working endpoint into a 500 — which is exactly how the
+//     Docházka overview broke after the production PHP upgrade.
 set_error_handler(function ($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) {
+        return true;
+    }
+
+    if ($severity === E_DEPRECATED || $severity === E_USER_DEPRECATED) {
+        $logMessage = date('Y-m-d H:i:s') . " [deprecation] {$message} in {$file}:{$line}\n";
+        @file_put_contents(__DIR__ . '/error.log', $logMessage, FILE_APPEND);
+        return true;
+    }
+
     throw new ErrorException($message, 0, $severity, $file, $line);
 });
 
@@ -119,26 +172,34 @@ set_exception_handler(function (Throwable $e) {
         $message = 'Database Error: ' . $e->getMessage();
     }
 
-    // Log all errors to file for debugging
-    $logMessage = date('Y-m-d H:i:s') . ' ' . get_class($e) . ': ' . $e->getMessage()
+    $errorId = errorReferenceId();
+
+    // Log all errors to file for debugging. The errorId ties the browser-visible
+    // response to this entry, and the request line gives context for triage.
+    $requestLine = ($_SERVER['REQUEST_METHOD'] ?? '-') . ' ' . ($_SERVER['REQUEST_URI'] ?? '-');
+    $logMessage = date('Y-m-d H:i:s') . " [{$errorId}] {$requestLine}\n"
+        . get_class($e) . ': ' . $e->getMessage()
         . ' in ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString() . "\n\n";
     file_put_contents(__DIR__ . '/error.log', $logMessage, FILE_APPEND);
 
     // Log error in production
     if (Config::get('APP_ENV') !== 'development') {
-        error_log($e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        error_log("[{$errorId}] " . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     }
 
     $payload = [
         'success' => false,
         'message' => $message,
         'errors' => $errors,
+        'errorId' => $errorId,
     ];
 
-    // Never expose file paths, class names, or stack traces to the browser in production —
-    // a public unauthenticated endpoint (/storage/file) can reach this handler, so leaking
-    // internals here would hand attackers a server-layout reconnaissance tool.
-    if (Config::get('APP_ENV') === 'development') {
+    // File paths, class names, and stack traces are exposed only when
+    // shouldExposeErrorDetail() allows it — a public unauthenticated endpoint
+    // (/storage/file) can reach this handler, so by default (production, APP_DEBUG
+    // off) internals stay hidden and only the safe errorId crosses the wire.
+    // Flip APP_DEBUG=true in .env to diagnose a live production error, then off.
+    if (shouldExposeErrorDetail()) {
         $payload['debug'] = [
             'exception' => get_class($e),
             'message' => $e->getMessage(),
