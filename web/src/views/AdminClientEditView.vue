@@ -2255,7 +2255,7 @@ onBeforeUnmount(() => {
               <Plus :size="14" /> Přidat pracovníka
             </button>
           </div>
-          <p class="sec-desc">Vyberte zaměstnance ze seznamu a přiřaďte je k provozovnám s nastavením GDPR viditelnosti.</p>
+          <p class="sec-desc">Vyberte pracovníky přiřazené tomuto klientovi a určete, u kterých provozoven se zobrazí v portálu.</p>
 
           <div v-if="form.staff.length === 0" class="empty-state-guide">
             <div class="empty-state-guide-icon"><Users :size="28" /></div>
@@ -2319,9 +2319,12 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <!-- Object assignment -->
+                <!-- Object assignment: controls at which of the client's provozovny this worker appears in the portal -->
                 <div class="form-group">
-                  <label class="form-label">Přiřazení k provozovnám</label>
+                  <label :id="'staff-obj-label-' + person.id" class="form-label">Zobrazit u provozoven</label>
+                  <p :id="'staff-obj-hint-' + person.id" class="field-hint staff-obj-hint">
+                    Zaškrtnuté provozovny uvidí tohoto pracovníka ve svém portálu. Když nezaškrtnete žádnou, zobrazí se u všech provozoven klienta.
+                  </p>
                   <div v-if="allObjects.length > 0" class="obj-checkboxes">
                     <label
                       v-for="obj in allObjects"
@@ -3623,6 +3626,8 @@ onBeforeUnmount(() => {
   flex: 1 1 100%;
 }
 .staff-assigned-tags:empty { display: none; }
+
+.staff-obj-hint { margin: 2px 0 10px; }
 
 @media (min-width: 640px) {
   .staff-assigned-tags { flex: 0 1 auto; order: 0; }

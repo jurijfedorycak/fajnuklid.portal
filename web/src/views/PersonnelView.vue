@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { Clock, Star, BookOpen } from 'lucide-vue-next'
+import { Clock, Star, BookOpen, Phone } from 'lucide-vue-next'
 import { personnelService } from '../api'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
 import EmptyRequestsIllustration from '../components/EmptyRequestsIllustration.vue'
@@ -155,6 +155,16 @@ function pluralWorkers(n) {
             <Clock :size="14" aria-hidden="true" />
             <span>{{ person.tenure }}</span>
           </div>
+
+          <a
+            v-if="person.showPhone && person.phone"
+            :id="'person-phone-' + person.id"
+            :href="'tel:' + person.phone.replace(/\s+/g, '')"
+            class="person-phone"
+          >
+            <Phone :size="14" aria-hidden="true" />
+            <span>{{ person.phone }}</span>
+          </a>
 
           <div v-if="(person.showBio && person.bio) || (person.showHobbies && person.hobbies)" class="person-details">
             <div v-if="person.showBio && person.bio" class="person-detail-row">
@@ -324,6 +334,25 @@ function pluralWorkers(n) {
 .person-tenure svg {
   color: var(--color-gray-400);
   flex-shrink: 0;
+}
+
+.person-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-blue);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.person-phone svg {
+  color: var(--color-blue);
+  flex-shrink: 0;
+}
+.person-phone:hover {
+  color: var(--color-primary);
 }
 
 .person-details {

@@ -107,6 +107,8 @@ class PersonnelController extends Controller
             'showBio' => (bool) ($employee['show_bio'] ?? false),
             'hobbies' => !empty($employee['show_hobbies']) ? ($employee['hobbies'] ?? null) : null,
             'showHobbies' => (bool) ($employee['show_hobbies'] ?? false),
+            'phone' => !empty($employee['show_phone']) ? ($employee['phone'] ?? null) : null,
+            'showPhone' => (bool) ($employee['show_phone'] ?? false),
             'photoUrl' => !empty($employee['show_photo']) ? $this->storage->resolveProxyUrl($employee['photo_url'] ?? null) : null,
         ];
     }
