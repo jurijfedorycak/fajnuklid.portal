@@ -48,9 +48,10 @@ export const adminService = {
   },
 
   // Clients
-  async getClients(page = 1, perPage = 20, search = null) {
+  async getClients(page = 1, perPage = 20, search = null, status = 'active') {
     const params = { page, per_page: perPage }
     if (search) params.search = search
+    if (status === 'archived') params.status = 'archived'
 
     const response = await apiClient.get('/admin/clients', { params })
     return response.data
@@ -73,6 +74,11 @@ export const adminService = {
 
   async deleteClient(id) {
     const response = await apiClient.delete(`/admin/clients/${id}`)
+    return response.data
+  },
+
+  async restoreClient(id) {
+    const response = await apiClient.post(`/admin/clients/${id}/restore`)
     return response.data
   },
 

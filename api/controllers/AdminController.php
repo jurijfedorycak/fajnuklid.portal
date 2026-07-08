@@ -466,13 +466,15 @@ class AdminController extends Controller
     {
         $pagination = $this->getPagination($request);
         $search = $request->query('search');
+        $status = $request->query('status') === 'archived' ? 'archived' : 'active';
 
         $clients = $this->clientRepo->findPaginated(
             $pagination['per_page'],
             $pagination['offset'],
-            $search
+            $search,
+            $status
         );
-        $total = $this->clientRepo->countAll($search);
+        $total = $this->clientRepo->countAll($search, $status);
 
         // Enrich each client with additional info
         $enrichedClients = [];
@@ -511,6 +513,7 @@ class AdminController extends Controller
                 'display_name' => $client['display_name'],
                 'icos' => $icos,
                 'active' => $active,
+                'archived' => $client['deleted_at'] !== null,
                 'last_login' => $lastLogin,
                 'email' => !empty($logins) ? $logins[0]['email'] : null,
                 'created_at' => $client['created_at'],
@@ -1316,9 +1319,68 @@ class AdminController extends Controller
         }
 
         $id = (int) $client['id'];
-        $this->clientRepo->delete($id);
 
-        Response::success(null, 'Klient byl smazán');
+        $db = \App\Config\Database::getConnection();
+        $db->beginTransaction();
+        try {
+            // Archiving also revokes portal access so an archived client can't log in.
+            $this->clientRepo->delete($id);
+            $this->setClientLoginsEnabled($id, false);
+            $db->commit();
+        } catch (\Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+
+        Response::success(null, 'Klient byl archivován');
+    }
+
+    public function restoreClient(Request $request): void
+    {
+        $clientId = $request->param('id');
+        $client = $this->clientRepo->findByClientIdIncludingDeleted($clientId);
+
+        if (!$client) {
+            throw new NotFoundException('Klient nebyl nalezen');
+        }
+
+        if ($client['deleted_at'] === null) {
+            throw new ValidationException('Klient není archivovaný', []);
+        }
+
+        $id = (int) $client['id'];
+
+        $db = \App\Config\Database::getConnection();
+        $db->beginTransaction();
+        try {
+            $this->clientRepo->restore($id);
+            $this->setClientLoginsEnabled($id, true);
+            $db->commit();
+        } catch (\Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+
+        Response::success(null, 'Klient byl obnoven');
+    }
+
+    /**
+     * Toggle portal_enabled on every login account linked to this client's companies.
+     * De-dupes because a single account can be linked to several of the client's IČOs.
+     */
+    private function setClientLoginsEnabled(int $clientId, bool $enabled): void
+    {
+        $seen = [];
+        foreach ($this->companyRepo->findByClientId($clientId) as $company) {
+            foreach ($this->companyUserRepo->findByCompanyId((int) $company['id']) as $link) {
+                $userId = (int) $link['user_id'];
+                if (isset($seen[$userId])) {
+                    continue;
+                }
+                $seen[$userId] = true;
+                $this->userRepo->update($userId, ['portal_enabled' => $enabled]);
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

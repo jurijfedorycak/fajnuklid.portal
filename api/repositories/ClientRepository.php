@@ -66,6 +66,33 @@ class ClientRepository
         return $result ?: null;
     }
 
+    public function findByClientIdIncludingDeleted(string $clientId): ?array
+    {
+        $stmt = $this->db->prepare('
+            SELECT
+                id,
+                client_id,
+                display_name,
+                whatsapp_group_url,
+                review_prompt_enabled,
+                review_prompt_snoozed_until,
+                review_prompt_rating,
+                review_prompt_completed_at,
+                is_demo,
+                created_at,
+                updated_at,
+                deleted_at
+            FROM clients
+            WHERE client_id = :client_id
+            ORDER BY (deleted_at IS NULL) DESC
+            LIMIT 1
+        ');
+        $stmt->execute(['client_id' => $clientId]);
+        $result = $stmt->fetch();
+
+        return $result ?: null;
+    }
+
     public function findByUserId(int $userId): ?array
     {
         // ORDER BY makes the LIMIT 1 deterministic in the unusual case where a
@@ -117,7 +144,7 @@ class ClientRepository
         return $stmt->fetchAll();
     }
 
-    public function findPaginated(int $limit, int $offset, ?string $search = null): array
+    public function findPaginated(int $limit, int $offset, ?string $search = null, string $status = 'active'): array
     {
         $sql = '
             SELECT
@@ -127,10 +154,10 @@ class ClientRepository
                 whatsapp_group_url,
                 is_demo,
                 created_at,
-                updated_at
+                updated_at,
+                deleted_at
             FROM clients
-            WHERE deleted_at IS NULL
-        ';
+            WHERE ' . $this->archiveCondition($status);
 
         $params = [];
 
@@ -154,9 +181,9 @@ class ClientRepository
         return $stmt->fetchAll();
     }
 
-    public function countAll(?string $search = null): int
+    public function countAll(?string $search = null, string $status = 'active'): int
     {
-        $sql = 'SELECT COUNT(*) FROM clients WHERE deleted_at IS NULL';
+        $sql = 'SELECT COUNT(*) FROM clients WHERE ' . $this->archiveCondition($status);
         $params = [];
 
         if ($search !== null && $search !== '') {
@@ -168,6 +195,13 @@ class ClientRepository
         $stmt->execute($params);
 
         return (int) $stmt->fetchColumn();
+    }
+
+    // 'archived' lists soft-deleted rows for the admin archive view; anything else
+    // (the default) lists live rows.
+    private function archiveCondition(string $status): string
+    {
+        return $status === 'archived' ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL';
     }
 
     public function create(array $data): int

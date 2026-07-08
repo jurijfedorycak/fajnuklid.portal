@@ -82,6 +82,44 @@ class ClientRepositoryTest extends DatabaseTestCase
         $this->assertNull($result);
     }
 
+    // findByClientIdIncludingDeleted tests
+
+    public function testFindByClientIdIncludingDeletedReturnsArchivedClient(): void
+    {
+        $expected = [
+            'id' => 1,
+            'client_id' => 'CLT001',
+            'display_name' => 'Archived Client',
+            'deleted_at' => '2026-07-08 10:00:00',
+        ];
+
+        $this->setupFetchMock($expected);
+
+        $result = $this->repository->findByClientIdIncludingDeleted('CLT001');
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testFindByClientIdIncludingDeletedDoesNotFilterOutSoftDeleted(): void
+    {
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetch')->willReturn(false);
+
+        $this->repository->findByClientIdIncludingDeleted('CLT001');
+
+        // The WHERE clause must not filter soft-deleted rows out...
+        $this->assertStringNotContainsString('AND deleted_at IS NULL', $sqlSeen);
+        // ...but it must resolve a reused client_id deterministically to the live row.
+        $this->assertStringContainsString('ORDER BY (deleted_at IS NULL) DESC', $sqlSeen);
+        $this->assertStringContainsString('LIMIT 1', $sqlSeen);
+    }
+
     // findAll tests
 
     public function testFindAllReturnsAllActiveClients(): void
@@ -141,6 +179,38 @@ class ClientRepositoryTest extends DatabaseTestCase
         $this->assertEquals($expectedClients, $result);
     }
 
+    public function testFindPaginatedDefaultsToLiveClients(): void
+    {
+        $sqlSeen = $this->captureFindPaginatedSql(fn() => $this->repository->findPaginated(10, 0));
+
+        $this->assertStringContainsString('deleted_at IS NULL', $sqlSeen);
+        $this->assertStringNotContainsString('deleted_at IS NOT NULL', $sqlSeen);
+    }
+
+    public function testFindPaginatedArchivedStatusListsSoftDeleted(): void
+    {
+        $sqlSeen = $this->captureFindPaginatedSql(fn() => $this->repository->findPaginated(10, 0, null, 'archived'));
+
+        $this->assertStringContainsString('deleted_at IS NOT NULL', $sqlSeen);
+    }
+
+    private function captureFindPaginatedSql(callable $call): string
+    {
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('fetchAll')->willReturn([]);
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('bindValue')->willReturn(true);
+
+        $call();
+
+        return $sqlSeen;
+    }
+
     // countAll tests
 
     public function testCountAllWithoutSearch(): void
@@ -168,6 +238,40 @@ class ClientRepositoryTest extends DatabaseTestCase
         $result = $this->repository->countAll();
 
         $this->assertEquals(0, $result);
+    }
+
+    public function testCountAllDefaultsToLiveClients(): void
+    {
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetchColumn')->willReturn(3);
+
+        $this->repository->countAll();
+
+        $this->assertStringContainsString('deleted_at IS NULL', $sqlSeen);
+        $this->assertStringNotContainsString('deleted_at IS NOT NULL', $sqlSeen);
+    }
+
+    public function testCountAllArchivedStatusCountsSoftDeleted(): void
+    {
+        $sqlSeen = '';
+        $this->pdoMock->method('prepare')
+            ->willReturnCallback(function ($sql) use (&$sqlSeen) {
+                $sqlSeen = $sql;
+                return $this->stmtMock;
+            });
+        $this->stmtMock->method('execute')->willReturn(true);
+        $this->stmtMock->method('fetchColumn')->willReturn(1);
+
+        $result = $this->repository->countAll(null, 'archived');
+
+        $this->assertEquals(1, $result);
+        $this->assertStringContainsString('deleted_at IS NOT NULL', $sqlSeen);
     }
 
     // create tests

@@ -17,6 +17,7 @@ import {
   Eye, EyeOff, Upload, CheckCircle2, AlertTriangle, ToggleLeft, ToggleRight,
   Globe, Shield, Copy, Loader2, HelpCircle, Lightbulb, Search, X, KeyRound,
   RefreshCw, XCircle, FileText, FileSpreadsheet, Image as ImageIcon, Pencil,
+  Archive,
 } from 'lucide-vue-next'
 
 // Leaflet's default marker icon resolves URLs relative to its own source path,
@@ -109,6 +110,32 @@ function showToast(type, message) {
   toast.value = { type, message }
   if (toastTimer) clearTimeout(toastTimer)
   toastTimer = setTimeout(() => { toast.value = null }, 3000)
+}
+
+// Archive (soft delete) — disables portal access and hides the client from the
+// default admin list. Reversible from the archived list view.
+const archiveConfirm = ref(false)
+const archiving = ref(false)
+function askArchive() { archiveConfirm.value = true }
+function cancelArchive() { if (!archiving.value) archiveConfirm.value = false }
+async function executeArchive() {
+  archiving.value = true
+  try {
+    const res = await adminService.deleteClient(route.params.id)
+    if (res.success) {
+      archiveConfirm.value = false
+      // Drop the unsaved-changes guard — leaving is intentional.
+      markClean()
+      showToast('success', 'Klient byl archivován')
+      router.push('/admin/clients')
+    } else {
+      showToast('error', res.message || 'Archivace se nezdařila')
+    }
+  } catch (err) {
+    showToast('error', err.response?.data?.message || err.message || 'Archivace se nezdařila')
+  } finally {
+    archiving.value = false
+  }
 }
 
 // File preview
@@ -1150,6 +1177,14 @@ onBeforeUnmount(() => {
         <span v-if="saved" class="saved-msg">
           <CheckCircle2 :size="15" /> Uloženo
         </span>
+        <button
+          v-if="!isNew"
+          id="btn-archive-client"
+          class="btn btn-sm btn-ghost archive-btn"
+          @click="askArchive"
+        >
+          <Archive :size="15" /> Archivovat
+        </button>
         <button
           class="btn btn-sm"
           :class="form.active ? 'btn-outline' : 'btn-ghost'"
@@ -2612,6 +2647,36 @@ onBeforeUnmount(() => {
       @close="closePreview"
     />
 
+    <!-- Archive confirmation modal -->
+    <Teleport to="body">
+      <div v-if="archiveConfirm" id="client-archive-modal" class="modal-overlay" @click.self="cancelArchive">
+        <div
+          id="client-archive-modal-content"
+          class="modal-content confirm-modal"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="client-archive-modal-title"
+          aria-describedby="client-archive-modal-desc"
+        >
+          <h3 id="client-archive-modal-title" class="modal-title">Archivovat klienta?</h3>
+          <p id="client-archive-modal-desc" class="modal-desc">
+            Klient <strong>{{ form.displayName }}</strong> se skryje ze seznamu a jeho přihlášení do portálu se zablokuje.
+            Můžete ho kdykoli obnovit v sekci archivovaných klientů.
+          </p>
+          <div class="modal-actions">
+            <button id="client-archive-cancel-btn" type="button" class="btn btn-ghost" :disabled="archiving" @click="cancelArchive">
+              Zrušit
+            </button>
+            <button id="client-archive-confirm-btn" type="button" class="btn btn-danger" :disabled="archiving" @click="executeArchive">
+              <Loader2 v-if="archiving" :size="14" class="spin" />
+              <Archive v-else :size="14" />
+              Archivovat
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <div v-if="toast" id="client-edit-toast" class="toast" :class="'toast-' + toast.type">
       {{ toast.message }}
     </div>
@@ -3794,6 +3859,31 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: var(--color-primary);
   margin: 0;
+}
+
+/* Simple confirm dialog (archive) — the base .modal-content omits padding/width
+   because the header/body/footer modals supply their own. */
+.confirm-modal {
+  padding: 24px;
+  width: min(400px, calc(100vw - 32px));
+}
+.confirm-modal .modal-title {
+  margin-bottom: 8px;
+}
+.modal-desc {
+  font-size: 14px;
+  color: var(--color-gray-600);
+  line-height: 1.5;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.archive-btn {
+  color: var(--color-danger);
 }
 
 .picker-search {
