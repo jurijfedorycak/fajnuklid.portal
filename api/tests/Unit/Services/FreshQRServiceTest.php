@@ -6,6 +6,7 @@ namespace Tests\Unit\Services;
 
 use App\Helpers\FreshQRClient;
 use App\Repositories\CompanyRepository;
+use App\Repositories\CompanyRoundingRuleRepository;
 use App\Repositories\EmployeeRepository;
 use App\Services\FreshQRService;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -18,6 +19,7 @@ class FreshQRServiceTest extends TestCase
     private MockObject&FreshQRClient $clientMock;
     private MockObject&CompanyRepository $companyRepoMock;
     private MockObject&EmployeeRepository $employeeRepoMock;
+    private MockObject&CompanyRoundingRuleRepository $roundingRuleRepoMock;
 
     protected function setUp(): void
     {
@@ -26,6 +28,7 @@ class FreshQRServiceTest extends TestCase
         $this->clientMock = $this->createMock(FreshQRClient::class);
         $this->companyRepoMock = $this->createMock(CompanyRepository::class);
         $this->employeeRepoMock = $this->createMock(EmployeeRepository::class);
+        $this->roundingRuleRepoMock = $this->createMock(CompanyRoundingRuleRepository::class);
 
         $reflection = new ReflectionClass(FreshQRService::class);
         $this->service = $reflection->newInstanceWithoutConstructor();
@@ -34,6 +37,7 @@ class FreshQRServiceTest extends TestCase
             'client' => $this->clientMock,
             'companyRepo' => $this->companyRepoMock,
             'employeeRepo' => $this->employeeRepoMock,
+            'roundingRuleRepo' => $this->roundingRuleRepoMock,
         ] as $name => $value) {
             $prop = $reflection->getProperty($name);
             $prop->setAccessible(true);
@@ -989,6 +993,53 @@ class FreshQRServiceTest extends TestCase
         $this->assertEquals(['08:00', '13:00'], array_column($result[0]['cleanings'], 'startTime'));
     }
 
+    /**
+     * The reported bug: one worker visiting one object twice in a day must show
+     * two separate cleaning records, each timed from its own scan-in/out — not a
+     * single 08:00–16:00 span that swallows the midday gap. With attendance-raw
+     * feeding one record per scan pair, buildCleaningDays emits one cleaning per
+     * pair, so the split and the gap-free durations fall out naturally.
+     */
+    public function testBuildCleaningDaysSplitsRepeatVisitsToTheSameObject(): void
+    {
+        $records = [
+            [
+                'date' => '2026-04-10',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '08:00:00',
+                'last_scan_time' => '10:00:00',
+            ],
+            [
+                'date' => '2026-04-10',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '14:00:00',
+                'last_scan_time' => '16:00:00',
+            ],
+        ];
+
+        $result = self::callBuild(
+            $records,
+            ['12345678'],
+            ['EMP001' => 0],
+            '2026-04-21',
+            'detailed',
+            ['EMP001' => 'Anna N.']
+        );
+
+        $cleanings = $result[0]['cleanings'];
+        $this->assertCount(2, $cleanings);
+
+        $this->assertEquals(['08:00', '14:00'], array_column($cleanings, 'startTime'));
+        $this->assertEquals(['10:00', '16:00'], array_column($cleanings, 'endTime'));
+
+        // Each visit is billed on its own two hours — never the 8h wall-clock
+        // span between first arrival and last departure.
+        $this->assertSame([120, 120], array_column($cleanings, 'rawMinutes'));
+        $this->assertSame(240, array_sum(array_column($cleanings, 'rawMinutes')));
+    }
+
     public function testBuildCleaningDaysMixedModeOnlyDetailedIcosContributeCleanings(): void
     {
         // Two IČOs, same day. The detailed-mode IČO contributes a cleaning
@@ -1599,6 +1650,152 @@ class FreshQRServiceTest extends TestCase
 
         $this->assertFalse($result['active']);
         $this->assertEquals([], $result['cleaningDays']);
+    }
+
+    public function testGetCleaningDaysForCompaniesDetailedModeSplitsVisitsFromAttendanceRaw(): void
+    {
+        // Detailed mode must source per-visit scan pairs from attendance-raw and
+        // never touch the collapsing materialized report — otherwise a same-object
+        // repeat visit would come back as one gap-spanning record again.
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->expects($this->never())->method('getProjectReports');
+        $this->clientMock->expects($this->once())
+            ->method('getAttendanceRawForRange')
+            ->willReturn([
+                [
+                    'date' => '2026-04-10',
+                    'project' => ['name' => '12345678 Office'],
+                    'employee' => ['personal_number' => 'EMP001'],
+                    'first_scan_time' => '08:00:00',
+                    'last_scan_time' => '10:00:00',
+                ],
+                [
+                    'date' => '2026-04-10',
+                    'project' => ['name' => '12345678 Office'],
+                    'employee' => ['personal_number' => 'EMP001'],
+                    'first_scan_time' => '14:00:00',
+                    'last_scan_time' => '16:00:00',
+                ],
+            ]);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+        $this->employeeRepoMock->method('findDisplayNamesByPersonalIds')->willReturn(['EMP001' => 'Anna N.']);
+        $this->roundingRuleRepoMock->method('findByCompanyIds')->willReturn([]);
+
+        $result = $this->service->getCleaningDaysForCompanies(
+            [['id' => 1, 'registration_number' => '12345678', 'freshqr_mode' => 'detailed']],
+            2026,
+            4
+        );
+
+        $this->assertTrue($result['active']);
+        $this->assertCount(1, $result['cleaningDays']);
+        $cleanings = $result['cleaningDays'][0]['cleanings'];
+        $this->assertCount(2, $cleanings);
+        $this->assertSame(['08:00', '14:00'], array_column($cleanings, 'startTime'));
+        $this->assertSame([120, 120], array_column($cleanings, 'rawMinutes'));
+    }
+
+    public function testGetCleaningDaysForCompaniesDetailedModeHidesPastForgottenScanOuts(): void
+    {
+        // attendance-raw carries unfinished pairs; on a past day that's a forgotten
+        // scan-out the old cached path never showed. It must be dropped, while
+        // today's still-open scan is kept as the ongoing indicator.
+        $today = (new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague')))->format('Y-m-d');
+        [$y, $m] = array_map('intval', explode('-', $today));
+
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getAttendanceRawForRange')->willReturn([
+            [
+                'date' => '2020-01-15',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '08:00:00',
+                'last_scan_time' => null,
+            ],
+            [
+                'date' => $today,
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '09:00:00',
+                'last_scan_time' => null,
+            ],
+        ]);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+        $this->employeeRepoMock->method('findDisplayNamesByPersonalIds')->willReturn(['EMP001' => 'Anna N.']);
+        $this->roundingRuleRepoMock->method('findByCompanyIds')->willReturn([]);
+
+        $result = $this->service->getCleaningDaysForCompanies(
+            [['id' => 1, 'registration_number' => '12345678', 'freshqr_mode' => 'detailed']],
+            $y,
+            $m
+        );
+
+        $dates = array_column($result['cleaningDays'], 'date');
+        $this->assertNotContains('2020-01-15', $dates, 'past forgotten scan-out must be hidden');
+        $this->assertContains($today, $dates, "today's open scan must survive");
+
+        $todayDay = array_values(array_filter(
+            $result['cleaningDays'],
+            static fn ($d) => $d['date'] === $today
+        ))[0];
+        $this->assertTrue($todayDay['ongoing']);
+    }
+
+    public function testGetCleaningDaysForCompaniesDetailedModeSurfacesErrorWhenAttendanceRawFails(): void
+    {
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->method('getAttendanceRawForRange')->willReturn(null);
+
+        $result = $this->service->getCleaningDaysForCompanies(
+            [['id' => 1, 'registration_number' => '12345678', 'freshqr_mode' => 'detailed']],
+            2026,
+            4
+        );
+
+        $this->assertTrue($result['active']);
+        $this->assertSame([], $result['cleaningDays']);
+        $this->assertNotNull($result['error']);
+    }
+
+    public function testRangeDetailedModeSourcesFromAttendanceRawNotMaterializedReport(): void
+    {
+        // The overview's detailed path fetches one ranged attendance-raw window
+        // (chunked inside the client) rather than the per-month materialized report.
+        $this->clientMock->method('isConfigured')->willReturn(true);
+        $this->clientMock->expects($this->never())->method('getProjectReportsForMonths');
+        $this->clientMock->expects($this->never())->method('getOngoingProjectReports');
+        $this->clientMock->expects($this->once())
+            ->method('getAttendanceRawForRange')
+            ->willReturn([
+                [
+                    'date' => '2024-06-15',
+                    'project' => ['name' => '12345678 Office'],
+                    'employee' => ['personal_number' => 'EMP001'],
+                    'first_scan_time' => '08:00:00',
+                    'last_scan_time' => '10:00:00',
+                ],
+                [
+                    'date' => '2024-06-15',
+                    'project' => ['name' => '12345678 Office'],
+                    'employee' => ['personal_number' => 'EMP001'],
+                    'first_scan_time' => '13:00:00',
+                    'last_scan_time' => '15:00:00',
+                ],
+            ]);
+        $this->employeeRepoMock->method('getAllPersonalIds')->willReturn(['EMP001']);
+        $this->employeeRepoMock->method('findDisplayNamesByPersonalIds')->willReturn(['EMP001' => 'Anna N.']);
+        $this->roundingRuleRepoMock->method('findByCompanyIds')->willReturn([]);
+
+        $result = $this->service->getCleaningDaysForCompaniesRange(
+            [['id' => 1, 'registration_number' => '12345678', 'freshqr_mode' => 'detailed']],
+            new \DateTimeImmutable('2024-06-01'),
+            new \DateTimeImmutable('2024-06-30')
+        );
+
+        $this->assertTrue($result['active']);
+        $this->assertNull($result['error']);
+        $this->assertCount(1, $result['cleaningDays']);
+        $this->assertCount(2, $result['cleaningDays'][0]['cleanings']);
     }
 
     // Live ongoing-scan augmentation — bridges the gap between FreshQR's cached

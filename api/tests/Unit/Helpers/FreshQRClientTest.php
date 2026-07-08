@@ -101,6 +101,120 @@ class FreshQRClientTest extends TestCase
         $this->assertSame([], $client->getProjectReportsForMonths([]));
     }
 
+    public function testGetAttendanceRawForRangeReturnsNullAndRecordsErrorWhenNotConfigured(): void
+    {
+        $client = $this->buildClient('');
+
+        $result = $client->getAttendanceRawForRange(
+            new \DateTimeImmutable('2026-04-01'),
+            new \DateTimeImmutable('2026-04-30')
+        );
+
+        $this->assertNull($result);
+        $error = $client->getLastError();
+        $this->assertNotNull($error);
+        $this->assertEquals('configuration', $error['context']);
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @param array<int,string>   $idToPersonal
+     * @return array<string,mixed>|null
+     */
+    private function reshape(array $row, array $idToPersonal): ?array
+    {
+        $ref = new \ReflectionMethod(FreshQRClient::class, 'reshapeRawAttendanceRecord');
+        $ref->setAccessible(true);
+        /** @var array<string,mixed>|null $out */
+        $out = $ref->invoke(null, $row, $idToPersonal);
+        return $out;
+    }
+
+    public function testReshapeClosedPairCarriesScanOutAsLastScanTime(): void
+    {
+        $out = $this->reshape(
+            [
+                'TimeFrom' => '2026-04-10 08:00:00',
+                'TimeTo' => '2026-04-10 10:00:00',
+                'TaskName1' => '12345678 Office',
+                'CompanyEmployeeId' => 5,
+            ],
+            [5 => 'EMP001']
+        );
+
+        $this->assertSame([
+            'date' => '2026-04-10',
+            'project' => ['name' => '12345678 Office'],
+            'employee' => ['personal_number' => 'EMP001'],
+            'first_scan_time' => '08:00:00',
+            'last_scan_time' => '10:00:00',
+        ], $out);
+    }
+
+    public function testReshapeOpenPairLeavesLastScanTimeNull(): void
+    {
+        $out = $this->reshape(
+            [
+                'TimeFrom' => '2026-04-10 08:00:00',
+                'TimeTo' => null,
+                'TaskName1' => '12345678 Office',
+                'CompanyEmployeeId' => 5,
+            ],
+            [5 => 'EMP001']
+        );
+
+        $this->assertNotNull($out);
+        $this->assertNull($out['last_scan_time']);
+        $this->assertSame('08:00:00', $out['first_scan_time']);
+    }
+
+    public function testReshapeDropsCrossMidnightPair(): void
+    {
+        // Overnight scan-out lands on the next day — Fajnúklid has no cross-midnight
+        // cleanings, and the single-day invariant must hold, so the pair is dropped.
+        $out = $this->reshape(
+            [
+                'TimeFrom' => '2026-04-10 23:30:00',
+                'TimeTo' => '2026-04-11 01:00:00',
+                'TaskName1' => '12345678 Office',
+                'CompanyEmployeeId' => 5,
+            ],
+            [5 => 'EMP001']
+        );
+
+        $this->assertNull($out);
+    }
+
+    public function testReshapeDropsRecordForUnmappedEmployee(): void
+    {
+        $out = $this->reshape(
+            [
+                'TimeFrom' => '2026-04-10 08:00:00',
+                'TimeTo' => '2026-04-10 10:00:00',
+                'TaskName1' => '12345678 Office',
+                'CompanyEmployeeId' => 999,
+            ],
+            [5 => 'EMP001']
+        );
+
+        $this->assertNull($out);
+    }
+
+    public function testReshapeDropsRecordWithMissingTaskName(): void
+    {
+        $out = $this->reshape(
+            [
+                'TimeFrom' => '2026-04-10 08:00:00',
+                'TimeTo' => '2026-04-10 10:00:00',
+                'TaskName1' => '',
+                'CompanyEmployeeId' => 5,
+            ],
+            [5 => 'EMP001']
+        );
+
+        $this->assertNull($out);
+    }
+
     public function testReadOnlyContractRejectsNonGetRequests(): void
     {
         $client = $this->buildClient();

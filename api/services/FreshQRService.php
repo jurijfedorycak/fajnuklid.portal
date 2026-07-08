@@ -137,8 +137,9 @@ class FreshQRService
         }
 
         $this->client->resetLastError();
-        $records = $this->client->getProjectReports($year, $month);
+        $today = self::today();
 
+        $records = $this->fetchRecordsForMonth($modeByIco, $year, $month, $today);
         if ($records === null) {
             // Configured and the client has IČOs, but FreshQR is unreachable.
             // Keep the calendar active so the FE doesn't fall back to onboarding
@@ -149,22 +150,6 @@ class FreshQRService
                 'companies' => $companies,
                 'error' => 'Docházku se nepodařilo načíst. Zkuste to prosím později.',
             ];
-        }
-
-        $today = self::today();
-
-        // /v1/reports/projects reads a materialized cache that excludes rows
-        // with null last_scan_time, so today's in-progress cleanings never
-        // appear there. When the user is looking at the current month we hit
-        // the live /v1/reports/attendance-raw endpoint and append any open
-        // scans before running buildCleaningDays — that's what produces the
-        // orange "Probíhá" indicator. Past/future months never have ongoing
-        // activity to surface, so the extra round-trip is skipped.
-        if (self::yearMonthIsCurrent($year, $month, $today)) {
-            $ongoingRecords = $this->client->getOngoingProjectReports();
-            if (is_array($ongoingRecords) && $ongoingRecords !== []) {
-                $records = array_merge($records, $ongoingRecords);
-            }
         }
 
         $cleaningDays = $this->assembleCleaningDays($records, $companies, $modeByIco, $today);
@@ -217,6 +202,40 @@ class FreshQRService
 
         $today = self::today();
 
+        $filterToRange = static function (array $cleaningDays) use ($fromStr, $toStr): array {
+            return array_values(array_filter($cleaningDays, static function ($day) use ($fromStr, $toStr) {
+                $date = $day['date'] ?? '';
+                return is_string($date) && $date >= $fromStr && $date <= $toStr;
+            }));
+        };
+
+        // Detailed mode: per-visit scan pairs from attendance-raw across the whole
+        // window (chunked internally to respect the endpoint's span cap). Repeat
+        // visits split and each duration excludes the between-visit gap; today's
+        // open scans arrive in the same payload, so no separate ongoing merge.
+        // All-or-nothing: a partial range would silently under-count the totals.
+        if (in_array('detailed', $modeByIco, true)) {
+            $records = $this->client->getAttendanceRawForRange($from, $to);
+            if ($records === null) {
+                return [
+                    'active' => true,
+                    'cleaningDays' => [],
+                    'companies' => $companies,
+                    'error' => 'Přehled docházky se nepodařilo načíst. Zkuste to prosím později.',
+                ];
+            }
+            $records = self::dropStalePastOpenScans($records, $today);
+            $cleaningDays = $this->assembleCleaningDays($records, $companies, $modeByIco, $today);
+            return [
+                'active' => true,
+                'cleaningDays' => $filterToRange($cleaningDays),
+                'error' => null,
+                'companies' => $companies,
+            ];
+        }
+
+        // Basic-only path: cheaper materialized per-month report; tolerates a
+        // partial failure (one spanned month unreachable) by returning what it got.
         $records = [];
         $anyFetchFailed = false;
         $months = self::monthsInRange($from, $to, $today);
@@ -252,14 +271,9 @@ class FreshQRService
 
         $cleaningDays = $this->assembleCleaningDays($records, $companies, $modeByIco, $today);
 
-        $filtered = array_values(array_filter($cleaningDays, static function ($day) use ($fromStr, $toStr) {
-            $date = $day['date'] ?? '';
-            return is_string($date) && $date >= $fromStr && $date <= $toStr;
-        }));
-
         return [
             'active' => true,
-            'cleaningDays' => $filtered,
+            'cleaningDays' => $filterToRange($cleaningDays),
             // A partial failure (one spanned month unreachable) still returns the
             // months we did get, but flag it so the FE can hint the data is incomplete.
             'error' => $anyFetchFailed ? 'Některá data se nepodařilo načíst, přehled může být neúplný.' : null,
@@ -287,6 +301,70 @@ class FreshQRService
             $cursor = $cursor->modify('+1 month');
         }
         return $months;
+    }
+
+    /**
+     * Fetch the raw records for a single month from the source appropriate to
+     * the disclosure mix.
+     *
+     * Detailed mode needs per-visit scan pairs so same-object repeat visits split
+     * and each duration excludes the between-visit gap — only attendance-raw
+     * exposes individual pairs, and it already carries today's still-open scans,
+     * so no separate ongoing merge is required. Basic-only setups keep the cheaper
+     * materialized /v1/reports/projects path (which never exposes times, so the
+     * collapse is invisible to them) and append live open scans for the current
+     * month to drive the "Probíhá" indicator.
+     *
+     * Returns null on a transient FreshQR failure (surfaced as a banner upstream).
+     *
+     * @param array<string,string> $modeByIco
+     * @return array<array<string,mixed>>|null
+     */
+    private function fetchRecordsForMonth(array $modeByIco, int $year, int $month, string $today): ?array
+    {
+        if (in_array('detailed', $modeByIco, true)) {
+            $from = new \DateTimeImmutable(
+                sprintf('%04d-%02d-01', $year, $month),
+                new \DateTimeZone('Europe/Prague')
+            );
+            $to = $from->modify('last day of this month');
+            $records = $this->client->getAttendanceRawForRange($from, $to);
+            return $records === null ? null : self::dropStalePastOpenScans($records, $today);
+        }
+
+        $records = $this->client->getProjectReports($year, $month);
+        if ($records === null) {
+            return null;
+        }
+        if (self::yearMonthIsCurrent($year, $month, $today)) {
+            $ongoingRecords = $this->client->getOngoingProjectReports();
+            if (is_array($ongoingRecords) && $ongoingRecords !== []) {
+                $records = array_merge($records, $ongoingRecords);
+            }
+        }
+        return $records;
+    }
+
+    /**
+     * Drop records that are still open (no scan-out) on a *past* day.
+     *
+     * attendance-raw carries every scan pair including unfinished ones; on a past
+     * day an unfinished pair is a forgotten scan-out. The materialized-report path
+     * never surfaced those (its cache excludes null scan-outs, re-adding only
+     * today's live "Probíhá" scans), so filtering them keeps historical calendars
+     * and visit counts stable across the source switch. Today's open scans are
+     * kept — that's the ongoing indicator.
+     *
+     * @param array<array<string,mixed>> $records
+     * @return array<array<string,mixed>>
+     */
+    private static function dropStalePastOpenScans(array $records, string $today): array
+    {
+        return array_values(array_filter($records, static function ($record) use ($today) {
+            $isOpen = ($record['last_scan_time'] ?? null) === null;
+            $date = is_string($record['date'] ?? null) ? $record['date'] : '';
+            return !($isOpen && $date < $today);
+        }));
     }
 
     /**

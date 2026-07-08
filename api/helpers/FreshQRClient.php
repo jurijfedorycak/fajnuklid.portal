@@ -435,6 +435,84 @@ class FreshQRClient
     }
 
     /**
+     * Fetch every attendance scan pair (open AND closed) whose TimeFrom falls in
+     * [$from, $to] and reshape each into the record format buildCleaningDays
+     * consumes — one record per pair, so same-object repeat visits stay separate
+     * and each duration is computed from its own scan-in/out (no between-visit
+     * gap). This is the detailed-mode source of truth; unlike /v1/reports/projects
+     * it never collapses a day's visits into a single first/last span.
+     *
+     * The endpoint caps a single query at 366 days, so a wider window (the
+     * year-over-year overview) is walked in <=365-day chunks. The employee
+     * id → personal_number map is fetched once and reused across chunks.
+     *
+     * Returns []|null. null signals a transient failure (employee map or any
+     * chunk unreachable) so callers surface a banner instead of a half-empty
+     * calendar built from a partial range.
+     *
+     * @return list<array<string,mixed>>|null
+     */
+    public function getAttendanceRawForRange(\DateTimeImmutable $from, \DateTimeImmutable $to): ?array
+    {
+        if (!$this->isConfigured()) {
+            $this->lastError = [
+                'context' => 'configuration',
+                'method' => 'GET',
+                'url' => $this->apiUrl . '/v1/reports/attendance-raw',
+                'http_code' => 0,
+                'curl_error' => '',
+                'response_body' => 'FRESHQR_API_KEY není v .env nastaven.',
+                'timestamp' => date('c'),
+            ];
+            return null;
+        }
+
+        if ($from > $to) {
+            [$from, $to] = [$to, $from];
+        }
+
+        $idToPersonal = $this->fetchEmployeePersonalIdMap();
+        if ($idToPersonal === null) {
+            return null;
+        }
+
+        $result = [];
+        // <=365-day chunks keep every request under the endpoint's 366-day span
+        // guard, with margin for DST-induced drift in the day arithmetic.
+        $chunkStart = $from;
+        while ($chunkStart <= $to) {
+            $chunkEnd = $chunkStart->modify('+365 days');
+            if ($chunkEnd > $to) {
+                $chunkEnd = $to;
+            }
+
+            $raw = $this->request('GET', '/v1/reports/attendance-raw', [
+                'date_from' => $chunkStart->format('Y-m-d'),
+                'date_to' => $chunkEnd->format('Y-m-d'),
+            ]);
+            if ($raw === null) {
+                return null;
+            }
+
+            if (isset($raw['data']) && is_array($raw['data'])) {
+                foreach ($raw['data'] as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    $reshaped = self::reshapeRawAttendanceRecord($row, $idToPersonal);
+                    if ($reshaped !== null) {
+                        $result[] = $reshaped;
+                    }
+                }
+            }
+
+            $chunkStart = $chunkEnd->modify('+1 day');
+        }
+
+        return $result;
+    }
+
+    /**
      * @param array<string,mixed> $row             attendance-raw record
      * @param array<int,string>   $idToPersonal    CompanyEmployeeId → personal_number
      * @return array<string,mixed>|null
@@ -454,12 +532,35 @@ class FreshQRClient
         if ($personal === null) {
             return null;
         }
+
+        // Closed pair → the scan-out time becomes last_scan_time; open pair
+        // (TimeTo null/unparseable) stays null so the record reads as "still
+        // on-site" and, if it's today, ongoing. Only the time-of-day is kept:
+        // the record's `date` already anchors the day, matching the shape the
+        // materialized-report path produces.
+        //
+        // A closed pair whose scan-out lands on a *different* calendar day is an
+        // overnight/anomalous record. Fajnúklid doesn't run cross-midnight
+        // cleanings and the downstream single-day logic (duration, ongoing)
+        // assumes one day; the materialized-report path dropped these via
+        // FreshQRService::recordIsSingleDay, but that guard keys off an ISO date
+        // portion the bare HH:MM:SS shape here doesn't carry — so drop them at
+        // the source to preserve the invariant.
+        $last = null;
+        $timeTo = $row['TimeTo'] ?? null;
+        if (is_string($timeTo) && preg_match('/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/', $timeTo, $mto)) {
+            if ($mto[1] !== $m[1]) {
+                return null;
+            }
+            $last = $mto[2];
+        }
+
         return [
             'date' => $m[1],
             'project' => ['name' => $taskName],
             'employee' => ['personal_number' => $personal],
             'first_scan_time' => $m[2],
-            'last_scan_time' => null,
+            'last_scan_time' => $last,
         ];
     }
 }
