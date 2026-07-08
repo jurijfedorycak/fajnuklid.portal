@@ -89,17 +89,18 @@ register_shutdown_function(function () {
         return;
     }
 
-    if (headers_sent()) {
-        return;
-    }
-
     $errorId = errorReferenceId();
 
     // Fatals bypass set_exception_handler, so log here too — same format so both
-    // paths are greppable by errorId in error.log.
+    // paths are greppable by errorId in error.log. Logged before the
+    // headers_sent() bail so a fatal that strikes mid-output is still recorded.
     $logMessage = date('Y-m-d H:i:s') . " [{$errorId}] FatalError: " . $error['message']
         . ' in ' . $error['file'] . ':' . $error['line'] . "\n\n";
     @file_put_contents(__DIR__ . '/error.log', $logMessage, FILE_APPEND);
+
+    if (headers_sent()) {
+        return;
+    }
 
     sendCorsHeaders();
     http_response_code(500);
@@ -139,8 +140,15 @@ set_error_handler(function ($severity, $message, $file, $line) {
     }
 
     if ($severity === E_DEPRECATED || $severity === E_USER_DEPRECATED) {
-        $logMessage = date('Y-m-d H:i:s') . " [deprecation] {$message} in {$file}:{$line}\n";
-        @file_put_contents(__DIR__ . '/error.log', $logMessage, FILE_APPEND);
+        // Dedup per request: a deprecation fired from inside a loop must not
+        // append one log line per iteration and bloat error.log under load.
+        static $seenDeprecations = [];
+        $key = $message . '|' . $file . '|' . $line;
+        if (!isset($seenDeprecations[$key])) {
+            $seenDeprecations[$key] = true;
+            $logMessage = date('Y-m-d H:i:s') . " [deprecation] {$message} in {$file}:{$line}\n";
+            @file_put_contents(__DIR__ . '/error.log', $logMessage, FILE_APPEND);
+        }
         return true;
     }
 
