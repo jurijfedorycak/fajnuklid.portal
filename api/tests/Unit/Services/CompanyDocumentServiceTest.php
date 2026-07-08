@@ -106,6 +106,16 @@ class CompanyDocumentServiceTest extends TestCase
         $this->assertSame([2 => [], 3 => []], $grouped);
     }
 
+    public function testCountForCompanyDelegatesToRepo(): void
+    {
+        $this->repo->expects($this->once())
+            ->method('countByCompanyId')
+            ->with(2)
+            ->willReturn(3);
+
+        $this->assertSame(3, $this->service->countForCompany(2));
+    }
+
     public function testUploadThrowsWhenTitleMissing(): void
     {
         $this->expectException(ValidationException::class);

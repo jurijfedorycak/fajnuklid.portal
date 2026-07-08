@@ -13,6 +13,7 @@ use App\Repositories\LocationRepository;
 use App\Repositories\ClientEmployeeRepository;
 use App\Repositories\InvoiceRepository;
 use App\Repositories\AppSettingRepository;
+use App\Services\CompanyDocumentService;
 use App\Services\DemoAttendanceService;
 use App\Services\FreshQRService;
 use App\Services\ReviewPromptService;
@@ -30,6 +31,7 @@ class DashboardController extends Controller
     private AppSettingRepository $appSettingRepo;
     private FreshQRService $freshqr;
     private ReviewPromptService $reviewPrompt;
+    private CompanyDocumentService $documents;
 
     public function __construct()
     {
@@ -41,6 +43,7 @@ class DashboardController extends Controller
         $this->appSettingRepo = new AppSettingRepository();
         $this->freshqr = new FreshQRService();
         $this->reviewPrompt = new ReviewPromptService();
+        $this->documents = new CompanyDocumentService();
     }
 
     public function index(Request $request): void
@@ -108,8 +111,13 @@ class DashboardController extends Controller
             'endDate' => null,
         ];
         if ($activeCompany !== null) {
+            // Contracts live in company_documents (migration 20260517000000 created the
+            // table and backfilled every legacy contract_pdf_path into it), which is the
+            // same source of truth the Smlouva page (ContractController) reads. Count
+            // documents so the dashboard card can never disagree with that page.
+            $hasContract = $this->documents->countForCompany((int) $activeCompany['id']) > 0;
             $contract = [
-                'hasPdf' => !empty($activeCompany['contract_pdf_path']),
+                'hasPdf' => $hasContract,
                 'contractsEnabled' => true,
                 'startDate' => $activeCompany['contract_start_date'] ?? null,
                 'endDate' => $activeCompany['contract_end_date'] ?? null,

@@ -72,6 +72,15 @@ class CompanyDocumentService
         return $grouped;
     }
 
+    /**
+     * Number of documents attached to a company. Cheaper than listForCompany() when the
+     * caller only needs presence/count (e.g. the dashboard "Smlouva" status card).
+     */
+    public function countForCompany(int $companyId): int
+    {
+        return $this->repo->countByCompanyId($companyId);
+    }
+
     public function upload(int $companyId, ?int $userId, array $file, mixed $title, mixed $type): array
     {
         $title = $this->normaliseTitle($title);
