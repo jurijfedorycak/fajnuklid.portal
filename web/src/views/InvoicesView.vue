@@ -49,7 +49,7 @@ async function loadInvoices(ico = null) {
       activeIco.value = response.data.activeIco || (icos.value[0]?.ico ?? null)
       lastSync.value = response.data.lastSync
       isConfigured.value = response.data.isConfigured ?? false
-      selectedPeriod.value = periods.value[0]?.key ?? 'all'
+      selectedPeriod.value = 'all'
       statusFilter.value = 'all'
     } else {
       error.value = response.message || 'Nepodařilo se načíst faktury'
