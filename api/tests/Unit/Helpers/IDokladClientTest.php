@@ -22,6 +22,7 @@ class IDokladClientTest extends TestCase
 
         $props = [
             'tokenRepo' => $this->createMock(IDokladTokenRepository::class),
+            'accountKey' => 'default',
             'clientId' => 'test-client',
             'clientSecret' => 'test-secret',
             'apiUrl' => $apiUrl,
@@ -382,6 +383,51 @@ class IDokladClientTest extends TestCase
         $this->assertEquals(4840.00, $result['total_amount']);
         $this->assertEquals('2026-01-15', $result['date_issued']);
         $this->assertEquals('2026-02-15', $result['date_due']);
+    }
+
+    public function testMapIdokladInvoiceDefaultsAccountToEmptyString(): void
+    {
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'IsPaid' => false,
+        ], 1);
+
+        $this->assertSame('', $result['idoklad_account']);
+    }
+
+    public function testMapIdokladInvoicePropagatesAccountKey(): void
+    {
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'IsPaid' => false,
+        ], 1, 'optim1');
+
+        $this->assertSame('optim1', $result['idoklad_account']);
+    }
+
+    // isContactNotFoundError
+
+    public function testIsContactNotFoundErrorTrueForContactLookupMiss(): void
+    {
+        $this->assertTrue(IDokladClient::isContactNotFoundError([
+            'context' => 'contact lookup',
+            'http_code' => 0,
+        ]));
+    }
+
+    public function testIsContactNotFoundErrorFalseForApiFailure(): void
+    {
+        $this->assertFalse(IDokladClient::isContactNotFoundError([
+            'context' => 'API call',
+            'http_code' => 401,
+        ]));
+    }
+
+    public function testIsContactNotFoundErrorFalseForNull(): void
+    {
+        $this->assertFalse(IDokladClient::isContactNotFoundError(null));
     }
 
     public function testMapIdokladInvoiceDerivesIsPaidFromPaymentDate(): void

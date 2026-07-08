@@ -326,10 +326,12 @@ CREATE TABLE `company_users` (
 DROP TABLE IF EXISTS `idoklad_tokens`;
 CREATE TABLE `idoklad_tokens` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `account_key` VARCHAR(50) NOT NULL DEFAULT 'default' COMMENT 'iDoklad account this token authenticates',
     `access_token` TEXT NOT NULL,
     `expires_at` DATETIME NOT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+    KEY `idx_idoklad_tokens_account` (`account_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------
@@ -339,6 +341,7 @@ DROP TABLE IF EXISTS `invoices`;
 CREATE TABLE `invoices` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `idoklad_id` INT UNSIGNED NOT NULL COMMENT 'iDoklad invoice ID',
+    `idoklad_account` VARCHAR(50) NOT NULL DEFAULT 'default' COMMENT 'iDoklad account that issued the invoice',
     `company_id` INT UNSIGNED NOT NULL,
     `document_number` VARCHAR(50) NOT NULL,
     `variable_symbol` VARCHAR(20) NULL,
@@ -354,7 +357,7 @@ CREATE TABLE `invoices` (
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_idoklad_id` (`idoklad_id`),
+    UNIQUE KEY `uk_account_idoklad_id` (`idoklad_account`, `idoklad_id`),
     KEY `idx_company_id` (`company_id`),
     KEY `idx_payment_status` (`payment_status`),
     CONSTRAINT `fk_invoices_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE

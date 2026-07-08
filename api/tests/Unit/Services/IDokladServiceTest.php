@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services;
 
+use App\Helpers\IDokladAccount;
 use App\Helpers\IDokladClient;
 use App\Repositories\CompanyRepository;
 use App\Repositories\InvoiceRepository;
@@ -15,6 +16,7 @@ use Tests\TestCase;
 class IDokladServiceTest extends TestCase
 {
     private IDokladService $service;
+    private ReflectionClass $reflection;
     private MockObject&IDokladClient $clientMock;
     private MockObject&InvoiceRepository $invoiceRepoMock;
     private MockObject&CompanyRepository $companyRepoMock;
@@ -27,34 +29,40 @@ class IDokladServiceTest extends TestCase
         $this->invoiceRepoMock = $this->createMock(InvoiceRepository::class);
         $this->companyRepoMock = $this->createMock(CompanyRepository::class);
 
-        $reflection = new ReflectionClass(IDokladService::class);
-        $this->service = $reflection->newInstanceWithoutConstructor();
+        $this->reflection = new ReflectionClass(IDokladService::class);
+        $this->service = $this->reflection->newInstanceWithoutConstructor();
 
-        $clientProp = $reflection->getProperty('client');
-        $clientProp->setAccessible(true);
-        $clientProp->setValue($this->service, $this->clientMock);
+        // One account by default; the factory always hands back the same client
+        // mock so per-test stubbing on $clientMock drives behaviour.
+        $this->setAccounts([new IDokladAccount('default', 'id', 'secret', 'https://api.idoklad.cz/v3')]);
+        $this->setProp('clientFactory', fn (IDokladAccount $a): IDokladClient => $this->clientMock);
+        $this->setProp('invoiceRepo', $this->invoiceRepoMock);
+        $this->setProp('companyRepo', $this->companyRepoMock);
+    }
 
-        $invoiceRepoProp = $reflection->getProperty('invoiceRepo');
-        $invoiceRepoProp->setAccessible(true);
-        $invoiceRepoProp->setValue($this->service, $this->invoiceRepoMock);
+    private function setProp(string $name, mixed $value): void
+    {
+        $prop = $this->reflection->getProperty($name);
+        $prop->setAccessible(true);
+        $prop->setValue($this->service, $value);
+    }
 
-        $companyRepoProp = $reflection->getProperty('companyRepo');
-        $companyRepoProp->setAccessible(true);
-        $companyRepoProp->setValue($this->service, $this->companyRepoMock);
+    /** @param IDokladAccount[] $accounts */
+    private function setAccounts(array $accounts): void
+    {
+        $this->setProp('accounts', $accounts);
     }
 
     // isConfigured tests
 
-    public function testIsConfiguredReturnsTrueWhenClientConfigured(): void
+    public function testIsConfiguredReturnsTrueWhenAccountsExist(): void
     {
-        $this->clientMock->method('isConfigured')->willReturn(true);
-
         $this->assertTrue($this->service->isConfigured());
     }
 
-    public function testIsConfiguredReturnsFalseWhenClientNotConfigured(): void
+    public function testIsConfiguredReturnsFalseWhenNoAccounts(): void
     {
-        $this->clientMock->method('isConfigured')->willReturn(false);
+        $this->setAccounts([]);
 
         $this->assertFalse($this->service->isConfigured());
     }
@@ -94,7 +102,7 @@ class IDokladServiceTest extends TestCase
             'name' => 'Test Company',
             'registration_number' => '12345678',
         ]);
-        $this->clientMock->method('isConfigured')->willReturn(false);
+        $this->setAccounts([]);
 
         $result = $this->service->syncInvoicesForCompany(1);
 
@@ -164,6 +172,151 @@ class IDokladServiceTest extends TestCase
         $this->assertArrayHasKey('error_details', $result);
         $this->assertEquals(401, $result['error_details']['http_code']);
         $this->assertStringContainsString('401', $result['message']);
+        $this->assertCount(1, $result['error_details']['account_errors']);
+        $this->assertEquals('default', $result['error_details']['account_errors'][0]['account']);
+    }
+
+    public function testSyncInvoicesForCompanyMergesInvoicesFromAllAccounts(): void
+    {
+        $this->setAccounts([
+            new IDokladAccount('main', 'id1', 'secret1', 'https://api.idoklad.cz/v3'),
+            new IDokladAccount('optim1', 'id2', 'secret2', 'https://api.idoklad.cz/v3'),
+        ]);
+        // Each account resolves to its own fresh client so the two accounts sync
+        // independently; both are stubbed to return one invoice apiece.
+        $mainClient = $this->createMock(IDokladClient::class);
+        $mainClient->method('getAllInvoicesByIco')->willReturn([
+            ['Id' => 10, 'DocumentNumber' => 'M-1', 'IsPaid' => false, 'DateOfMaturity' => '2026-05-01'],
+        ]);
+        $mainClient->method('getLastError')->willReturn(null);
+
+        $optimClient = $this->createMock(IDokladClient::class);
+        $optimClient->method('getAllInvoicesByIco')->willReturn([
+            ['Id' => 20, 'DocumentNumber' => 'O-1', 'IsPaid' => true, 'DateOfMaturity' => '2026-04-01'],
+        ]);
+        $optimClient->method('getLastError')->willReturn(null);
+
+        $this->setProp('clientFactory', fn (IDokladAccount $a): IDokladClient => $a->key === 'main' ? $mainClient : $optimClient);
+
+        $this->companyRepoMock->method('findById')->willReturn([
+            'id' => 7,
+            'registration_number' => '12345678',
+        ]);
+
+        $capturedAccounts = [];
+        $this->invoiceRepoMock->expects($this->exactly(2))
+            ->method('upsertFromIdoklad')
+            ->willReturnCallback(function (array $mapped) use (&$capturedAccounts): int {
+                $capturedAccounts[] = $mapped['idoklad_account'];
+                return 1;
+            });
+
+        $result = $this->service->syncInvoicesForCompany(7);
+
+        $this->assertTrue($result['success']);
+        $this->assertEquals(2, $result['synced']);
+        $this->assertEqualsCanonicalizing(['main', 'optim1'], $capturedAccounts);
+    }
+
+    public function testSyncInvoicesForCompanyTreatsContactNotFoundAsZeroInvoices(): void
+    {
+        $this->setAccounts([
+            new IDokladAccount('main', 'id1', 'secret1', 'https://api.idoklad.cz/v3'),
+            new IDokladAccount('optim1', 'id2', 'secret2', 'https://api.idoklad.cz/v3'),
+        ]);
+        // 'main' has the contact and one invoice; 'optim1' never billed this
+        // customer, so its contact lookup misses — that must not fail the sync.
+        $mainClient = $this->createMock(IDokladClient::class);
+        $mainClient->method('getAllInvoicesByIco')->willReturn([
+            ['Id' => 10, 'DocumentNumber' => 'M-1', 'IsPaid' => false, 'DateOfMaturity' => '2026-05-01'],
+        ]);
+        $mainClient->method('getLastError')->willReturn(null);
+
+        $optimClient = $this->createMock(IDokladClient::class);
+        $optimClient->method('getAllInvoicesByIco')->willReturn([]);
+        $optimClient->method('getLastError')->willReturn([
+            'context' => 'contact lookup',
+            'http_code' => 0,
+            'response_body' => 'V iDokladu nebyl nalezen kontakt s IČO "12345678".',
+        ]);
+
+        $this->setProp('clientFactory', fn (IDokladAccount $a): IDokladClient => $a->key === 'main' ? $mainClient : $optimClient);
+
+        $this->companyRepoMock->method('findById')->willReturn([
+            'id' => 7,
+            'registration_number' => '12345678',
+        ]);
+        $this->invoiceRepoMock->expects($this->once())->method('upsertFromIdoklad');
+
+        $result = $this->service->syncInvoicesForCompany(7);
+
+        $this->assertTrue($result['success']);
+        $this->assertEquals(1, $result['synced']);
+        $this->assertArrayNotHasKey('error_details', $result);
+    }
+
+    public function testSyncInvoicesForCompanyFailsWhenContactMissingFromEveryAccount(): void
+    {
+        // The customer's IČO resolves in no account at all — likely a mistyped
+        // IČO or misconfiguration, which must be surfaced rather than reported as
+        // "nothing to sync".
+        $this->companyRepoMock->method('findById')->willReturn([
+            'id' => 1,
+            'registration_number' => '12345678',
+        ]);
+        $this->clientMock->method('getAllInvoicesByIco')->willReturn([]);
+        $this->clientMock->method('getLastError')->willReturn([
+            'context' => 'contact lookup',
+            'http_code' => 0,
+            'response_body' => 'V iDokladu nebyl nalezen kontakt s IČO "12345678".',
+        ]);
+
+        $result = $this->service->syncInvoicesForCompany(1);
+
+        $this->assertFalse($result['success']);
+        $this->assertEquals(0, $result['synced']);
+        $this->assertStringContainsString('12345678', $result['message']);
+        $this->assertArrayNotHasKey('error_details', $result);
+    }
+
+    public function testSyncInvoicesForCompanyReportsBothAccountAndRowErrors(): void
+    {
+        $this->setAccounts([
+            new IDokladAccount('main', 'id1', 'secret1', 'https://api.idoklad.cz/v3'),
+            new IDokladAccount('optim1', 'id2', 'secret2', 'https://api.idoklad.cz/v3'),
+        ]);
+        // 'main' returns an invoice whose DB write fails; 'optim1' hits a 500.
+        $mainClient = $this->createMock(IDokladClient::class);
+        $mainClient->method('getAllInvoicesByIco')->willReturn([
+            ['Id' => 10, 'DocumentNumber' => 'M-1', 'IsPaid' => false, 'DateOfMaturity' => '2026-05-01'],
+        ]);
+        $mainClient->method('getLastError')->willReturn(null);
+
+        $optimClient = $this->createMock(IDokladClient::class);
+        $optimClient->method('getAllInvoicesByIco')->willReturn([]);
+        $optimClient->method('getLastError')->willReturn([
+            'context' => 'API call',
+            'http_code' => 500,
+            'response_body' => 'server error',
+        ]);
+
+        $this->setProp('clientFactory', fn (IDokladAccount $a): IDokladClient => $a->key === 'main' ? $mainClient : $optimClient);
+
+        $this->companyRepoMock->method('findById')->willReturn([
+            'id' => 7,
+            'registration_number' => '12345678',
+        ]);
+        $this->invoiceRepoMock->method('upsertFromIdoklad')
+            ->willThrowException(new \PDOException('SQLSTATE[23000]: Integrity constraint violation'));
+
+        $result = $this->service->syncInvoicesForCompany(7);
+
+        $this->assertFalse($result['success']);
+        // Neither failure class hides the other.
+        $this->assertCount(1, $result['error_details']['account_errors']);
+        $this->assertCount(1, $result['error_details']['row_errors']);
+        $this->assertStringContainsString('500', $result['message']);
+        $this->assertStringContainsString('zápisu do DB', $result['message']);
     }
 
     public function testSyncInvoicesForCompanyReportsRowErrorsWithoutAbortingOthers(): void
@@ -201,7 +354,7 @@ class IDokladServiceTest extends TestCase
 
     public function testSyncAllEnabledCompaniesReturnsFailureWhenNotConfigured(): void
     {
-        $this->clientMock->method('isConfigured')->willReturn(false);
+        $this->setAccounts([]);
         $this->companyRepoMock->expects($this->never())->method('findAllWithIdokladSyncEnabled');
 
         $result = $this->service->syncAllEnabledCompanies();
@@ -410,6 +563,52 @@ class IDokladServiceTest extends TestCase
         $result = $this->service->getInvoicePdf(1, 1);
 
         $this->assertEquals('%PDF-1.4 content', $result);
+    }
+
+    public function testGetInvoicePdfFetchesFromTheIssuingAccount(): void
+    {
+        $this->setAccounts([
+            new IDokladAccount('main', 'id1', 'secret1', 'https://api.idoklad.cz/v3'),
+            new IDokladAccount('optim1', 'id2', 'secret2', 'https://api.idoklad.cz/v3'),
+        ]);
+
+        $mainClient = $this->createMock(IDokladClient::class);
+        $mainClient->expects($this->never())->method('getInvoicePdf');
+
+        $optimClient = $this->createMock(IDokladClient::class);
+        $optimClient->expects($this->once())
+            ->method('getInvoicePdf')
+            ->with(999)
+            ->willReturn('%PDF optim');
+
+        $this->setProp('clientFactory', fn (IDokladAccount $a): IDokladClient => $a->key === 'main' ? $mainClient : $optimClient);
+
+        $this->invoiceRepoMock->method('userOwnsInvoice')->willReturn(true);
+        $this->invoiceRepoMock->method('findById')->willReturn([
+            'id' => 1,
+            'idoklad_id' => 999,
+            'idoklad_account' => 'optim1',
+        ]);
+
+        $result = $this->service->getInvoicePdf(1, 1);
+
+        $this->assertEquals('%PDF optim', $result);
+    }
+
+    public function testGetInvoicePdfReturnsNullWhenIssuingAccountNotConfigured(): void
+    {
+        // Invoice was synced from an account that has since been removed from config.
+        $this->invoiceRepoMock->method('userOwnsInvoice')->willReturn(true);
+        $this->invoiceRepoMock->method('findById')->willReturn([
+            'id' => 1,
+            'idoklad_id' => 999,
+            'idoklad_account' => 'ghost',
+        ]);
+
+        $result = $this->service->getInvoicePdf(1, 1);
+
+        $this->assertNull($result);
+        $this->assertEquals('account config', $this->service->getLastPdfError()['context']);
     }
 
     // getInvoiceFilename tests

@@ -29,17 +29,34 @@ class IDokladClient
     public const SYNC_FROM_DATE = '2026-01-01';
 
     private IDokladTokenRepository $tokenRepo;
+    private string $accountKey;
     private string $clientId;
     private string $clientSecret;
     private string $apiUrl;
     private ?array $lastError = null;
 
-    public function __construct()
+    /**
+     * Bound to a single iDoklad account. When no account is passed the primary
+     * configured account is used (legacy single-account deployments resolve to
+     * the 'default' account), keeping the no-arg construction working.
+     */
+    public function __construct(?IDokladAccount $account = null)
     {
         $this->tokenRepo = new IDokladTokenRepository();
-        $this->clientId = Config::get('IDOKLAD_CLIENT_ID', '');
-        $this->clientSecret = Config::get('IDOKLAD_CLIENT_SECRET', '');
-        $this->apiUrl = Config::get('IDOKLAD_API_URL', 'https://api.idoklad.cz/v3');
+
+        if ($account === null) {
+            $account = IDokladAccountRegistry::all()[0] ?? new IDokladAccount(
+                IDokladAccountRegistry::LEGACY_KEY,
+                '',
+                '',
+                (string) Config::get('IDOKLAD_API_URL', 'https://api.idoklad.cz/v3')
+            );
+        }
+
+        $this->accountKey = $account->key;
+        $this->clientId = $account->clientId;
+        $this->clientSecret = $account->clientSecret;
+        $this->apiUrl = $account->apiUrl;
     }
 
     public function isConfigured(): bool
@@ -92,7 +109,7 @@ class IDokladClient
 
     private function getAccessToken(): ?string
     {
-        $validToken = $this->tokenRepo->getValidToken();
+        $validToken = $this->tokenRepo->getValidToken($this->accountKey);
         if ($validToken !== null) {
             return $validToken;
         }
@@ -156,10 +173,10 @@ class IDokladClient
         $expiresAt = new \DateTime();
         $expiresAt->modify('+' . (int) $data['expires_in'] . ' seconds');
 
-        // Save token to database
-        $this->tokenRepo->saveToken($data['access_token'], $expiresAt);
+        // Save token to database (scoped to this account)
+        $this->tokenRepo->saveToken($this->accountKey, $data['access_token'], $expiresAt);
 
-        // Clean up old expired tokens
+        // Clean up old expired tokens (across all accounts)
         $this->tokenRepo->deleteExpiredTokens();
 
         return $data['access_token'];
@@ -214,8 +231,9 @@ class IDokladClient
         }
 
         if ($httpCode === 401) {
-            // Bearer was rejected — purge cached tokens so the next call re-auths from scratch.
-            $this->tokenRepo->deleteAllTokens();
+            // Bearer was rejected — purge this account's cached tokens so the next
+            // call re-auths from scratch. Other accounts' tokens are untouched.
+            $this->tokenRepo->deleteAllTokens($this->accountKey);
             $this->recordError('API call (token rejected)', $method, $url, $httpCode, '', $responseBody);
             return null;
         }
@@ -542,7 +560,20 @@ class IDokladClient
         return 'unpaid';
     }
 
-    public static function mapIdokladInvoice(array $idokladInvoice, int $companyId): array
+    /**
+     * A "contact lookup" miss means the customer's IČO has no contact in this
+     * account. With invoicing split across accounts that is expected for every
+     * account that did not bill this customer — it is not an API failure and
+     * must not abort the sync of the remaining accounts.
+     */
+    public static function isContactNotFoundError(?array $error): bool
+    {
+        return $error !== null
+            && ($error['context'] ?? '') === 'contact lookup'
+            && (int) ($error['http_code'] ?? 0) === 0;
+    }
+
+    public static function mapIdokladInvoice(array $idokladInvoice, int $companyId, string $accountKey = ''): array
     {
         // One-shot diagnostic: dump the first invoice's shape per process so we can
         // see iDoklad's actual field names if a mapping turns out to be wrong.
@@ -579,6 +610,7 @@ class IDokladClient
 
         return [
             'idoklad_id' => (int) $idokladInvoice['Id'],
+            'idoklad_account' => $accountKey,
             'company_id' => $companyId,
             'document_number' => $idokladInvoice['DocumentNumber'] ?? '',
             'variable_symbol' => $idokladInvoice['VariableSymbol'] ?? null,

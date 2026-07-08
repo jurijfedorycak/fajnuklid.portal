@@ -494,6 +494,111 @@ class InvoiceRepositoryTest extends DatabaseTestCase
         $this->assertEquals(5, $result);
     }
 
+    public function testUpsertFromIdokladDefaultsAccountToDefaultOnInsert(): void
+    {
+        $stmtFetch = $this->createStatementMock();
+        $stmtFetch->method('fetch')->willReturn(false);
+        $stmtFetch->method('execute')->willReturn(true);
+
+        $insertParams = null;
+        $stmtInsert = $this->createStatementMock();
+        $stmtInsert->method('execute')
+            ->willReturnCallback(function (array $params) use (&$insertParams) {
+                $insertParams = $params;
+                return true;
+            });
+
+        $this->pdoMock->method('prepare')
+            ->willReturnOnConsecutiveCalls($stmtFetch, $stmtInsert);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->upsertFromIdoklad([
+            'idoklad_id' => 12345,
+            'company_id' => 1,
+            'document_number' => 'INV-001',
+            'date_issued' => '2024-01-01',
+            'date_due' => '2024-01-15',
+            'total_amount' => 1000.00,
+            'is_paid' => false,
+            'payment_status' => 'unpaid',
+        ]);
+
+        $this->assertSame('default', $insertParams['idoklad_account'] ?? null);
+    }
+
+    public function testUpsertFromIdokladNormalizesEmptyAccountToDefault(): void
+    {
+        $stmtFetch = $this->createStatementMock();
+        $stmtFetch->method('fetch')->willReturn(false);
+        $stmtFetch->method('execute')->willReturn(true);
+
+        $insertParams = null;
+        $stmtInsert = $this->createStatementMock();
+        $stmtInsert->method('execute')
+            ->willReturnCallback(function (array $params) use (&$insertParams) {
+                $insertParams = $params;
+                return true;
+            });
+
+        $this->pdoMock->method('prepare')
+            ->willReturnOnConsecutiveCalls($stmtFetch, $stmtInsert);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->upsertFromIdoklad([
+            'idoklad_id' => 12345,
+            'idoklad_account' => '',
+            'company_id' => 1,
+            'document_number' => 'INV-001',
+            'date_issued' => '2024-01-01',
+            'date_due' => '2024-01-15',
+            'total_amount' => 1000.00,
+            'is_paid' => false,
+            'payment_status' => 'unpaid',
+        ]);
+
+        $this->assertSame('default', $insertParams['idoklad_account'] ?? null);
+    }
+
+    public function testUpsertFromIdokladPersistsProvidedAccountOnInsert(): void
+    {
+        $capturedFetchParams = null;
+        $stmtFetch = $this->createStatementMock();
+        $stmtFetch->method('fetch')->willReturn(false);
+        $stmtFetch->method('execute')
+            ->willReturnCallback(function (array $params) use (&$capturedFetchParams) {
+                $capturedFetchParams = $params;
+                return true;
+            });
+
+        $insertParams = null;
+        $stmtInsert = $this->createStatementMock();
+        $stmtInsert->method('execute')
+            ->willReturnCallback(function (array $params) use (&$insertParams) {
+                $insertParams = $params;
+                return true;
+            });
+
+        $this->pdoMock->method('prepare')
+            ->willReturnOnConsecutiveCalls($stmtFetch, $stmtInsert);
+        $this->pdoMock->method('lastInsertId')->willReturn('1');
+
+        $this->repository->upsertFromIdoklad([
+            'idoklad_id' => 12345,
+            'idoklad_account' => 'optim1',
+            'company_id' => 1,
+            'document_number' => 'INV-001',
+            'date_issued' => '2024-01-01',
+            'date_due' => '2024-01-15',
+            'total_amount' => 1000.00,
+            'is_paid' => false,
+            'payment_status' => 'unpaid',
+        ]);
+
+        // Existence check and insert are both scoped to the issuing account.
+        $this->assertSame('optim1', $capturedFetchParams['idoklad_account'] ?? null);
+        $this->assertSame('optim1', $insertParams['idoklad_account'] ?? null);
+    }
+
     public function testUpsertFromIdokladHandlesNullDates(): void
     {
         $stmtFetch = $this->createStatementMock();

@@ -6,7 +6,6 @@ namespace Tests\Unit\Repositories;
 
 use App\Repositories\IDokladTokenRepository;
 use DateTime;
-use PDO;
 use Tests\DatabaseTestCase;
 
 class IDokladTokenRepositoryTest extends DatabaseTestCase
@@ -25,25 +24,40 @@ class IDokladTokenRepositoryTest extends DatabaseTestCase
     {
         $expected = [
             'id' => 1,
+            'account_key' => 'main',
             'access_token' => 'token123',
             'expires_at' => '2025-01-15 12:00:00',
             'created_at' => '2024-01-01 12:00:00',
         ];
 
-        $this->stmtMock->method('fetch')->willReturn($expected);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
+        $this->setupFetchMock($expected);
 
-        $result = $this->repository->getLatestToken();
+        $result = $this->repository->getLatestToken('main');
 
         $this->assertEquals($expected, $result);
     }
 
+    public function testGetLatestTokenScopesQueryToAccount(): void
+    {
+        $capturedParams = null;
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function (array $params) use (&$capturedParams) {
+                $capturedParams = $params;
+                return true;
+            });
+        $this->stmtMock->method('fetch')->willReturn(false);
+
+        $this->repository->getLatestToken('optim1');
+
+        $this->assertSame('optim1', $capturedParams['account_key'] ?? null);
+    }
+
     public function testGetLatestTokenReturnsNullWhenNoTokens(): void
     {
-        $this->stmtMock->method('fetch')->willReturn(false);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
+        $this->setupFetchMock(false);
 
-        $result = $this->repository->getLatestToken();
+        $result = $this->repository->getLatestToken('main');
 
         $this->assertNull($result);
     }
@@ -53,62 +67,47 @@ class IDokladTokenRepositoryTest extends DatabaseTestCase
     public function testIsTokenValidReturnsTrueWhenNotExpired(): void
     {
         $futureDate = (new DateTime())->modify('+1 hour')->format('Y-m-d H:i:s');
-        $token = [
+        $this->setupFetchMock([
             'id' => 1,
+            'account_key' => 'main',
             'access_token' => 'token123',
             'expires_at' => $futureDate,
-        ];
+        ]);
 
-        $this->stmtMock->method('fetch')->willReturn($token);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
-
-        $result = $this->repository->isTokenValid();
-
-        $this->assertTrue($result);
+        $this->assertTrue($this->repository->isTokenValid('main'));
     }
 
     public function testIsTokenValidReturnsFalseWhenExpired(): void
     {
         $pastDate = (new DateTime())->modify('-1 hour')->format('Y-m-d H:i:s');
-        $token = [
+        $this->setupFetchMock([
             'id' => 1,
+            'account_key' => 'main',
             'access_token' => 'token123',
             'expires_at' => $pastDate,
-        ];
+        ]);
 
-        $this->stmtMock->method('fetch')->willReturn($token);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
-
-        $result = $this->repository->isTokenValid();
-
-        $this->assertFalse($result);
+        $this->assertFalse($this->repository->isTokenValid('main'));
     }
 
     public function testIsTokenValidReturnsFalseWhenExpiresWithin60Seconds(): void
     {
         $nearFutureDate = (new DateTime())->modify('+30 seconds')->format('Y-m-d H:i:s');
-        $token = [
+        $this->setupFetchMock([
             'id' => 1,
+            'account_key' => 'main',
             'access_token' => 'token123',
             'expires_at' => $nearFutureDate,
-        ];
+        ]);
 
-        $this->stmtMock->method('fetch')->willReturn($token);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
-
-        $result = $this->repository->isTokenValid();
-
-        $this->assertFalse($result);
+        $this->assertFalse($this->repository->isTokenValid('main'));
     }
 
     public function testIsTokenValidReturnsFalseWhenNoToken(): void
     {
-        $this->stmtMock->method('fetch')->willReturn(false);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
+        $this->setupFetchMock(false);
 
-        $result = $this->repository->isTokenValid();
-
-        $this->assertFalse($result);
+        $this->assertFalse($this->repository->isTokenValid('main'));
     }
 
     // getValidToken tests
@@ -116,45 +115,34 @@ class IDokladTokenRepositoryTest extends DatabaseTestCase
     public function testGetValidTokenReturnsTokenWhenValid(): void
     {
         $futureDate = (new DateTime())->modify('+1 hour')->format('Y-m-d H:i:s');
-        $token = [
+        $this->setupFetchMock([
             'id' => 1,
+            'account_key' => 'main',
             'access_token' => 'validtoken123',
             'expires_at' => $futureDate,
-        ];
+        ]);
 
-        $this->stmtMock->method('fetch')->willReturn($token);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
-
-        $result = $this->repository->getValidToken();
-
-        $this->assertEquals('validtoken123', $result);
+        $this->assertEquals('validtoken123', $this->repository->getValidToken('main'));
     }
 
     public function testGetValidTokenReturnsNullWhenInvalid(): void
     {
         $pastDate = (new DateTime())->modify('-1 hour')->format('Y-m-d H:i:s');
-        $token = [
+        $this->setupFetchMock([
             'id' => 1,
+            'account_key' => 'main',
             'access_token' => 'expiredtoken',
             'expires_at' => $pastDate,
-        ];
+        ]);
 
-        $this->stmtMock->method('fetch')->willReturn($token);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
-
-        $result = $this->repository->getValidToken();
-
-        $this->assertNull($result);
+        $this->assertNull($this->repository->getValidToken('main'));
     }
 
     public function testGetValidTokenReturnsNullWhenNoToken(): void
     {
-        $this->stmtMock->method('fetch')->willReturn(false);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
+        $this->setupFetchMock(false);
 
-        $result = $this->repository->getValidToken();
-
-        $this->assertNull($result);
+        $this->assertNull($this->repository->getValidToken('main'));
     }
 
     // saveToken tests
@@ -163,26 +151,26 @@ class IDokladTokenRepositoryTest extends DatabaseTestCase
     {
         $this->setupInsertMock(1);
 
-        $expiresAt = new DateTime('+1 hour');
-        $result = $this->repository->saveToken('newtoken', $expiresAt);
+        $result = $this->repository->saveToken('main', 'newtoken', new DateTime('+1 hour'));
 
         $this->assertEquals(1, $result);
     }
 
-    public function testSaveTokenFormatsDateCorrectly(): void
+    public function testSaveTokenPersistsAccountKeyAndFormatsDate(): void
     {
         $expiresAt = new DateTime('2024-06-15 14:30:00');
 
         $this->stmtMock->expects($this->once())
             ->method('execute')
             ->with($this->callback(function ($params) {
-                return $params['expires_at'] === '2024-06-15 14:30:00';
+                return $params['account_key'] === 'optim1'
+                    && $params['expires_at'] === '2024-06-15 14:30:00';
             }))
             ->willReturn(true);
         $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
         $this->pdoMock->method('lastInsertId')->willReturn('1');
 
-        $this->repository->saveToken('token', $expiresAt);
+        $this->repository->saveToken('optim1', 'token', $expiresAt);
     }
 
     // deleteExpiredTokens tests
@@ -191,39 +179,39 @@ class IDokladTokenRepositoryTest extends DatabaseTestCase
     {
         $this->setupRowCountMock(3);
 
-        $result = $this->repository->deleteExpiredTokens();
-
-        $this->assertEquals(3, $result);
+        $this->assertEquals(3, $this->repository->deleteExpiredTokens());
     }
 
     public function testDeleteExpiredTokensReturnsZeroWhenNoneExpired(): void
     {
         $this->setupRowCountMock(0);
 
-        $result = $this->repository->deleteExpiredTokens();
-
-        $this->assertEquals(0, $result);
+        $this->assertEquals(0, $this->repository->deleteExpiredTokens());
     }
 
     // deleteAllTokens tests
 
-    public function testDeleteAllTokensReturnsDeletedCount(): void
+    public function testDeleteAllTokensScopesToAccountAndReturnsCount(): void
     {
+        $capturedParams = null;
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+        $this->stmtMock->method('execute')
+            ->willReturnCallback(function (array $params) use (&$capturedParams) {
+                $capturedParams = $params;
+                return true;
+            });
         $this->stmtMock->method('rowCount')->willReturn(5);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
 
-        $result = $this->repository->deleteAllTokens();
+        $result = $this->repository->deleteAllTokens('main');
 
         $this->assertEquals(5, $result);
+        $this->assertSame('main', $capturedParams['account_key'] ?? null);
     }
 
     public function testDeleteAllTokensReturnsZeroWhenNoTokens(): void
     {
-        $this->stmtMock->method('rowCount')->willReturn(0);
-        $this->pdoMock->method('query')->willReturn($this->stmtMock);
+        $this->setupRowCountMock(0);
 
-        $result = $this->repository->deleteAllTokens();
-
-        $this->assertEquals(0, $result);
+        $this->assertEquals(0, $this->repository->deleteAllTokens('main'));
     }
 }

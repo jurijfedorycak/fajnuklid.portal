@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\Config\Database;
+use App\Helpers\IDokladAccountRegistry;
 use PDO;
 
 class InvoiceRepository
@@ -22,6 +23,7 @@ class InvoiceRepository
             SELECT
                 i.id,
                 i.idoklad_id,
+                i.idoklad_account,
                 i.company_id,
                 i.document_number,
                 i.variable_symbol,
@@ -48,12 +50,18 @@ class InvoiceRepository
         return $result ?: null;
     }
 
-    public function findByIdokladId(int $idokladId): ?array
+    /**
+     * With invoicing split across accounts an idoklad_id is only unique within a
+     * single account, so pass $account to disambiguate. Omitting it keeps the
+     * legacy single-account lookup semantics.
+     */
+    public function findByIdokladId(int $idokladId, ?string $account = null): ?array
     {
-        $stmt = $this->db->prepare('
+        $sql = '
             SELECT
                 id,
                 idoklad_id,
+                idoklad_account,
                 company_id,
                 document_number,
                 variable_symbol,
@@ -70,8 +78,17 @@ class InvoiceRepository
                 updated_at
             FROM invoices
             WHERE idoklad_id = :idoklad_id
-        ');
-        $stmt->execute(['idoklad_id' => $idokladId]);
+        ';
+
+        $params = ['idoklad_id' => $idokladId];
+
+        if ($account !== null) {
+            $sql .= ' AND idoklad_account = :idoklad_account';
+            $params['idoklad_account'] = $account;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
         $result = $stmt->fetch();
 
         return $result ?: null;
@@ -316,8 +333,16 @@ class InvoiceRepository
 
     public function upsertFromIdoklad(array $data): int
     {
-        // Check if invoice exists
-        $existing = $this->findByIdokladId($data['idoklad_id']);
+        // Both a missing key and the empty-string "unspecified" sentinel from
+        // mapIdokladInvoice collapse to the legacy 'default' account, so they never
+        // create a second row alongside a genuine 'default' one.
+        $account = $data['idoklad_account'] ?? '';
+        if ($account === '') {
+            $account = IDokladAccountRegistry::LEGACY_KEY;
+        }
+
+        // An idoklad_id is only unique within its account, so match on both.
+        $existing = $this->findByIdokladId($data['idoklad_id'], $account);
 
         if ($existing !== null) {
             // Update existing invoice
@@ -335,11 +360,12 @@ class InvoiceRepository
                     payment_status = :payment_status,
                     description = :description,
                     synced_at = NOW()
-                WHERE idoklad_id = :idoklad_id
+                WHERE idoklad_account = :idoklad_account AND idoklad_id = :idoklad_id
             ');
 
             $stmt->execute([
                 'idoklad_id' => $data['idoklad_id'],
+                'idoklad_account' => $account,
                 'company_id' => $data['company_id'],
                 'document_number' => $data['document_number'],
                 'variable_symbol' => $data['variable_symbol'] ?? null,
@@ -360,6 +386,7 @@ class InvoiceRepository
         $stmt = $this->db->prepare('
             INSERT INTO invoices (
                 idoklad_id,
+                idoklad_account,
                 company_id,
                 document_number,
                 variable_symbol,
@@ -375,6 +402,7 @@ class InvoiceRepository
                 created_at
             ) VALUES (
                 :idoklad_id,
+                :idoklad_account,
                 :company_id,
                 :document_number,
                 :variable_symbol,
@@ -393,6 +421,7 @@ class InvoiceRepository
 
         $stmt->execute([
             'idoklad_id' => $data['idoklad_id'],
+            'idoklad_account' => $account,
             'company_id' => $data['company_id'],
             'document_number' => $data['document_number'],
             'variable_symbol' => $data['variable_symbol'] ?? null,
