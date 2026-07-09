@@ -694,16 +694,6 @@ function recordLabel(c) {
   return icoCompanyMap.value[c.ico] || 'Úklid'
 }
 
-// End-of-cleaning label. An overnight cleaning is anchored to its start day by
-// the backend, so its end time reads earlier than its start (e.g. 23:30 → 00:15).
-// We derive the "(+1)" next-day marker from whichever pair is actually shown
-// (raw for admins, rounded for clients), so it always matches the rendered range.
-function endLabel(c) {
-  if (!c || !c.endTime) return ''
-  const crossesMidnight = c.startTime && c.endTime < c.startTime
-  return crossesMidnight ? `${c.endTime} (+1)` : c.endTime
-}
-
 function initials(name) {
   const parts = String(name || '').split(/\s+/).filter(Boolean)
   if (parts.length === 0) return '–'
@@ -1066,7 +1056,7 @@ onBeforeUnmount(() => {
                      the raw range alongside the explicit "Účtováno" label. -->
                 <template v-else-if="c.roundedMinutes != null">
                   <span class="record-time-main">
-                    <template v-if="c.startTime && c.endTime">{{ c.startTime }} — {{ endLabel(c) }}</template>
+                    <template v-if="c.startTime && c.endTime">{{ c.startTime }} — {{ c.endTime }}</template>
                     <template v-else>{{ formatDuration(c.roundedMinutes) }}</template>
                   </span>
                   <span v-if="showAdminDetails" class="record-time-billed">
@@ -1079,7 +1069,7 @@ onBeforeUnmount(() => {
                 <!-- No rounding rules configured: legacy raw-time range. -->
                 <template v-else>
                   <span class="record-time-main">
-                    {{ c.startTime || '—' }}<template v-if="c.endTime"> — {{ endLabel(c) }}</template>
+                    {{ c.startTime || '—' }}<template v-if="c.endTime"> — {{ c.endTime }}</template>
                   </span>
                 </template>
               </span>
@@ -1326,18 +1316,18 @@ onBeforeUnmount(() => {
               </template>
               <template v-else-if="c.roundedMinutes != null">
                 <span v-if="showAdminDetails" class="cleaning-time-range">
-                  <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ endLabel(c) }}</template>
+                  <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }}</template>
                   <template v-else>—</template>
                   <span class="cleaning-time-billed">· Účtováno {{ formatDuration(c.roundedMinutes) }}</span>
                 </span>
                 <span v-else class="cleaning-time-billed-only">
-                  <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ endLabel(c) }} · </template>
+                  <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }} · </template>
                   {{ formatDuration(c.roundedMinutes) }}
                 </span>
               </template>
               <template v-else>
                 <span class="cleaning-time-range">
-                  {{ c.startTime || '—' }}<template v-if="c.endTime"> – {{ endLabel(c) }}</template>
+                  {{ c.startTime || '—' }}<template v-if="c.endTime"> – {{ c.endTime }}</template>
                 </span>
               </template>
             </div>
