@@ -60,13 +60,14 @@ class FreshQRServiceTest extends TestCase
         array $allowed,
         string $today,
         string $mode = 'basic',
-        array $displayNames = []
+        array $displayNames = [],
+        ?\DateTimeImmutable $now = null
     ): array {
         $modeMap = [];
         foreach ($icos as $ico) {
             $modeMap[$ico] = $mode;
         }
-        return FreshQRService::buildCleaningDays($records, $modeMap, $allowed, $displayNames, $today);
+        return FreshQRService::buildCleaningDays($records, $modeMap, $allowed, $displayNames, $today, [], $now);
     }
 
     // extractIcos
@@ -619,43 +620,46 @@ class FreshQRServiceTest extends TestCase
         );
     }
 
-    public function testBuildCleaningDaysDropsRecordWhereFirstScanDateDiffersFromDate(): void
+    public function testBuildCleaningDaysKeepsReportRowWhereFirstScanIsPreviousDay(): void
     {
-        // Business invariant: Fajnúklid doesn't run overnight cleanings. If
-        // FreshQR returns a record whose ISO first_scan_time disagrees with
-        // the `date` field (cross-midnight artefact), drop it entirely.
+        // Overnight cleanings are legitimate: a report row whose ISO first_scan_time
+        // is the night before is kept on its reported `date` (the day FreshQR's
+        // cache grouped it under), not dropped. Basic mode exposes no times, only
+        // that a cleaning happened that day.
         $records = [
             [
                 'date' => '2026-04-21',
                 'project' => ['name' => '12345678 Office'],
                 'employee' => ['personal_number' => 'EMP001'],
-                'first_scan_time' => '2026-04-20T23:50:00Z', // previous day!
+                'first_scan_time' => '2026-04-20T23:50:00Z',
                 'last_scan_time' => '2026-04-21T00:10:00Z',
             ],
         ];
 
         $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
 
-        $this->assertEquals([], $result);
+        $this->assertCount(1, $result);
+        $this->assertSame('2026-04-21', $result[0]['date']);
     }
 
-    public function testBuildCleaningDaysDropsRecordWhereLastScanDateDiffersFromDate(): void
+    public function testBuildCleaningDaysKeepsReportRowWhereLastScanIsNextDay(): void
     {
-        // Same invariant — last_scan_time spilling into the next day means the
-        // cleaning crossed midnight, drop it.
+        // Mirror of the above — a scan-out spilling into the next day is a genuine
+        // overnight visit, kept on its reported start-day `date`.
         $records = [
             [
                 'date' => '2026-04-21',
                 'project' => ['name' => '12345678 Office'],
                 'employee' => ['personal_number' => 'EMP001'],
                 'first_scan_time' => '2026-04-21T23:50:00Z',
-                'last_scan_time' => '2026-04-22T00:10:00Z', // next day!
+                'last_scan_time' => '2026-04-22T00:10:00Z',
             ],
         ];
 
         $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
 
-        $this->assertEquals([], $result);
+        $this->assertCount(1, $result);
+        $this->assertSame('2026-04-21', $result[0]['date']);
     }
 
     public function testBuildCleaningDaysAcceptsRecordWithBareHhmmssScanTimes(): void
@@ -679,31 +683,120 @@ class FreshQRServiceTest extends TestCase
         $this->assertEquals('2026-04-21', $result[0]['date']);
     }
 
-    public function testBuildCleaningDaysCrossMidnightRecordIsDropped(): void
+    public function testBuildCleaningDaysDetailedOvernightVisitAnchoredToStartDayWithDuration(): void
     {
-        // The single-day filter drops anomalous cross-midnight scans before
-        // they reach the output. The legitimate same-day record at the matching
-        // project still appears and stays ongoing on its own merit (TimeTo null).
+        // Detailed-mode overnight cleaning (23:30 → 01:00, reshaped upstream with an
+        // explicit duration_minutes + ends_next_day) lands on its START day, carries
+        // the gap-aware duration, and is flagged endsNextDay for the UI.
         $records = [
             [
-                'date' => '2026-04-21',
+                'date' => '2026-04-20',
                 'project' => ['name' => '12345678 Office'],
                 'employee' => ['personal_number' => 'EMP001'],
-                'first_scan_time' => '08:00:00',
-                // Single scan, today's morning — still on-site
-            ],
-            [
-                'date' => '2026-04-21',
-                'project' => ['name' => 'Other 99999999 Office'],
-                'employee' => ['personal_number' => 'EMP001'],
-                'first_scan_time' => '2026-04-22T03:00:00Z', // bad data, next day
+                'first_scan_time' => '23:30:00',
+                'last_scan_time' => '01:00:00',
+                'duration_minutes' => 90,
+                'ends_next_day' => true,
             ],
         ];
 
-        $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21');
+        $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21', 'detailed');
 
         $this->assertCount(1, $result);
-        $this->assertTrue($result[0]['ongoing'], 'Legitimate same-day record is still ongoing');
+        $this->assertSame('2026-04-20', $result[0]['date']);
+        $this->assertFalse($result[0]['ongoing']);
+        $cleaning = $result[0]['cleanings'][0];
+        $this->assertSame('23:30', $cleaning['startTime']);
+        $this->assertSame('01:00', $cleaning['endTime']);
+        $this->assertSame(90, $cleaning['rawMinutes']);
+        $this->assertTrue($cleaning['endsNextDay']);
+    }
+
+    public function testBuildCleaningDaysKeepsMorningAndEveningEntriesExceedingTwelveHoursTotal(): void
+    {
+        // The per-entry cap is not a per-day cap: a large site with a separate
+        // morning and evening shift produces two entries whose combined span tops
+        // 12 hours. Each is well under the cap, so both survive and both durations
+        // count — nothing is collapsed or dropped.
+        $records = [
+            [
+                'date' => '2026-04-20',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '06:00:00',
+                'last_scan_time' => '11:00:00',
+                'duration_minutes' => 300,
+                'ends_next_day' => false,
+            ],
+            [
+                'date' => '2026-04-20',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '18:00:00',
+                'last_scan_time' => '00:30:00',
+                'duration_minutes' => 390,
+                'ends_next_day' => true,
+            ],
+        ];
+
+        $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21', 'detailed');
+
+        $this->assertCount(1, $result);
+        $cleanings = $result[0]['cleanings'];
+        $this->assertCount(2, $cleanings);
+        $this->assertSame(300, $cleanings[0]['rawMinutes']);
+        $this->assertSame(390, $cleanings[1]['rawMinutes']);
+        $this->assertTrue($cleanings[1]['endsNextDay']);
+    }
+
+    public function testBuildCleaningDaysFlagsOvernightInProgressAsOngoing(): void
+    {
+        // A cleaning that started 23:00 yesterday and is still open at 00:45 now
+        // (well within one entry's max length) is live — flagged ongoing even
+        // though its start day is yesterday, not today.
+        $now = new \DateTimeImmutable('2026-04-21 00:45:00', new \DateTimeZone('Europe/Prague'));
+        $records = [
+            [
+                'date' => '2026-04-20',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '23:00:00',
+                'last_scan_time' => null,
+                'duration_minutes' => null,
+                'ends_next_day' => false,
+            ],
+        ];
+
+        $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21', 'detailed', [], $now);
+
+        $this->assertCount(1, $result);
+        $this->assertSame('2026-04-20', $result[0]['date']);
+        $this->assertTrue($result[0]['ongoing']);
+        $this->assertTrue($result[0]['cleanings'][0]['ongoing']);
+    }
+
+    public function testBuildCleaningDaysDoesNotFlagStaleOpenScanAsOngoing(): void
+    {
+        // Same open record, but now it's the following afternoon — 15+ hours after
+        // scan-in, past the per-entry window. That's a forgotten scan-out, not live
+        // work, so it must NOT be ongoing.
+        $now = new \DateTimeImmutable('2026-04-21 14:00:00', new \DateTimeZone('Europe/Prague'));
+        $records = [
+            [
+                'date' => '2026-04-20',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '23:00:00',
+                'last_scan_time' => null,
+                'duration_minutes' => null,
+                'ends_next_day' => false,
+            ],
+        ];
+
+        $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21', 'detailed', [], $now);
+
+        $this->assertCount(1, $result);
+        $this->assertFalse($result[0]['ongoing']);
     }
 
     public function testBuildCleaningDaysSubMinuteJitterIsTreatedAsSingleScan(): void

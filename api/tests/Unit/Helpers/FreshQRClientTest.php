@@ -148,6 +148,8 @@ class FreshQRClientTest extends TestCase
             'employee' => ['personal_number' => 'EMP001'],
             'first_scan_time' => '08:00:00',
             'last_scan_time' => '10:00:00',
+            'duration_minutes' => 120,
+            'ends_next_day' => false,
         ], $out);
     }
 
@@ -168,10 +170,11 @@ class FreshQRClientTest extends TestCase
         $this->assertSame('08:00:00', $out['first_scan_time']);
     }
 
-    public function testReshapeDropsCrossMidnightPair(): void
+    public function testReshapeKeepsOvernightPairAnchoredToStartDay(): void
     {
-        // Overnight scan-out lands on the next day — Fajnúklid has no cross-midnight
-        // cleanings, and the single-day invariant must hold, so the pair is dropped.
+        // A genuine overnight cleaning (23:30 → 01:00 next day) is kept, anchored
+        // to the day it STARTED, with ends_next_day flagged so the UI can mark the
+        // roll-over. Duration spans midnight correctly (90 minutes).
         $out = $this->reshape(
             [
                 'TimeFrom' => '2026-04-10 23:30:00',
@@ -182,7 +185,69 @@ class FreshQRClientTest extends TestCase
             [5 => 'EMP001']
         );
 
+        $this->assertSame([
+            'date' => '2026-04-10',
+            'project' => ['name' => '12345678 Office'],
+            'employee' => ['personal_number' => 'EMP001'],
+            'first_scan_time' => '23:30:00',
+            'last_scan_time' => '01:00:00',
+            'duration_minutes' => 90,
+            'ends_next_day' => true,
+        ], $out);
+    }
+
+    public function testReshapeDropsEntryLongerThanMaxEntryMinutes(): void
+    {
+        // 13 hours in a single entry is a forgotten scan-out, not a shift — dropped.
+        // The cap is per entry, so a real overnight cleaning under 12h still passes.
+        $out = $this->reshape(
+            [
+                'TimeFrom' => '2026-04-10 08:00:00',
+                'TimeTo' => '2026-04-10 21:00:00',
+                'TaskName1' => '12345678 Office',
+                'CompanyEmployeeId' => 5,
+            ],
+            [5 => 'EMP001']
+        );
+
         $this->assertNull($out);
+    }
+
+    public function testReshapeDropsMultiDayForgottenScanOut(): void
+    {
+        // Scan-out three days later — well past the per-entry cap even though it's
+        // "closed". The duration guard, not the day boundary, is what drops it.
+        $out = $this->reshape(
+            [
+                'TimeFrom' => '2026-04-10 22:00:00',
+                'TimeTo' => '2026-04-13 06:00:00',
+                'TaskName1' => '12345678 Office',
+                'CompanyEmployeeId' => 5,
+            ],
+            [5 => 'EMP001']
+        );
+
+        $this->assertNull($out);
+    }
+
+    public function testReshapePrefersReportedDurationMinutes(): void
+    {
+        // FreshQR's own DurationMinutes wins over the timestamp diff — it's the
+        // authoritative gap-aware value. Here it agrees the entry is short (kept),
+        // even though the string form is what the API delivers.
+        $out = $this->reshape(
+            [
+                'TimeFrom' => '2026-04-10 08:00:00',
+                'TimeTo' => '2026-04-10 10:30:00',
+                'DurationMinutes' => '150',
+                'TaskName1' => '12345678 Office',
+                'CompanyEmployeeId' => 5,
+            ],
+            [5 => 'EMP001']
+        );
+
+        $this->assertNotNull($out);
+        $this->assertSame(150, $out['duration_minutes']);
     }
 
     public function testReshapeDropsRecordForUnmappedEmployee(): void

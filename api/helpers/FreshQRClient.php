@@ -16,6 +16,17 @@ class FreshQRClient
     private const RESPONSE_BODY_LIMIT = 2000;
     private const MAX_ATTEMPTS = 2;
 
+    /**
+     * Longest a single attendance entry (one scan-in/scan-out pair) may last
+     * before it's treated as a forgotten scan-out rather than real work. This
+     * is the discriminator that lets genuine overnight cleanings through while
+     * still dropping stuck scans: a cross-midnight boundary is normal, an entry
+     * longer than this is not. The cap is PER ENTRY, not per day — a large site
+     * with a separate morning and evening shift produces two entries, each
+     * validated on its own, so their combined day may exceed this. 12 hours.
+     */
+    public const MAX_ENTRY_MINUTES = 720;
+
     private string $apiUrl;
     private string $apiKey;
     private ?array $lastError = null;
@@ -535,24 +546,29 @@ class FreshQRClient
 
         // Closed pair → the scan-out time becomes last_scan_time; open pair
         // (TimeTo null/unparseable) stays null so the record reads as "still
-        // on-site" and, if it's today, ongoing. Only the time-of-day is kept:
-        // the record's `date` already anchors the day, matching the shape the
-        // materialized-report path produces.
+        // on-site" and, while recent, ongoing. Every entry is anchored to the
+        // scan-IN day (`$m[1]`): an overnight cleaning belongs to the day it
+        // started, so a scan-out after midnight keeps the entry on the prior day
+        // and sets `ends_next_day` for the UI to mark the roll-over.
         //
-        // A closed pair whose scan-out lands on a *different* calendar day is an
-        // overnight/anomalous record. Fajnúklid doesn't run cross-midnight
-        // cleanings and the downstream single-day logic (duration, ongoing)
-        // assumes one day; the materialized-report path dropped these via
-        // FreshQRService::recordIsSingleDay, but that guard keys off an ISO date
-        // portion the bare HH:MM:SS shape here doesn't carry — so drop them at
-        // the source to preserve the invariant.
+        // A cross-midnight pair is a genuine overnight shift, not an anomaly to
+        // drop — Fajnúklid's larger sites do run cleanings that finish past
+        // midnight. The real anomaly is a forgotten scan-out, told apart by
+        // DURATION rather than by the calendar-day boundary: an entry longer
+        // than MAX_ENTRY_MINUTES (or inverted) is dropped below. FreshQR's own
+        // DurationMinutes is authoritative (spans midnight correctly); we only
+        // recompute from the timestamps when that field is absent.
         $last = null;
+        $endsNextDay = false;
         $timeTo = $row['TimeTo'] ?? null;
         if (is_string($timeTo) && preg_match('/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/', $timeTo, $mto)) {
-            if ($mto[1] !== $m[1]) {
-                return null;
-            }
             $last = $mto[2];
+            $endsNextDay = $mto[1] > $m[1];
+        }
+
+        $durationMinutes = self::entryDurationMinutes($row, $timeFrom, $timeTo);
+        if ($durationMinutes !== null && ($durationMinutes < 0 || $durationMinutes > self::MAX_ENTRY_MINUTES)) {
+            return null;
         }
 
         return [
@@ -561,6 +577,40 @@ class FreshQRClient
             'employee' => ['personal_number' => $personal],
             'first_scan_time' => $m[2],
             'last_scan_time' => $last,
+            'duration_minutes' => $durationMinutes,
+            'ends_next_day' => $endsNextDay,
         ];
+    }
+
+    /**
+     * Duration of a single attendance entry in whole minutes, or null when it
+     * can't be determined (open pair, malformed timestamps).
+     *
+     * Prefers FreshQR's precomputed `DurationMinutes` (TIMESTAMPDIFF over the
+     * scan pair — authoritative and correct across midnight). Falls back to the
+     * timestamp difference only when that field is missing or malformed. A
+     * negative value is passed through so the caller can drop an inverted pair.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function entryDurationMinutes(array $row, string $timeFrom, ?string $timeTo): ?int
+    {
+        $reported = $row['DurationMinutes'] ?? null;
+        if (is_int($reported)) {
+            return $reported;
+        }
+        if (is_string($reported) && preg_match('/^-?\d+$/', $reported) === 1) {
+            return (int) $reported;
+        }
+
+        if (!is_string($timeTo) || $timeTo === '') {
+            return null;
+        }
+        $from = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $timeFrom);
+        $to = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $timeTo);
+        if ($from === false || $to === false) {
+            return null;
+        }
+        return (int) round(($to->getTimestamp() - $from->getTimestamp()) / 60);
     }
 }

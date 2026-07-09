@@ -493,13 +493,17 @@ const monthTimeDeltaText = computed(() => {
 })
 
 // --- Header status badge ---
-const hasOngoingToday = computed(() =>
-  cleaningDays.value.some(d => d.ongoing && d.date === today.value)
+// The backend only sets `ongoing` while a cleaning is genuinely live now — today's
+// open scans, plus an overnight cleaning that started late yesterday and is still
+// running past midnight (anchored to its start day). Keying on the flag alone,
+// rather than d.date === today, keeps the badge lit for that overnight case.
+const hasOngoingNow = computed(() =>
+  cleaningDays.value.some(d => d.ongoing)
 )
 const headerStatus = computed(() => {
   if (loading.value) return { key: 'updating', label: 'Aktualizace…' }
   if (upstreamError.value) return { key: 'offline', label: 'Offline' }
-  if (freshqrActive.value && hasOngoingToday.value) return { key: 'ongoing', label: 'Úklid probíhá' }
+  if (freshqrActive.value && hasOngoingNow.value) return { key: 'ongoing', label: 'Úklid probíhá' }
   return null
 })
 
@@ -688,6 +692,14 @@ const icoCompanyMap = computed(() => {
 function recordLabel(c) {
   if (c.ongoing) return 'Právě probíhá'
   return icoCompanyMap.value[c.ico] || 'Úklid'
+}
+
+// End-of-cleaning label. An overnight cleaning is anchored to its start day by
+// the backend; when it finished after midnight (endsNextDay) we suffix "(+1)"
+// so the end time reads as the following day rather than an impossible reversal.
+function endLabel(c) {
+  if (!c || !c.endTime) return ''
+  return c.endsNextDay ? `${c.endTime} (+1)` : c.endTime
 }
 
 function initials(name) {
@@ -1052,7 +1064,7 @@ onBeforeUnmount(() => {
                      the raw range alongside the explicit "Účtováno" label. -->
                 <template v-else-if="c.roundedMinutes != null">
                   <span class="record-time-main">
-                    <template v-if="c.startTime && c.endTime">{{ c.startTime }} — {{ c.endTime }}</template>
+                    <template v-if="c.startTime && c.endTime">{{ c.startTime }} — {{ endLabel(c) }}</template>
                     <template v-else>{{ formatDuration(c.roundedMinutes) }}</template>
                   </span>
                   <span v-if="showAdminDetails" class="record-time-billed">
@@ -1065,7 +1077,7 @@ onBeforeUnmount(() => {
                 <!-- No rounding rules configured: legacy raw-time range. -->
                 <template v-else>
                   <span class="record-time-main">
-                    {{ c.startTime || '—' }}<template v-if="c.endTime"> — {{ c.endTime }}</template>
+                    {{ c.startTime || '—' }}<template v-if="c.endTime"> — {{ endLabel(c) }}</template>
                   </span>
                 </template>
               </span>
@@ -1312,18 +1324,18 @@ onBeforeUnmount(() => {
               </template>
               <template v-else-if="c.roundedMinutes != null">
                 <span v-if="showAdminDetails" class="cleaning-time-range">
-                  <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }}</template>
+                  <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ endLabel(c) }}</template>
                   <template v-else>—</template>
                   <span class="cleaning-time-billed">· Účtováno {{ formatDuration(c.roundedMinutes) }}</span>
                 </span>
                 <span v-else class="cleaning-time-billed-only">
-                  <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ c.endTime }} · </template>
+                  <template v-if="c.startTime && c.endTime">{{ c.startTime }} – {{ endLabel(c) }} · </template>
                   {{ formatDuration(c.roundedMinutes) }}
                 </span>
               </template>
               <template v-else>
                 <span class="cleaning-time-range">
-                  {{ c.startTime || '—' }}<template v-if="c.endTime"> – {{ c.endTime }}</template>
+                  {{ c.startTime || '—' }}<template v-if="c.endTime"> – {{ endLabel(c) }}</template>
                 </span>
               </template>
             </div>
