@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import {
   LayoutDashboard, Clock, ClipboardList, FileText, FileSignature,
   Users, Phone, ShieldCheck, KeyRound, LifeBuoy, HelpCircle,
-  ChevronDown, Search, Sparkles, MessageCircle,
+  ChevronDown, Search, Sparkles, MessageCircle, X,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -456,6 +456,22 @@ const filteredGroups = computed(() => {
 
 const hasResults = computed(() => filteredGroups.value.length > 0)
 
+const isSearching = computed(() => query.value.trim().length > 0)
+const matchCount = computed(() =>
+  filteredGroups.value.reduce((total, group) => total + group.items.length, 0)
+)
+
+// Czech numeric agreement for "výsledek" (1 / 2–4 / 0+5+).
+function resultsWord(n) {
+  if (n === 1) return 'výsledek'
+  if (n >= 2 && n <= 4) return 'výsledky'
+  return 'výsledků'
+}
+
+function clearSearch() {
+  query.value = ''
+}
+
 // Multiple answers can stay open at once; keyed by the item's unique id.
 const openItems = ref({})
 function toggle(id) {
@@ -497,11 +513,22 @@ function goToContact() {
           placeholder="Hledat v otázkách…"
           aria-label="Hledat v otázkách"
         />
+        <button
+          v-if="isSearching"
+          id="help-search-clear"
+          type="button"
+          class="help-search-clear"
+          aria-label="Vymazat hledání"
+          @click="clearSearch"
+        >
+          <X :size="18" />
+        </button>
       </div>
     </section>
 
-    <!-- General: what the portal offers (informational, distinct from the Q&A) -->
-    <section id="help-features" class="help-section">
+    <!-- General: what the portal offers. Hidden while searching so the results
+         become the whole focus and visibly sit right under the search box. -->
+    <section v-if="!isSearching" id="help-features" class="help-section">
       <div class="help-section-head">
         <h2 id="help-features-title" class="help-section-title">Co v portálu najdete?</h2>
         <p id="help-features-subtitle" class="help-section-subtitle">
@@ -534,9 +561,14 @@ function goToContact() {
     <!-- Q&A -->
     <section id="help-faq" class="help-section">
       <div class="help-section-head">
-        <h2 id="help-faq-title" class="help-section-title">Časté otázky</h2>
-        <p id="help-faq-subtitle" class="help-section-subtitle">
+        <h2 id="help-faq-title" class="help-section-title">
+          {{ isSearching ? 'Výsledky hledání' : 'Časté otázky' }}
+        </h2>
+        <p v-if="!isSearching" id="help-faq-subtitle" class="help-section-subtitle">
           Rozklikněte otázku a zobrazí se odpověď.
+        </p>
+        <p v-else-if="matchCount" id="help-faq-count" class="help-section-subtitle">
+          {{ matchCount }} {{ resultsWord(matchCount) }} pro „{{ query.trim() }}“
         </p>
       </div>
 
@@ -544,7 +576,13 @@ function goToContact() {
         <div class="empty-state">
           <Search :size="40" class="empty-state-icon" />
           <p class="empty-state-title">Nic jsme nenašli.</p>
-          <p class="empty-state-text">Zkuste jiná slova nebo se na nás rovnou obraťte.</p>
+          <p class="empty-state-text">
+            Pro „{{ query.trim() }}“ jsme nenašli žádnou otázku. Zkuste jiná slova nebo se na nás
+            rovnou obraťte.
+          </p>
+          <button id="help-faq-empty-clear" type="button" class="btn btn-outline btn-sm mt-20" @click="clearSearch">
+            Zrušit hledání
+          </button>
         </div>
       </div>
 
@@ -690,7 +728,7 @@ function goToContact() {
 }
 .help-search-field {
   width: 100%;
-  padding: 12px 14px 12px 42px;
+  padding: 12px 44px 12px 42px;
   border: 1.5px solid var(--color-gray-300);
   border-radius: var(--radius-lg);
   /* 16px keeps iOS Safari from auto-zooming on focus */
@@ -706,6 +744,36 @@ function goToContact() {
 .help-search-field:focus {
   border-color: var(--color-mid);
   box-shadow: 0 0 0 3px rgba(59, 158, 181, 0.15);
+}
+/* Suppress the native ✕ so only our own clear button shows */
+.help-search-field::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.help-search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-gray-500);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.help-search-clear:hover {
+  background: var(--color-gray-100);
+  color: var(--color-primary);
+}
+.help-search-clear:focus-visible {
+  outline: 2px solid var(--color-mid);
+  outline-offset: 2px;
 }
 
 /* Sections */
