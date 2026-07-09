@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
-  Settings, LogOut, ChevronLeft,
+  Settings, LogOut, ChevronLeft, HelpCircle,
 } from 'lucide-vue-next'
 import { useAuth } from '../../stores/auth'
 import { useNavItems } from '../../composables/useNavItems'
@@ -59,9 +59,11 @@ watch(() => route.path, (path, prev) => {
   }
 })
 
-const bottomItems = [
-  { name: 'Nastavení',    route: '/nastaveni', icon: Settings },
-]
+// Help is a client-only page; admins have their own tooling and never see it.
+const bottomItems = computed(() => [
+  ...(isAdmin.value ? [] : [{ name: 'Nápověda a otázky', route: '/napoveda', icon: HelpCircle }]),
+  { name: 'Nastavení', route: '/nastaveni', icon: Settings },
+])
 
 function isActive(r) {
   if (r === '/prehled') return route.path === '/prehled'

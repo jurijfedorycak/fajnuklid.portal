@@ -78,6 +78,11 @@ const routes = [
         component: () => import('../views/ContactView.vue'),
       },
       {
+        path: '/napoveda',
+        name: 'Help',
+        component: () => import('../views/HelpView.vue'),
+      },
+      {
         path: '/nastaveni',
         name: 'Settings',
         component: () => import('../views/SettingsView.vue'),
@@ -171,7 +176,7 @@ router.beforeEach((to) => {
     return { name: 'Dashboard' }
   }
 
-  const clientOnlyRoutes = ['Dashboard', 'Invoices', 'Personnel', 'Contract', 'Attendance', 'Contact', 'Requests', 'NewRequest', 'RequestCreated', 'RequestDetail']
+  const clientOnlyRoutes = ['Dashboard', 'Invoices', 'Personnel', 'Contract', 'Attendance', 'Contact', 'Requests', 'NewRequest', 'RequestCreated', 'RequestDetail', 'Help']
   if (isAdmin.value && clientOnlyRoutes.includes(to.name)) {
     // Admins may stay on /dochazka when previewing a specific client's view —
     // the page renders exactly what that client sees so admins can verify

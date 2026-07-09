@@ -544,12 +544,14 @@ class FreshQRClient
             return null;
         }
 
-        // Closed pair → the scan-out time becomes last_scan_time; open pair
-        // (TimeTo null/unparseable) stays null so the record reads as "still
-        // on-site" and, while recent, ongoing. Every entry is anchored to the
-        // scan-IN day (`$m[1]`): an overnight cleaning belongs to the day it
-        // started, so a scan-out after midnight keeps the entry on the prior day
-        // and sets `ends_next_day` for the UI to mark the roll-over.
+        // Closed pair → the scan-out time (time-of-day only) becomes
+        // last_scan_time; open pair (TimeTo null/unparseable) stays null so the
+        // record reads as "still on-site" and, while recent, ongoing. Every entry
+        // is anchored to the scan-IN day (`$m[1]`): an overnight cleaning belongs
+        // to the day it started, so a scan-out after midnight keeps the entry on
+        // the prior day (last_scan_time will read lexically earlier than
+        // first_scan_time — the crossing is derivable from that, so no separate
+        // flag is stored; duration comes from duration_minutes, not the times).
         //
         // A cross-midnight pair is a genuine overnight shift, not an anomaly to
         // drop — Fajnúklid's larger sites do run cleanings that finish past
@@ -559,11 +561,9 @@ class FreshQRClient
         // DurationMinutes is authoritative (spans midnight correctly); we only
         // recompute from the timestamps when that field is absent.
         $last = null;
-        $endsNextDay = false;
         $timeTo = $row['TimeTo'] ?? null;
         if (is_string($timeTo) && preg_match('/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/', $timeTo, $mto)) {
             $last = $mto[2];
-            $endsNextDay = $mto[1] > $m[1];
         }
 
         $durationMinutes = self::entryDurationMinutes($row, $timeFrom, $timeTo);
@@ -578,7 +578,6 @@ class FreshQRClient
             'first_scan_time' => $m[2],
             'last_scan_time' => $last,
             'duration_minutes' => $durationMinutes,
-            'ends_next_day' => $endsNextDay,
         ];
     }
 

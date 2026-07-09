@@ -42,13 +42,23 @@ use App\Repositories\EmployeeRepository;
  *      to infer it from a null endTime — that signal is unreliable because
  *      single-scan past-day records also have null endTime.
  *   5. A cleaning that crosses midnight (finishes after 00:00) is a genuine
- *      overnight visit, not an anomaly: it's anchored to the day it STARTED and
- *      carries `endsNextDay = true` so the FE marks the roll-over. Only the
- *      per-entry duration cap (FreshQRClient::MAX_ENTRY_MINUTES) filters out
- *      forgotten scan-outs — the calendar-day boundary no longer does.
+ *      overnight visit, not an anomaly: it's anchored to the day it STARTED, and
+ *      its endTime reads lexically earlier than its startTime (e.g. 23:30→00:15)
+ *      — the FE derives the "+1 day" marker from that, so no flag is stored.
+ *      Duration comes from the per-entry `duration_minutes` (correct across
+ *      midnight), never from the times. Only the per-entry duration cap
+ *      (FreshQRClient::MAX_ENTRY_MINUTES) filters out forgotten scan-outs — the
+ *      calendar-day boundary no longer does.
  */
 class FreshQRService
 {
+    /**
+     * The business calendar timezone. Pinned here (not just via index.php's
+     * runtime default) so the "ongoing" boundary and the overnight active window
+     * stay correct even from a CLI script or cron task that forgot to set it.
+     */
+    private const TIMEZONE = 'Europe/Prague';
+
     private FreshQRClient $client;
     private CompanyRepository $companyRepo;
     private EmployeeRepository $employeeRepo;
@@ -333,12 +343,12 @@ class FreshQRService
         int $year,
         int $month,
         string $today,
-        ?\DateTimeImmutable $now = null
+        \DateTimeImmutable $now
     ): ?array {
         if (in_array('detailed', $modeByIco, true)) {
             $from = new \DateTimeImmutable(
                 sprintf('%04d-%02d-01', $year, $month),
-                new \DateTimeZone('Europe/Prague')
+                new \DateTimeZone(self::TIMEZONE)
             );
             $to = $from->modify('last day of this month');
             $records = $this->client->getAttendanceRawForRange($from, $to);
@@ -379,7 +389,7 @@ class FreshQRService
     private static function dropStalePastOpenScans(
         array $records,
         string $today,
-        ?\DateTimeImmutable $now = null
+        \DateTimeImmutable $now
     ): array {
         return array_values(array_filter($records, static function ($record) use ($today, $now) {
             $isOpen = ($record['last_scan_time'] ?? null) === null;
@@ -406,7 +416,7 @@ class FreshQRService
         array $companies,
         array $modeByIco,
         string $today,
-        ?\DateTimeImmutable $now = null
+        \DateTimeImmutable $now
     ): array {
         $allowedPersonalIds = array_fill_keys($this->employeeRepo->getAllPersonalIds(), true);
 
@@ -519,9 +529,10 @@ class FreshQRService
      * genuinely remains "open" until the cleaner returns to close it.
      *
      * Every entry is anchored to its scan-in day; a cleaning that finished after
-     * midnight stays on the day it started and carries `endsNextDay = true` so
-     * the FE can mark the roll-over. Duration comes from the record's explicit
-     * `duration_minutes` (correct across midnight) when present.
+     * midnight stays on the day it started, with an endTime that reads earlier
+     * than its startTime (the FE turns that into a "+1 day" marker). Duration
+     * comes from the record's explicit `duration_minutes` (correct across
+     * midnight) when present, never inferred from the times.
      *
      * Each output day carries a `cleanings[]` array — populated from records
      * whose IČO matched a 'detailed' mode entry, empty otherwise. Per-cleaning
@@ -542,7 +553,7 @@ class FreshQRService
      *                                                          ico => list of rule rows (empty list / missing ico = no rounding)
      * @param \DateTimeImmutable|null     $now                  current instant (Europe/Prague); enables the
      *                                                          overnight "still live" window. Null → date-only ongoing.
-     * @return list<array{date:string,ongoing:bool,cleanings:list<array{employee:string,startTime:?string,endTime:?string,ico:string,rawMinutes:?int,roundedMinutes:?int,ongoing:bool,endsNextDay:bool}>,icos:list<string>}>
+     * @return list<array{date:string,ongoing:bool,cleanings:list<array{employee:string,startTime:?string,endTime:?string,ico:string,rawMinutes:?int,roundedMinutes:?int,ongoing:bool}>,icos:list<string>}>
      */
     public static function buildCleaningDays(
         array $records,
@@ -636,7 +647,6 @@ class FreshQRService
                     'roundedEndTime'   => $roundedEndTime,
                     'hasRoundingRules' => $hasRoundingRules,
                     'ongoing'          => $isOngoing,
-                    'endsNextDay'      => (bool) ($record['ends_next_day'] ?? false),
                 ];
             }
         }
@@ -662,18 +672,25 @@ class FreshQRService
     /**
      * Billable duration for a detailed-mode cleaning, in whole minutes.
      *
-     * The attendance-raw source carries an explicit per-entry `duration_minutes`
-     * (FreshQR's own TIMESTAMPDIFF, correct across midnight) — that is the source
-     * of truth and the only value that survives an overnight boundary, since the
+     * A null $endTime means the cleaner hasn't scanned out (open / still on-site),
+     * so the cleaning has no final duration yet — return null regardless of any
+     * value FreshQR may have attached, keeping billed totals and the "Probíhá"
+     * display in agreement (a running cleaning must never contribute minutes).
+     *
+     * Otherwise the attendance-raw source's explicit per-entry `duration_minutes`
+     * (FreshQR's own TIMESTAMPDIFF, correct across midnight) is the source of
+     * truth — the only value that survives an overnight boundary, since the
      * HH:mm-based fallback can't tell 23:30→00:15 apart from an inverted pair.
      * Records without the field (legacy/report shapes) fall back to the start→end
-     * HH:mm difference. Returns null for open/ongoing entries and non-positive
-     * durations so the FE renders "Probíhá" instead of a fake billable value.
+     * HH:mm difference. Non-positive durations return null.
      *
      * @param array<string,mixed> $record
      */
     private static function entryRawMinutes(array $record, ?string $startTime, ?string $endTime): ?int
     {
+        if ($endTime === null) {
+            return null;
+        }
         if (array_key_exists('duration_minutes', $record)) {
             $duration = $record['duration_minutes'];
             return is_int($duration) && $duration > 0 ? $duration : null;
@@ -724,7 +741,7 @@ class FreshQRService
         $scanIn = \DateTimeImmutable::createFromFormat(
             '!Y-m-d H:i',
             $date . ' ' . $hm,
-            new \DateTimeZone('Europe/Prague')
+            new \DateTimeZone(self::TIMEZONE)
         );
         return $scanIn === false ? null : $scanIn;
     }
@@ -888,25 +905,15 @@ class FreshQRService
     }
 
     /**
-     * Today's date in Europe/Prague. Pinned explicitly here (not just via the
-     * runtime default in index.php) so the FreshQR "ongoing today" boundary
-     * stays correct even if a CLI script or cron task forgot to set the
-     * timezone before constructing the service.
-     */
-    private static function today(): string
-    {
-        return (new \DateTimeImmutable('today', new \DateTimeZone('Europe/Prague')))->format('Y-m-d');
-    }
-
-    /**
-     * Current instant in Europe/Prague. Drives the overnight "is this cleaning
-     * still live" window (scanInWithinActiveWindow) — that needs a wall-clock
-     * time, not just today's date, so it can tell a cleaning still running at
-     * 00:30 apart from one that started yesterday morning and was never closed.
+     * Current instant in the business timezone. Drives the overnight "is this
+     * cleaning still live" window (scanInWithinActiveWindow) — that needs a
+     * wall-clock time, not just today's date, so it can tell a cleaning still
+     * running at 00:30 apart from one that started yesterday morning and was
+     * never closed. Callers derive today's date as `$now->format('Y-m-d')`.
      */
     private static function now(): \DateTimeImmutable
     {
-        return new \DateTimeImmutable('now', new \DateTimeZone('Europe/Prague'));
+        return new \DateTimeImmutable('now', new \DateTimeZone(self::TIMEZONE));
     }
 
     /**
@@ -1016,8 +1023,8 @@ class FreshQRService
      *
      * Returns null for malformed inputs. Rolls past 24h by collapsing modulo
      * 24h so an overnight cleaning's rounded end-time (e.g. 23:30 + 120 min)
-     * reads as a real wall-clock time (01:30); `endsNextDay` on the cleaning
-     * tells the FE it belongs to the following calendar day.
+     * reads as a real wall-clock time (01:30); because it then reads earlier
+     * than the start, the FE renders it with the "+1 day" marker.
      */
     public static function shiftTimeByMinutes(string $hm, int $minutes): ?string
     {

@@ -149,7 +149,6 @@ class FreshQRClientTest extends TestCase
             'first_scan_time' => '08:00:00',
             'last_scan_time' => '10:00:00',
             'duration_minutes' => 120,
-            'ends_next_day' => false,
         ], $out);
     }
 
@@ -173,7 +172,8 @@ class FreshQRClientTest extends TestCase
     public function testReshapeKeepsOvernightPairAnchoredToStartDay(): void
     {
         // A genuine overnight cleaning (23:30 → 01:00 next day) is kept, anchored
-        // to the day it STARTED, with ends_next_day flagged so the UI can mark the
+        // to the day it STARTED. The scan-out time-of-day (01:00) reads lexically
+        // earlier than the scan-in (23:30) — that's how the FE detects the
         // roll-over. Duration spans midnight correctly (90 minutes).
         $out = $this->reshape(
             [
@@ -192,7 +192,6 @@ class FreshQRClientTest extends TestCase
             'first_scan_time' => '23:30:00',
             'last_scan_time' => '01:00:00',
             'duration_minutes' => 90,
-            'ends_next_day' => true,
         ], $out);
     }
 

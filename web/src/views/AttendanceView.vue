@@ -695,11 +695,13 @@ function recordLabel(c) {
 }
 
 // End-of-cleaning label. An overnight cleaning is anchored to its start day by
-// the backend; when it finished after midnight (endsNextDay) we suffix "(+1)"
-// so the end time reads as the following day rather than an impossible reversal.
+// the backend, so its end time reads earlier than its start (e.g. 23:30 → 00:15).
+// We derive the "(+1)" next-day marker from whichever pair is actually shown
+// (raw for admins, rounded for clients), so it always matches the rendered range.
 function endLabel(c) {
   if (!c || !c.endTime) return ''
-  return c.endsNextDay ? `${c.endTime} (+1)` : c.endTime
+  const crossesMidnight = c.startTime && c.endTime < c.startTime
+  return crossesMidnight ? `${c.endTime} (+1)` : c.endTime
 }
 
 function initials(name) {

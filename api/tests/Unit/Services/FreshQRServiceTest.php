@@ -686,8 +686,8 @@ class FreshQRServiceTest extends TestCase
     public function testBuildCleaningDaysDetailedOvernightVisitAnchoredToStartDayWithDuration(): void
     {
         // Detailed-mode overnight cleaning (23:30 → 01:00, reshaped upstream with an
-        // explicit duration_minutes + ends_next_day) lands on its START day, carries
-        // the gap-aware duration, and is flagged endsNextDay for the UI.
+        // explicit duration_minutes) lands on its START day and carries the
+        // gap-aware duration; the reversed start/end is what the UI marks as "+1".
         $records = [
             [
                 'date' => '2026-04-20',
@@ -696,7 +696,6 @@ class FreshQRServiceTest extends TestCase
                 'first_scan_time' => '23:30:00',
                 'last_scan_time' => '01:00:00',
                 'duration_minutes' => 90,
-                'ends_next_day' => true,
             ],
         ];
 
@@ -709,7 +708,9 @@ class FreshQRServiceTest extends TestCase
         $this->assertSame('23:30', $cleaning['startTime']);
         $this->assertSame('01:00', $cleaning['endTime']);
         $this->assertSame(90, $cleaning['rawMinutes']);
-        $this->assertTrue($cleaning['endsNextDay']);
+        // The end (01:00) reads earlier than the start (23:30): that lexical
+        // reversal is the signal the FE turns into a "+1 day" marker.
+        $this->assertLessThan($cleaning['startTime'], $cleaning['endTime']);
     }
 
     public function testBuildCleaningDaysKeepsMorningAndEveningEntriesExceedingTwelveHoursTotal(): void
@@ -726,7 +727,6 @@ class FreshQRServiceTest extends TestCase
                 'first_scan_time' => '06:00:00',
                 'last_scan_time' => '11:00:00',
                 'duration_minutes' => 300,
-                'ends_next_day' => false,
             ],
             [
                 'date' => '2026-04-20',
@@ -735,7 +735,6 @@ class FreshQRServiceTest extends TestCase
                 'first_scan_time' => '18:00:00',
                 'last_scan_time' => '00:30:00',
                 'duration_minutes' => 390,
-                'ends_next_day' => true,
             ],
         ];
 
@@ -746,7 +745,8 @@ class FreshQRServiceTest extends TestCase
         $this->assertCount(2, $cleanings);
         $this->assertSame(300, $cleanings[0]['rawMinutes']);
         $this->assertSame(390, $cleanings[1]['rawMinutes']);
-        $this->assertTrue($cleanings[1]['endsNextDay']);
+        // Evening entry crossed midnight — its end (00:30) reads before its start.
+        $this->assertLessThan($cleanings[1]['startTime'], $cleanings[1]['endTime']);
     }
 
     public function testBuildCleaningDaysFlagsOvernightInProgressAsOngoing(): void
@@ -763,7 +763,6 @@ class FreshQRServiceTest extends TestCase
                 'first_scan_time' => '23:00:00',
                 'last_scan_time' => null,
                 'duration_minutes' => null,
-                'ends_next_day' => false,
             ],
         ];
 
@@ -773,6 +772,32 @@ class FreshQRServiceTest extends TestCase
         $this->assertSame('2026-04-20', $result[0]['date']);
         $this->assertTrue($result[0]['ongoing']);
         $this->assertTrue($result[0]['cleanings'][0]['ongoing']);
+        // A still-running cleaning has no final duration and must never bill.
+        $this->assertNull($result[0]['cleanings'][0]['rawMinutes']);
+    }
+
+    public function testBuildCleaningDaysOngoingEntryNeverBillsEvenWithReportedDuration(): void
+    {
+        // Defensive: if FreshQR ever attaches a duration to a record with no
+        // scan-out (open pair), the entry is still ongoing and must contribute
+        // zero — rawMinutes stays null so it can't leak into billed totals while
+        // the FE shows "Probíhá".
+        $now = new \DateTimeImmutable('2026-04-21 08:15:00', new \DateTimeZone('Europe/Prague'));
+        $records = [
+            [
+                'date' => '2026-04-21',
+                'project' => ['name' => '12345678 Office'],
+                'employee' => ['personal_number' => 'EMP001'],
+                'first_scan_time' => '08:00:00',
+                'last_scan_time' => null,
+                'duration_minutes' => 240,
+            ],
+        ];
+
+        $result = self::callBuild($records, ['12345678'], ['EMP001' => 0], '2026-04-21', 'detailed', [], $now);
+
+        $this->assertTrue($result[0]['cleanings'][0]['ongoing']);
+        $this->assertNull($result[0]['cleanings'][0]['rawMinutes']);
     }
 
     public function testBuildCleaningDaysDoesNotFlagStaleOpenScanAsOngoing(): void
@@ -789,7 +814,6 @@ class FreshQRServiceTest extends TestCase
                 'first_scan_time' => '23:00:00',
                 'last_scan_time' => null,
                 'duration_minutes' => null,
-                'ends_next_day' => false,
             ],
         ];
 
