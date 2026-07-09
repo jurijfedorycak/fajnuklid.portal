@@ -50,11 +50,12 @@ class SettingsController extends Controller
             ];
         }, $companies);
 
-        // Resolve external client code (clients.client_id) via the user's first company
-        $clientCode = null;
+        // Resolve the client record (via the user's first company) to source the
+        // client-level company name and external client code. The company row's
+        // own name is the per-IČO / branch label, not the account's company name.
+        $client = null;
         if (!empty($companies) && !empty($companies[0]['client_id'])) {
             $client = $this->clientRepo->findById((int) $companies[0]['client_id']);
-            $clientCode = $client['client_id'] ?? null;
         }
 
         $isAdmin = (bool) ($user['is_admin'] ?? false);
@@ -63,8 +64,8 @@ class SettingsController extends Controller
         $currentUser = [
             'id' => $user['id'],
             'email' => $user['email'],
-            'display_name' => !empty($companies) ? $companies[0]['name'] : $user['email'],
-            'client_id' => $clientCode,
+            'display_name' => $client['display_name'] ?? null,
+            'client_id' => $client['client_id'] ?? null,
             'is_admin' => $isAdmin,
             'icos' => $icos,
         ];
