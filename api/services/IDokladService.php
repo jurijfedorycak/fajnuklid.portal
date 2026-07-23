@@ -120,15 +120,17 @@ class IDokladService
             $fetchedCount += count($invoices);
 
             foreach ($invoices as $idokladInvoice) {
-                $mapped = IDokladClient::mapIdokladInvoice($idokladInvoice, $companyId, $account->key);
+                // Mapping stays inside the try: one malformed invoice payload
+                // must surface as a row error, not abort the whole company sync.
                 try {
+                    $mapped = IDokladClient::mapIdokladInvoice($idokladInvoice, $companyId, $account->key);
                     $this->invoiceRepo->upsertFromIdoklad($mapped);
                     $syncedCount++;
                 } catch (\Throwable $e) {
                     $rowErrors[] = [
                         'account' => $account->key,
-                        'idoklad_id' => $mapped['idoklad_id'] ?? null,
-                        'document_number' => $mapped['document_number'] ?? null,
+                        'idoklad_id' => isset($idokladInvoice['Id']) ? (int) $idokladInvoice['Id'] : null,
+                        'document_number' => $idokladInvoice['DocumentNumber'] ?? null,
                         'exception' => $e::class,
                         'message' => $e->getMessage(),
                     ];

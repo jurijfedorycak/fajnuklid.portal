@@ -545,6 +545,8 @@ class IDokladClient
         }
 
         $dateDue = $invoice['DateOfMaturity'] ?? $invoice['date_due'] ?? null;
+        // Placeholder dates (1753-01-01) must not read as "overdue since 1753".
+        $dateDue = self::normalizeDate(is_string($dateDue) ? $dateDue : null);
 
         if ($dateDue === null) {
             return 'unpaid';
@@ -595,17 +597,29 @@ class IDokladClient
             ?? 0
         );
 
-        // iDoklad's list response leaves IsPaid=false until a payment is recorded on
-        // their side. Any of these being truthy means the invoice is paid in their books:
-        // a DateOfPayment, an IsPaid boolean, or a PaymentStatus enum of 2/'Paid'.
+        // iDoklad v3 reports payment state solely via the PaymentStatus enum:
+        // 0 = Unpaid, 1 = Paid, 2 = PartialPaid, 3 = Overpaid. The v3 list model
+        // has no IsPaid field, and its DateOfPayment is non-nullable — unpaid
+        // invoices carry the 1753-01-01 placeholder — so the mere presence of a
+        // payment date must never be read as "paid". PartialPaid is deliberately
+        // not paid: the client still owes money.
         $paymentStatusValue = $idokladInvoice['PaymentStatus'] ?? null;
-        $isPaid = !empty($idokladInvoice['DateOfPayment'])
-            || (bool) ($idokladInvoice['IsPaid'] ?? false)
-            || $paymentStatusValue === 2
-            || $paymentStatusValue === '2'
-            || $paymentStatusValue === 'Paid';
 
-        $invoiceWithDerivedPaid = $idokladInvoice + ['IsPaid' => $isPaid];
+        if ($paymentStatusValue !== null) {
+            // json_decode may yield int, float or string depending on the
+            // serializer — collapse numeric forms to int before comparing.
+            $normalizedStatus = is_numeric($paymentStatusValue)
+                ? (int) $paymentStatusValue
+                : $paymentStatusValue;
+            $isPaid = in_array($normalizedStatus, [1, 3, 'Paid', 'Overpaid'], true);
+        } else {
+            // v2-shaped payload without the enum: trust IsPaid, else a real
+            // (non-placeholder) payment date.
+            $isPaid = (bool) ($idokladInvoice['IsPaid'] ?? false)
+                || self::normalizeDate($idokladInvoice['DateOfPayment'] ?? null) !== null;
+        }
+
+        $invoiceWithDerivedPaid = array_merge($idokladInvoice, ['IsPaid' => $isPaid]);
         $paymentStatus = self::calculatePaymentStatus($invoiceWithDerivedPaid);
 
         return [
@@ -616,7 +630,7 @@ class IDokladClient
             'variable_symbol' => $idokladInvoice['VariableSymbol'] ?? null,
             'date_issued' => self::normalizeDate($idokladInvoice['DateOfIssue'] ?? null) ?? date('Y-m-d'),
             'date_due' => self::normalizeDate($idokladInvoice['DateOfMaturity'] ?? null) ?? date('Y-m-d'),
-            'date_paid' => self::normalizeDate($idokladInvoice['DateOfPayment'] ?? null),
+            'date_paid' => $isPaid ? self::normalizeDate($idokladInvoice['DateOfPayment'] ?? null) : null,
             'total_amount' => $totalAmount,
             'currency_code' => $idokladInvoice['Currency']['Code'] ?? 'CZK',
             'is_paid' => $isPaid,
@@ -631,6 +645,16 @@ class IDokladClient
             return null;
         }
         // iDoklad v3 dates arrive as "2026-01-15T00:00:00"; DB columns are DATE.
-        return substr($value, 0, 10);
+        $date = substr($value, 0, 10);
+
+        // iDoklad's date fields are non-nullable on their side; "no date" is
+        // serialized as the SQL Server minimum 1753-01-01 (their SDK's
+        // DefaultDateTime). 0001-01-01 is the raw .NET DateTime default —
+        // treat both placeholders as NULL.
+        if ($date === '1753-01-01' || $date === '0001-01-01') {
+            return null;
+        }
+
+        return $date;
     }
 }

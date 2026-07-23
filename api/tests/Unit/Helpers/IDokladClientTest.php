@@ -445,4 +445,208 @@ class IDokladClientTest extends TestCase
         $this->assertEquals('paid', $result['payment_status']);
         $this->assertEquals('2026-02-10', $result['date_paid']);
     }
+
+    // iDoklad v3 payloads: PaymentStatus enum (0 Unpaid, 1 Paid, 2 PartialPaid,
+    // 3 Overpaid), no IsPaid field, DateOfPayment never null — unpaid invoices
+    // carry the 1753-01-01 placeholder.
+
+    public function testMapIdokladInvoiceV3UnpaidWithPlaceholderPaymentDateIsNotPaid(): void
+    {
+        $futureDate = (new \DateTime('+10 days'))->format('Y-m-d\T00:00:00');
+
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => $futureDate,
+            'DateOfPayment' => '1753-01-01T00:00:00',
+            'PaymentStatus' => 0,
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertFalse($result['is_paid']);
+        $this->assertEquals('unpaid', $result['payment_status']);
+        $this->assertNull($result['date_paid']);
+    }
+
+    public function testMapIdokladInvoiceV3UnpaidPastMaturityIsOverdue(): void
+    {
+        $pastDate = (new \DateTime('-10 days'))->format('Y-m-d\T00:00:00');
+
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => $pastDate,
+            'DateOfPayment' => '1753-01-01T00:00:00',
+            'PaymentStatus' => 0,
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertFalse($result['is_paid']);
+        $this->assertEquals('overdue', $result['payment_status']);
+        $this->assertNull($result['date_paid']);
+    }
+
+    public function testMapIdokladInvoiceV3PaidStatusIsPaid(): void
+    {
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => '2026-02-15T00:00:00',
+            'DateOfPayment' => '2026-02-10T00:00:00',
+            'PaymentStatus' => 1,
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertTrue($result['is_paid']);
+        $this->assertEquals('paid', $result['payment_status']);
+        $this->assertEquals('2026-02-10', $result['date_paid']);
+    }
+
+    public function testMapIdokladInvoiceV3PartialPaidIsNotPaid(): void
+    {
+        $futureDate = (new \DateTime('+10 days'))->format('Y-m-d\T00:00:00');
+
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => $futureDate,
+            'DateOfPayment' => '2026-02-01T00:00:00',
+            'PaymentStatus' => 2,
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertFalse($result['is_paid']);
+        $this->assertEquals('unpaid', $result['payment_status']);
+        $this->assertNull($result['date_paid']);
+    }
+
+    public function testMapIdokladInvoiceV3OverpaidIsPaid(): void
+    {
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => '2026-02-15T00:00:00',
+            'DateOfPayment' => '2026-02-10T00:00:00',
+            'PaymentStatus' => 3,
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertTrue($result['is_paid']);
+        $this->assertEquals('paid', $result['payment_status']);
+        $this->assertEquals('2026-02-10', $result['date_paid']);
+    }
+
+    /**
+     * @dataProvider paidEnumRepresentationProvider
+     */
+    public function testMapIdokladInvoiceAcceptsAlternatePaidEnumRepresentations(mixed $statusValue): void
+    {
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => '2026-02-15T00:00:00',
+            'DateOfPayment' => '2026-02-10T00:00:00',
+            'PaymentStatus' => $statusValue,
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertTrue($result['is_paid']);
+        $this->assertEquals('paid', $result['payment_status']);
+    }
+
+    public static function paidEnumRepresentationProvider(): array
+    {
+        return [
+            'string 1' => ['1'],
+            'float 1.0' => [1.0],
+            'name Paid' => ['Paid'],
+            'string 3' => ['3'],
+            'float 3.0' => [3.0],
+            'name Overpaid' => ['Overpaid'],
+        ];
+    }
+
+    public function testMapIdokladInvoiceV3PaidWithPlaceholderDateKeepsNullDatePaid(): void
+    {
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => '2026-02-15T00:00:00',
+            'DateOfPayment' => '1753-01-01T00:00:00',
+            'PaymentStatus' => 1,
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertTrue($result['is_paid']);
+        $this->assertEquals('paid', $result['payment_status']);
+        $this->assertNull($result['date_paid']);
+    }
+
+    public function testMapIdokladInvoiceTreatsDotNetMinDateAsNull(): void
+    {
+        $futureDate = (new \DateTime('+10 days'))->format('Y-m-d\T00:00:00');
+
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => $futureDate,
+            'DateOfPayment' => '0001-01-01T00:00:00',
+            'PaymentStatus' => 0,
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertFalse($result['is_paid']);
+        $this->assertEquals('unpaid', $result['payment_status']);
+        $this->assertNull($result['date_paid']);
+    }
+
+    public function testCalculatePaymentStatusTreatsPlaceholderDueDateAsNoDueDate(): void
+    {
+        $invoice = ['IsPaid' => false, 'DateOfMaturity' => '1753-01-01T00:00:00'];
+
+        $this->assertEquals('unpaid', IDokladClient::calculatePaymentStatus($invoice));
+    }
+
+    public function testMapIdokladInvoiceEnumWinsOverStaleIsPaidFlag(): void
+    {
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => '2026-02-15T00:00:00',
+            'DateOfPayment' => '2026-02-10T00:00:00',
+            'PaymentStatus' => 1,
+            'IsPaid' => false,
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertTrue($result['is_paid']);
+        $this->assertEquals('paid', $result['payment_status']);
+    }
+
+    public function testMapIdokladInvoiceWithoutEnumIgnoresPlaceholderPaymentDate(): void
+    {
+        $futureDate = (new \DateTime('+10 days'))->format('Y-m-d\T00:00:00');
+
+        $result = IDokladClient::mapIdokladInvoice([
+            'Id' => 1,
+            'DocumentNumber' => 'INV-1',
+            'DateOfIssue' => '2026-01-15T00:00:00',
+            'DateOfMaturity' => $futureDate,
+            'DateOfPayment' => '1753-01-01T00:00:00',
+            'Prices' => ['TotalWithVat' => 1000.00],
+        ], 1);
+
+        $this->assertFalse($result['is_paid']);
+        $this->assertEquals('unpaid', $result['payment_status']);
+        $this->assertNull($result['date_paid']);
+    }
 }
