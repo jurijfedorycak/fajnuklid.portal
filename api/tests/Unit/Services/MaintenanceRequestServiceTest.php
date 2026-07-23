@@ -11,6 +11,7 @@ use App\Repositories\CompanyRepository;
 use App\Repositories\MaintenanceRequestRepository;
 use App\Services\MailerService;
 use App\Services\MaintenanceRequestService;
+use App\Services\R2StorageService;
 use PHPUnit\Framework\MockObject\MockObject;
 use Tests\TestCase;
 
@@ -838,5 +839,232 @@ class MaintenanceRequestServiceTest extends TestCase
         $this->service->adminCreate(1, 'admin@example.com', $this->adminCreateInput(['companyId' => 7]));
 
         $this->assertSame(7, $created['company_id']);
+    }
+
+    // attachments
+
+    private const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    private const PDF_BYTES = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n";
+
+    /** @var string[] */
+    private array $tmpFiles = [];
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tmpFiles as $tmp) {
+            @unlink($tmp);
+        }
+        $this->tmpFiles = [];
+        parent::tearDown();
+    }
+
+    private function makeServiceWithStorage(MockObject&R2StorageService $storage): MaintenanceRequestService
+    {
+        return new MaintenanceRequestService(
+            $this->repoMock,
+            $this->companyRepoMock,
+            null,
+            $storage,
+            $this->clientRepoMock
+        );
+    }
+
+    /**
+     * Real bytes on disk because storeAttachment() sniffs the mime via finfo
+     * instead of trusting the client-supplied type. sizeOverride lets the
+     * oversize test declare 10 MB+ without writing it.
+     */
+    private function makeUploadedFile(string $bytes, string $name, ?int $sizeOverride = null): array
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'att');
+        file_put_contents($tmp, $bytes);
+        $this->tmpFiles[] = $tmp;
+
+        return [
+            'error' => UPLOAD_ERR_OK,
+            'size' => $sizeOverride ?? strlen($bytes),
+            'tmp_name' => $tmp,
+            'name' => $name,
+        ];
+    }
+
+    public function testAddClientAttachmentStoresFileAndReturnsPayload(): void
+    {
+        $storage = $this->createMock(R2StorageService::class);
+        $service = $this->makeServiceWithStorage($storage);
+        $file = $this->makeUploadedFile(self::PDF_BYTES, 'foto.pdf');
+
+        $this->repoMock->method('findByIdForClient')->with(1, 5)->willReturn($this->makeRow());
+        $this->repoMock->method('countAttachments')->with(1, 'before')->willReturn(0);
+
+        $storage->expects($this->once())
+            ->method('upload')
+            ->with('maintenance-request-attachments', $file['tmp_name'], 'foto.pdf', 'application/pdf')
+            ->willReturn('maintenance-request-attachments/foto_abc123.pdf');
+        $storage->method('resolveProxyUrl')->willReturn('https://api.test/storage/file?key=x&sig=y');
+
+        $this->repoMock->expects($this->once())
+            ->method('addAttachment')
+            ->with($this->callback(fn (array $d) =>
+                $d['request_id'] === 1
+                && $d['phase'] === 'before'
+                && $d['file_path'] === 'maintenance-request-attachments/foto_abc123.pdf'
+                && $d['original_filename'] === 'foto.pdf'
+                && $d['mime_type'] === 'application/pdf'
+                && $d['size_bytes'] === $file['size']
+                && $d['uploaded_by_user_id'] === 10))
+            ->willReturn(77);
+
+        $result = $service->addClientAttachment(1, 5, 10, $file);
+
+        $this->assertSame([
+            'id' => 77,
+            'phase' => 'before',
+            'url' => 'https://api.test/storage/file?key=x&sig=y',
+            'filename' => 'foto.pdf',
+            'mimeType' => 'application/pdf',
+            'sizeBytes' => $file['size'],
+        ], $result);
+    }
+
+    public function testAddClientAttachmentThrowsWhenRequestNotFound(): void
+    {
+        $storage = $this->createMock(R2StorageService::class);
+        $service = $this->makeServiceWithStorage($storage);
+        $this->repoMock->method('findByIdForClient')->willReturn(null);
+        $storage->expects($this->never())->method('upload');
+
+        $this->expectException(NotFoundException::class);
+        $service->addClientAttachment(1, 5, 10, $this->makeUploadedFile(self::PDF_BYTES, 'a.pdf'));
+    }
+
+    public function testAddClientAttachmentRejectsFailedUpload(): void
+    {
+        $storage = $this->createMock(R2StorageService::class);
+        $service = $this->makeServiceWithStorage($storage);
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow());
+        $storage->expects($this->never())->method('upload');
+        $file = $this->makeUploadedFile(self::PDF_BYTES, 'a.pdf');
+        $file['error'] = UPLOAD_ERR_PARTIAL;
+
+        $this->expectException(ValidationException::class);
+        $service->addClientAttachment(1, 5, 10, $file);
+    }
+
+    public function testAddClientAttachmentRejectsOversizeFile(): void
+    {
+        $storage = $this->createMock(R2StorageService::class);
+        $service = $this->makeServiceWithStorage($storage);
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow());
+        $storage->expects($this->never())->method('upload');
+        $file = $this->makeUploadedFile(self::PDF_BYTES, 'big.pdf', MaintenanceRequestService::ATTACHMENT_MAX_BYTES + 1);
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('příliš velký');
+        $service->addClientAttachment(1, 5, 10, $file);
+    }
+
+    public function testAddClientAttachmentRejectsDisallowedMimeType(): void
+    {
+        $storage = $this->createMock(R2StorageService::class);
+        $service = $this->makeServiceWithStorage($storage);
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow());
+        $storage->expects($this->never())->method('upload');
+        $file = $this->makeUploadedFile('just some plain text', 'notes.txt');
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Nepodporovaný typ');
+        $service->addClientAttachment(1, 5, 10, $file);
+    }
+
+    public function testAddClientAttachmentRejectsWhenPhaseLimitReached(): void
+    {
+        $storage = $this->createMock(R2StorageService::class);
+        $service = $this->makeServiceWithStorage($storage);
+        $this->repoMock->method('findByIdForClient')->willReturn($this->makeRow());
+        $this->repoMock->method('countAttachments')->with(1, 'before')
+            ->willReturn(MaintenanceRequestService::ATTACHMENT_MAX_PER_REQUEST);
+        $storage->expects($this->never())->method('upload');
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Maximální počet');
+        $service->addClientAttachment(1, 5, 10, $this->makeUploadedFile(self::PDF_BYTES, 'a.pdf'));
+    }
+
+    public function testAddAdminAttachmentDefaultsToBeforePhase(): void
+    {
+        $storage = $this->createMock(R2StorageService::class);
+        $service = $this->makeServiceWithStorage($storage);
+        $file = $this->makeUploadedFile(base64_decode(self::PNG_1PX), 'foto.png');
+
+        $this->repoMock->method('findById')->with(1)->willReturn($this->makeRow());
+        $this->repoMock->expects($this->once())->method('countAttachments')->with(1, 'before')->willReturn(0);
+        $storage->method('upload')->willReturn('maintenance-request-attachments/foto_abc.png');
+        $storage->method('resolveProxyUrl')->willReturn('https://api.test/storage/file?key=x&sig=y');
+
+        $stored = null;
+        $this->repoMock->expects($this->once())
+            ->method('addAttachment')
+            ->willReturnCallback(function (array $d) use (&$stored) {
+                $stored = $d;
+                return 78;
+            });
+
+        $result = $service->addAdminAttachment(1, 99, $file);
+
+        $this->assertSame('before', $stored['phase']);
+        $this->assertSame(99, $stored['uploaded_by_user_id']);
+        $this->assertSame('image/png', $stored['mime_type']);
+        $this->assertSame('before', $result['phase']);
+        $this->assertSame(78, $result['id']);
+    }
+
+    public function testAddAdminAttachmentAcceptsExplicitAfterPhase(): void
+    {
+        $storage = $this->createMock(R2StorageService::class);
+        $service = $this->makeServiceWithStorage($storage);
+
+        $this->repoMock->method('findById')->willReturn($this->makeRow());
+        $this->repoMock->expects($this->once())->method('countAttachments')->with(1, 'after')->willReturn(0);
+        $storage->method('upload')->willReturn('maintenance-request-attachments/po_abc.pdf');
+        $storage->method('resolveProxyUrl')->willReturn('https://api.test/u');
+
+        $stored = null;
+        $this->repoMock->method('addAttachment')->willReturnCallback(function (array $d) use (&$stored) {
+            $stored = $d;
+            return 79;
+        });
+
+        $result = $service->addAdminAttachment(1, 99, $this->makeUploadedFile(self::PDF_BYTES, 'po.pdf'), 'after');
+
+        $this->assertSame('after', $stored['phase']);
+        $this->assertSame('after', $result['phase']);
+    }
+
+    public function testAddAdminAttachmentThrowsWhenRequestMissingOrDeleted(): void
+    {
+        $storage = $this->createMock(R2StorageService::class);
+        $service = $this->makeServiceWithStorage($storage);
+        $this->repoMock->method('findById')->willReturn(null);
+        $storage->expects($this->never())->method('upload');
+
+        $this->expectException(NotFoundException::class);
+        $service->addAdminAttachment(1, 99, $this->makeUploadedFile(self::PDF_BYTES, 'a.pdf'));
+    }
+
+    public function testAddAdminAttachmentWorksOnInternalRecord(): void
+    {
+        $storage = $this->createMock(R2StorageService::class);
+        $service = $this->makeServiceWithStorage($storage);
+
+        $this->repoMock->method('findById')->willReturn($this->makeRow(['visibility' => 'internal']));
+        $this->repoMock->method('countAttachments')->willReturn(0);
+        $storage->method('upload')->willReturn('maintenance-request-attachments/x.pdf');
+        $storage->method('resolveProxyUrl')->willReturn('https://api.test/u');
+        $this->repoMock->method('addAttachment')->willReturn(80);
+
+        $result = $service->addAdminAttachment(1, 99, $this->makeUploadedFile(self::PDF_BYTES, 'x.pdf'));
+
+        $this->assertSame(80, $result['id']);
     }
 }

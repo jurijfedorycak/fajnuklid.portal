@@ -12,6 +12,8 @@ import {
   REQUEST_VISIBILITIES,
   REQUEST_CATEGORIES,
 } from '../api'
+import AttachmentPicker from '../components/AttachmentPicker.vue'
+import { uploadAttachmentsSequentially } from '../utils/attachmentUpload'
 
 const router = useRouter()
 
@@ -32,6 +34,7 @@ const recordDate = ref('')
 const title = ref('')
 const description = ref('')
 const category = ref(null)
+const files = ref([])
 
 const submitting = ref(false)
 const errors = ref({})
@@ -102,7 +105,9 @@ async function submit() {
       submitting.value = false
       return
     }
-    router.push(`/admin/zadosti/${res.data.id}`)
+    const newId = res.data.id
+    await uploadAttachmentsSequentially(files.value, f => adminService.uploadMaintenanceRequestAttachment(newId, f))
+    router.push(`/admin/zadosti/${newId}`)
   } catch (e) {
     applyBackendErrors(e.response?.data?.errors, e.response?.data?.message || e.message)
     submitting.value = false
@@ -289,10 +294,16 @@ function applyBackendErrors(backendErrors, message) {
         </div>
       </div>
 
+      <!-- Attachments (optional) -->
+      <div class="form-group">
+        <label class="form-label">Přílohy <span class="opt">(volitelné)</span></label>
+        <AttachmentPicker v-model="files" id-prefix="admin-new-request" :disabled="submitting" />
+      </div>
+
       <div v-if="errors._" id="admin-new-request-error" class="alert alert-danger" style="margin-bottom:16px;">{{ errors._ }}</div>
 
       <div id="admin-new-request-actions" class="form-actions">
-        <button id="admin-new-request-cancel" class="btn btn-outline" @click="router.push('/admin/zadosti')">Zrušit</button>
+        <button id="admin-new-request-cancel" class="btn btn-outline" :disabled="submitting" @click="router.push('/admin/zadosti')">Zrušit</button>
         <button
           id="admin-new-request-submit"
           class="btn btn-primary"

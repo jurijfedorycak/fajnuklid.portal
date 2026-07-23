@@ -279,7 +279,7 @@ class MaintenanceRequestService
         return $this->storeAttachment($requestId, $userId, $file, 'before');
     }
 
-    public function addAdminAttachment(int $requestId, int $userId, array $file, string $phase = 'after'): array
+    public function addAdminAttachment(int $requestId, int $userId, array $file, string $phase = 'before'): array
     {
         $row = $this->repo->findById($requestId);
         if ($row === null) {

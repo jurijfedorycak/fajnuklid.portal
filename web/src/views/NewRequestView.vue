@@ -1,10 +1,10 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, AlertCircle, Sparkles, HelpCircle, Loader2, UploadCloud, X, FileText } from 'lucide-vue-next'
-import { maintenanceRequestService, REQUEST_CATEGORIES, ATTACHMENT_LIMITS } from '../api'
-import FilePreviewModal from '../components/FilePreviewModal.vue'
-import { formatFileSize as formatSize } from '../utils/fileUtils'
+import { ChevronLeft, AlertCircle, Sparkles, HelpCircle, Loader2 } from 'lucide-vue-next'
+import { maintenanceRequestService, REQUEST_CATEGORIES } from '../api'
+import AttachmentPicker from '../components/AttachmentPicker.vue'
+import { uploadAttachmentsSequentially } from '../utils/attachmentUpload'
 
 const router = useRouter()
 const route = useRoute()
@@ -26,7 +26,6 @@ const errors = ref({})
 
 const companies = ref([])
 const files = ref([])
-const fileError = ref('')
 
 onMounted(async () => {
   // Preselect a category when arrived via a deep link (e.g. the dashboard review
@@ -59,63 +58,6 @@ function selectCompany(id) {
   selectedCompanyId.value = id
 }
 
-function onFilesChosen(e) {
-  fileError.value = ''
-  const chosen = Array.from(e.target.files || [])
-  for (const f of chosen) {
-    if (files.value.length >= ATTACHMENT_LIMITS.maxFiles) {
-      fileError.value = `Maximálně ${ATTACHMENT_LIMITS.maxFiles} příloh.`
-      break
-    }
-    if (f.size > ATTACHMENT_LIMITS.maxBytes) {
-      fileError.value = `Soubor ${f.name} je větší než 10 MB.`
-      continue
-    }
-    if (!ATTACHMENT_LIMITS.acceptedMimes.includes(f.type)) {
-      fileError.value = `Soubor ${f.name}: nepodporovaný typ. Povoleno: obrázky a PDF.`
-      continue
-    }
-    files.value.push(f)
-  }
-  e.target.value = ''
-}
-
-const objectUrls = new Map()
-function getObjectUrl(file) {
-  if (!objectUrls.has(file)) {
-    objectUrls.set(file, URL.createObjectURL(file))
-  }
-  return objectUrls.get(file)
-}
-
-// File preview
-const previewModal = ref({ show: false, url: '', filename: '', mimeType: '' })
-function openFilePreview(file) {
-  previewModal.value = {
-    show: true,
-    url: getObjectUrl(file),
-    filename: file.name,
-    mimeType: file.type || '',
-  }
-}
-function closePreview() {
-  previewModal.value.show = false
-}
-
-function removeFile(index) {
-  const file = files.value[index]
-  if (objectUrls.has(file)) {
-    URL.revokeObjectURL(objectUrls.get(file))
-    objectUrls.delete(file)
-  }
-  files.value.splice(index, 1)
-}
-
-onBeforeUnmount(() => {
-  objectUrls.forEach(url => URL.revokeObjectURL(url))
-  objectUrls.clear()
-})
-
 const isValid = computed(() =>
   title.value.trim() &&
   description.value.trim() &&
@@ -144,14 +86,7 @@ async function submit() {
     }
     const newId = res.data.id
 
-    for (const f of files.value) {
-      try {
-        await maintenanceRequestService.uploadAttachment(newId, f)
-      } catch (e) {
-        // continue uploading the rest
-        console.error('Attachment upload failed', e)
-      }
-    }
+    await uploadAttachmentsSequentially(files.value, f => maintenanceRequestService.uploadAttachment(newId, f))
 
     router.push(`/zadosti/vytvoreno/${newId}`)
   } catch (e) {
@@ -247,48 +182,13 @@ async function submit() {
       <!-- Attachments -->
       <div class="nr-group">
         <label class="nr-label">Přílohy</label>
-        <label id="new-request-attach-trigger" class="nr-dropzone" for="new-request-attach-input">
-          <span class="nr-dropzone-icon">
-            <UploadCloud :size="18" />
-          </span>
-          <span class="nr-dropzone-title">Přidat soubor</span>
-          <span class="nr-dropzone-hint">Max {{ ATTACHMENT_LIMITS.maxFiles }} souborů, 10 MB/soubor</span>
-        </label>
-        <input
-          id="new-request-attach-input"
-          type="file"
-          multiple
-          :accept="ATTACHMENT_LIMITS.acceptAttr"
-          style="display:none;"
-          @change="onFilesChosen"
-        />
-        <div v-if="fileError" class="field-error">{{ fileError }}</div>
-        <ul v-if="files.length" id="new-request-attach-list" class="nr-attach-list">
-          <li v-for="(f, i) in files" :key="f.name + f.size + f.lastModified" class="nr-attach-item" :id="'attach-item-' + i">
-            <img
-              v-if="f.type.startsWith('image/')"
-              :id="'attach-thumb-' + i"
-              :src="getObjectUrl(f)"
-              :alt="f.name"
-              class="nr-attach-thumb clickable"
-              @click="openFilePreview(f)"
-            />
-            <template v-else>
-              <FileText :size="16" />
-            </template>
-            <span class="nr-attach-name file-link" @click="openFilePreview(f)">{{ f.name }}</span>
-            <span class="nr-attach-size">{{ formatSize(f.size) }}</span>
-            <button type="button" class="nr-attach-remove" @click="removeFile(i)" :id="'attach-remove-' + i" :aria-label="'Odebrat ' + f.name">
-              <X :size="14" />
-            </button>
-          </li>
-        </ul>
+        <AttachmentPicker v-model="files" id-prefix="new-request" :disabled="submitting" />
       </div>
 
       <div v-if="errors._" class="alert alert-danger" style="margin-bottom:16px;">{{ errors._ }}</div>
 
       <div id="new-request-actions" class="nr-actions">
-        <button id="new-request-cancel" class="btn btn-outline" @click="router.push('/zadosti')">Zrušit</button>
+        <button id="new-request-cancel" class="btn btn-outline" :disabled="submitting" @click="router.push('/zadosti')">Zrušit</button>
         <button
           id="new-request-submit"
           class="nr-submit"
@@ -300,14 +200,6 @@ async function submit() {
         </button>
       </div>
     </div>
-
-    <FilePreviewModal
-      :show="previewModal.show"
-      :url="previewModal.url"
-      :filename="previewModal.filename"
-      :mime-type="previewModal.mimeType"
-      @close="closePreview"
-    />
   </div>
 </template>
 
@@ -464,108 +356,6 @@ async function submit() {
 }
 .nr-category-card.active .nr-category-label {
   color: var(--color-blue);
-}
-
-/* ═══ Attachments dropzone ═══ */
-.nr-dropzone {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  padding: 26px 16px;
-  border: 1.5px dashed var(--color-gray-300);
-  border-radius: var(--radius-xl);
-  background: var(--color-white);
-  cursor: pointer;
-  text-align: center;
-  transition: var(--transition);
-}
-.nr-dropzone:hover {
-  border-color: var(--color-blue);
-  background: var(--color-blue-light);
-}
-
-.nr-dropzone-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--color-blue-light);
-  color: var(--color-blue);
-  margin-bottom: 2px;
-}
-
-.nr-dropzone-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-blue);
-}
-
-.nr-dropzone-hint {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-gray-400);
-}
-
-.nr-attach-list {
-  list-style: none;
-  padding: 0;
-  margin: 12px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.nr-attach-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  background: var(--color-white);
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-lg);
-  font-size: 13px;
-  color: var(--color-gray-700);
-}
-.nr-attach-thumb {
-  width: 32px;
-  height: 32px;
-  object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid var(--color-gray-200);
-  flex-shrink: 0;
-}
-.nr-attach-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.nr-attach-size {
-  font-size: 11px;
-  color: var(--color-gray-500);
-}
-.nr-attach-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: none;
-  background: transparent;
-  color: var(--color-gray-500);
-  cursor: pointer;
-}
-.nr-attach-remove:hover {
-  background: var(--color-danger-light);
-  color: var(--color-danger);
 }
 
 /* ═══ Actions — mobile-first: stacked full-width, row at sm ═══ */

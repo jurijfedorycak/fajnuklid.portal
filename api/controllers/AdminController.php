@@ -2304,4 +2304,18 @@ class AdminController extends Controller
         $data = $this->maintenanceRequestService->adminCreate($adminUserId, $adminName, $request->getBody());
         Response::created($data, 'Záznam byl vytvořen');
     }
+
+    public function uploadMaintenanceRequestAttachment(Request $request): void
+    {
+        $userId = (int) $request->getUserId();
+        $id = (int) $request->param('id');
+
+        if (!isset($_FILES['file'])) {
+            Response::error('Soubor nebyl nahrán', 422);
+            return;
+        }
+
+        $data = $this->maintenanceRequestService->addAdminAttachment($id, $userId, $_FILES['file'], 'before');
+        Response::created($data, 'Příloha byla nahrána');
+    }
 }

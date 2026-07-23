@@ -219,6 +219,15 @@ export const adminService = {
     return response.data
   },
 
+  async uploadMaintenanceRequestAttachment(id, file) {
+    const fd = new FormData()
+    fd.append('file', file)
+    const response = await apiClient.post(`/admin/maintenance-requests/${id}/attachments`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  },
+
   async updateMaintenanceRequest(id, data) {
     const response = await apiClient.put(`/admin/maintenance-requests/${id}`, data)
     return response.data

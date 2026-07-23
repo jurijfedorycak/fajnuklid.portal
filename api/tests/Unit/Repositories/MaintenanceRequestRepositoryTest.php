@@ -444,4 +444,104 @@ class MaintenanceRequestRepositoryTest extends DatabaseTestCase
 
         $this->repository->countByDayForClient(5, 2026, 5);
     }
+
+    // attachments
+
+    public function testFindAttachmentsQueriesRequestOrderedByCreation(): void
+    {
+        $expected = [
+            ['id' => 1, 'request_id' => 3, 'phase' => 'before', 'file_path' => 'maintenance-request-attachments/a.jpg'],
+            ['id' => 2, 'request_id' => 3, 'phase' => 'after', 'file_path' => 'maintenance-request-attachments/b.jpg'],
+        ];
+        $this->stmtMock->method('fetchAll')->willReturn($expected);
+        $this->stmtMock->expects($this->once())
+            ->method('execute')
+            ->with(['request_id' => 3])
+            ->willReturn(true);
+        $this->pdoMock->expects($this->once())
+            ->method('prepare')
+            ->with($this->callback(fn (string $sql) =>
+                str_contains($sql, 'FROM maintenance_request_attachments')
+                && str_contains($sql, 'ORDER BY created_at ASC, id ASC')))
+            ->willReturn($this->stmtMock);
+
+        $result = $this->repository->findAttachments(3);
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testFindAttachmentsReturnsEmptyArray(): void
+    {
+        $this->setupFetchAllMock([]);
+
+        $this->assertEquals([], $this->repository->findAttachments(3));
+    }
+
+    public function testCountAttachmentsCountsPerPhase(): void
+    {
+        $this->stmtMock->method('fetchColumn')->willReturn('3');
+        $this->stmtMock->expects($this->once())
+            ->method('execute')
+            ->with(['request_id' => 3, 'phase' => 'before'])
+            ->willReturn(true);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $this->assertSame(3, $this->repository->countAttachments(3, 'before'));
+    }
+
+    public function testAddAttachmentInsertsAllFieldsAndReturnsId(): void
+    {
+        $this->pdoMock->method('lastInsertId')->willReturn('77');
+        $this->stmtMock->expects($this->once())
+            ->method('execute')
+            ->with([
+                'request_id' => 3,
+                'phase' => 'before',
+                'file_path' => 'maintenance-request-attachments/foto_abc.jpg',
+                'original_filename' => 'foto.jpg',
+                'mime_type' => 'image/jpeg',
+                'size_bytes' => 1234,
+                'uploaded_by_user_id' => 10,
+            ])
+            ->willReturn(true);
+        $this->pdoMock->expects($this->once())
+            ->method('prepare')
+            ->with($this->callback(fn (string $sql) =>
+                str_contains($sql, 'INSERT INTO maintenance_request_attachments')))
+            ->willReturn($this->stmtMock);
+
+        $newId = $this->repository->addAttachment([
+            'request_id' => 3,
+            'phase' => 'before',
+            'file_path' => 'maintenance-request-attachments/foto_abc.jpg',
+            'original_filename' => 'foto.jpg',
+            'mime_type' => 'image/jpeg',
+            'size_bytes' => 1234,
+            'uploaded_by_user_id' => 10,
+        ]);
+
+        $this->assertSame(77, $newId);
+    }
+
+    public function testAddAttachmentDefaultsUploadedByUserIdToNull(): void
+    {
+        $this->pdoMock->method('lastInsertId')->willReturn('78');
+        $this->stmtMock->expects($this->once())
+            ->method('execute')
+            ->with($this->callback(fn (array $p) =>
+                array_key_exists('uploaded_by_user_id', $p) && $p['uploaded_by_user_id'] === null))
+            ->willReturn(true);
+        $this->pdoMock->method('prepare')->willReturn($this->stmtMock);
+
+        $newId = $this->repository->addAttachment([
+            'request_id' => 3,
+            'phase' => 'before',
+            'file_path' => 'maintenance-request-attachments/foto_abc.jpg',
+            'original_filename' => 'foto.jpg',
+            'mime_type' => 'image/jpeg',
+            'size_bytes' => 1234,
+        ]);
+
+        $this->assertSame(78, $newId);
+    }
 }

@@ -132,6 +132,7 @@ $router->group(['middleware' => [AuthMiddleware::class, AdminMiddleware::class],
     $router->get('/maintenance-requests/{id}', 'AdminController@getMaintenanceRequest');
     $router->put('/maintenance-requests/{id}', 'AdminController@updateMaintenanceRequest');
     $router->post('/maintenance-requests/{id}/activity', 'AdminController@addMaintenanceRequestActivity');
+    $router->post('/maintenance-requests/{id}/attachments', 'AdminController@uploadMaintenanceRequestAttachment');
     $router->delete('/maintenance-requests/{id}', 'AdminController@deleteMaintenanceRequest');
 
     // Storage management (admin-only upload and delete)
