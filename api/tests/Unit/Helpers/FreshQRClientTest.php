@@ -229,6 +229,46 @@ class FreshQRClientTest extends TestCase
         $this->assertNull($out);
     }
 
+    public function testReshapeDropsZeroLengthDoubleScanGhostPair(): void
+    {
+        // Regression (real data, night of 2026-07-11→12): the cleaner closed an
+        // overnight cleaning at 02:08:35, then tapped again — the extra scans
+        // created a closed 8-second pair at 02:08:46→02:08:54 (DurationMinutes 0).
+        // Kept, that ghost painted the follow-up day as an all-day "Probíhá" and
+        // a phantom visit. Zero-length closed pairs are noise, not visits.
+        $out = $this->reshape(
+            [
+                'TimeFrom' => '2026-07-12 02:08:46',
+                'TimeTo' => '2026-07-12 02:08:54',
+                'DurationMinutes' => 0,
+                'TaskName1' => 'Padel Powers 19469063',
+                'CompanyEmployeeId' => 5,
+            ],
+            [5 => 'EMP001']
+        );
+
+        $this->assertNull($out);
+    }
+
+    public function testReshapeDropsSecondsLongClosedPairWithoutReportedDuration(): void
+    {
+        // Same ghost shape but without FreshQR's DurationMinutes field — the
+        // timestamp-diff fallback rounds 8 seconds to zero and the pair is
+        // dropped. (A 30+ second pair would round to 1 and survive; only
+        // FreshQR's own truncating DurationMinutes reports those as 0.)
+        $out = $this->reshape(
+            [
+                'TimeFrom' => '2026-07-12 02:08:46',
+                'TimeTo' => '2026-07-12 02:08:54',
+                'TaskName1' => 'Padel Powers 19469063',
+                'CompanyEmployeeId' => 5,
+            ],
+            [5 => 'EMP001']
+        );
+
+        $this->assertNull($out);
+    }
+
     public function testReshapePrefersReportedDurationMinutes(): void
     {
         // FreshQR's own DurationMinutes wins over the timestamp diff — it's the

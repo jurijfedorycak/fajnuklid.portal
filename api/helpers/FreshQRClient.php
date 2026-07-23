@@ -566,8 +566,13 @@ class FreshQRClient
             $last = $mto[2];
         }
 
+        // Zero minutes on a CLOSED pair is scan noise, not a visit: extra taps
+        // right after a scan-out create an in+out pair seconds apart (seen live
+        // after an overnight shift — the ghost pair then painted the follow-up
+        // day as a phantom cleaning). Open pairs have a null duration and are
+        // unaffected by this guard.
         $durationMinutes = self::entryDurationMinutes($row, $timeFrom, $timeTo);
-        if ($durationMinutes !== null && ($durationMinutes < 0 || $durationMinutes > self::MAX_ENTRY_MINUTES)) {
+        if ($durationMinutes !== null && ($durationMinutes <= 0 || $durationMinutes > self::MAX_ENTRY_MINUTES)) {
             return null;
         }
 
@@ -587,8 +592,9 @@ class FreshQRClient
      *
      * Prefers FreshQR's precomputed `DurationMinutes` (TIMESTAMPDIFF over the
      * scan pair — authoritative and correct across midnight). Falls back to the
-     * timestamp difference only when that field is missing or malformed. A
-     * negative value is passed through so the caller can drop an inverted pair.
+     * timestamp difference only when that field is missing or malformed. Zero
+     * and negative values are passed through so the caller can drop zero-length
+     * (double-scan ghost) and inverted pairs.
      *
      * @param array<string,mixed> $row
      */

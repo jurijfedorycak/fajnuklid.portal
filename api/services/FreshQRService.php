@@ -32,9 +32,13 @@ use App\Repositories\EmployeeRepository;
  *      The `cleanings[]` array is always present in the output so the FE has a
  *      stable shape — empty when no detailed-mode IČO matched the day.
  *   4. A cleaning is "ongoing" when BOTH of these hold:
- *        a. The record's `last_scan_time` is null/empty or equal to
- *           `first_scan_time` (FreshQR's "still on-site" sentinel). A
- *           different last_scan_time means the cleaner scanned out here.
+ *        a. The record carries no `last_scan_time`. A null/empty value is the
+ *           only "still on-site" signal either source emits — attendance-raw
+ *           keeps TimeTo null until the scan-out, and the materialized report
+ *           cache stores closed pairs only. Any recorded last_scan_time means
+ *           the cleaner scanned out here, INCLUDING one equal to
+ *           first_scan_time: that is a zero-length pair left by an accidental
+ *           double-scan, not an open visit.
  *        b. The entry is still live: its date is today, OR (the overnight case)
  *           the scan-in was within MAX_ENTRY_MINUTES of now. An open scan older
  *           than that is a forgotten scan-out, not active work.
@@ -95,7 +99,7 @@ class FreshQRService
      *         [
      *           'employee'         => 'Anna N.',
      *           'startTime'        => 'HH:mm',          // null when scan time absent
-     *           'endTime'          => 'HH:mm' | null,   // null when same as start (still on-site)
+     *           'endTime'          => 'HH:mm' | null,   // null when no scan-out recorded (still on-site)
      *           'ico'              => '12345678',
      *           'rawMinutes'       => int | null,       // raw duration; null when uncomputable
      *           'roundedMinutes'   => int | null,       // null when no rules apply (or duration uncomputable)
@@ -520,13 +524,13 @@ class FreshQRService
      * Collapse FreshQR per-employee records into one entry per date.
      *
      * A record is flagged as "ongoing" when the cleaner hasn't scanned out at
-     * THIS project (last_scan_time missing or equal to first_scan_time) AND the
-     * entry is still live — either it's today, or the scan-in was within
-     * MAX_ENTRY_MINUTES of $now (the overnight case: a cleaning that began late
-     * yesterday and is still running past midnight). The portal trusts FreshQR's
-     * null TimeTo as the source of truth: a forgotten scan-out at IČO A followed
-     * by a scan-in at IČO B leaves A's record without an end-time, and A
-     * genuinely remains "open" until the cleaner returns to close it.
+     * THIS project (last_scan_time missing) AND the entry is still live —
+     * either it's today, or the scan-in was within MAX_ENTRY_MINUTES of $now
+     * (the overnight case: a cleaning that began late yesterday and is still
+     * running past midnight). The portal trusts FreshQR's null TimeTo as the
+     * source of truth: a forgotten scan-out at IČO A followed by a scan-in at
+     * IČO B leaves A's record without an end-time, and A genuinely remains
+     * "open" until the cleaner returns to close it.
      *
      * Every entry is anchored to its scan-in day; a cleaning that finished after
      * midnight stays on the day it started, with an endTime that reads earlier
@@ -747,16 +751,24 @@ class FreshQRService
     }
 
     /**
-     * True iff the record carries BOTH a first_scan_time AND a last_scan_time
-     * that differ — i.e. the cleaner has scanned out at this project and the
-     * cleaning is finished. Returns false in every other case:
+     * True iff the record carries a recorded last_scan_time alongside its
+     * first_scan_time — i.e. the cleaner has scanned out at this project and
+     * the cleaning is finished. Neither live source ever echoes the scan-in
+     * into last_scan_time as an "on-site" placeholder (attendance-raw keeps
+     * TimeTo null until the scan-out; the materialized report cache stores
+     * closed pairs only), so a last_scan_time EQUAL to first_scan_time is a
+     * real zero-length pair — the residue of an accidental double-scan — and
+     * must read as closed. Treating it as "still on-site" once flagged the
+     * whole follow-up day ongoing after an overnight cleaning's post-midnight
+     * double-scan (in+out within the same minute, date === today all day).
+     *
+     * Returns false in every other case:
      *   - both missing → no scan data, treat as ongoing if it's today
      *   - first present, last missing → only arrival recorded, still on-site
-     *   - last present, first missing → ambiguous FreshQR data; default to
-     *                                   "not scanned out" so we don't wrongly
+     *   - last present, first missing → ambiguous FreshQR data (unseen in
+     *                                   either source); default to "not
+     *                                   scanned out" so we don't wrongly
      *                                   declare an active cleaner finished
-     *   - both present, equal         → single scan, treated as still on-site
-     *                                   (matches computeEndTime semantics)
      *
      * @param array<string,mixed> $record
      */
@@ -765,40 +777,16 @@ class FreshQRService
         $first = is_string($record['first_scan_time'] ?? null) ? trim((string) $record['first_scan_time']) : '';
         $last = is_string($record['last_scan_time'] ?? null) ? trim((string) $record['last_scan_time']) : '';
 
-        if ($first === '' || $last === '') {
-            return false;
-        }
-        // Normalise both to HH:MM:SS before comparing so a record that stores
-        // HH:MM in one field and HH:MM:SS in the other isn't falsely flagged as
-        // "scanned out at a different time".
-        return self::normaliseScanTimeForCompare($first) !== self::normaliseScanTimeForCompare($last);
-    }
-
-    /**
-     * Coerce a raw FreshQR scan time string into HH:MM:SS for lexical
-     * comparison. Built on top of formatScanTimeToHm so both HH:MM[:SS] and
-     * ISO 8601 forms collapse to the same shape. Returns '' for unparseable
-     * input so the comparison treats it as "no time recorded".
-     *
-     * Used by isScannedOutAtThisProject and computeEndTime to compare
-     * first_scan_time against last_scan_time uniformly regardless of which
-     * timestamp shape FreshQR chose for either field on a given record.
-     */
-    private static function normaliseScanTimeForCompare(string $raw): string
-    {
-        $hm = self::formatScanTimeToHm($raw);
-        return $hm === null ? '' : $hm . ':00';
+        return $first !== '' && $last !== '';
     }
 
     /**
      * End-of-cleaning time for the Detailed-mode payload. Returns null when
-     * last_scan_time is missing OR represents the same wall-clock moment as
-     * first_scan_time — both mean "no second scan recorded yet, treat as still
-     * on-site". Equality is checked through `normaliseScanTimeForCompare` so
-     * sub-minute jitter (e.g. first='08:00:30', last='08:00:55') doesn't pull
-     * the predicate out of sync with isScannedOutAtThisProject — there must be
-     * exactly one "is the cleaning finished here?" answer per record or the FE
-     * ends up with mixed ongoing/endTime states.
+     * the record is still open (no last_scan_time recorded — see
+     * isScannedOutAtThisProject, the single "is the cleaning finished here?"
+     * answer per record) or when the recorded value is unparseable, in which
+     * case the entry stays closed but endTime is simply omitted rather than
+     * rendering garbage.
      *
      * @param array<string,mixed> $record
      */
